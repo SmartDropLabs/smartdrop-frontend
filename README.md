@@ -6,7 +6,6 @@ This repository is the **Next.js web app** for SmartDrop, hosted under [**SmartD
 
 [Livedemo (Heroku)](https://smartdro-76d78d7c3a78.herokuapp.com/)
 
-**Contributors:** Lernza (`lernza/lernza`) community credits are in **[`CONTRIBUTORS.md`](./CONTRIBUTORS.md)** and **[`src/data/lernza-contributors.json`](./src/data/lernza-contributors.json)** at the repo root / under `src/data/`. Refresh from GitHub with `npm run contributors:sync`. The site lists them at **`/contributors`**.
 
 ---
 
