@@ -45,3 +45,17 @@ export const sorobanRpcUrl =
 /** Soroban factory contract id (starts with C…) after you deploy */
 export const factoryContractId =
   process.env.NEXT_PUBLIC_FACTORY_CONTRACT_ID ?? "";
+
+/** Soroban pool contract id (starts with C…) holding locked positions */
+export const poolContractId = process.env.NEXT_PUBLIC_POOL_CONTRACT_ID ?? "";
+
+/**
+ * Minimum lock period (in seconds) enforced by the pool contract before a
+ * position can be unlocked. Mirrors the on-chain `unlock_assets` time-lock so
+ * the UI can disable the action and show an accurate countdown. Defaults to 7
+ * days when the env var is unset or invalid.
+ */
+export const minLockPeriodSeconds = (() => {
+  const raw = Number(process.env.NEXT_PUBLIC_MIN_LOCK_PERIOD_SECONDS);
+  return Number.isFinite(raw) && raw > 0 ? raw : 7 * 24 * 60 * 60;
+})();
