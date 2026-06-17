@@ -19,9 +19,90 @@ import {
   SliderMark,
   chakra,
   Spinner,
+  Tooltip,
 } from "@chakra-ui/react";
 import { useStellarWallet } from "@/context/StellarWalletContext";
-import { factoryContractId, sorobanRpcUrl, stellarNetwork } from "@/config";
+import {
+  factoryContractId,
+  minLockPeriodSeconds,
+  sorobanRpcUrl,
+  stellarNetwork,
+} from "@/config";
+import UnlockModal from "@/components/UnlockModal/UnlockModal";
+import { useCountdown } from "@/hooks/useCountdown";
+import { unlockAvailableAt, type FarmPosition } from "@/types/farm";
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/** A single staked position row with a live-updating Unlock control. */
+function EarningRow({
+  position,
+  onUnlock,
+}: {
+  position: FarmPosition;
+  onUnlock: (position: FarmPosition) => void;
+}) {
+  const countdown = useCountdown(unlockAvailableAt(position));
+  const hasStake = position.lockedAmount > 0;
+  const canUnlock = hasStake && countdown.isElapsed;
+
+  return (
+    <Flex
+      w="95%"
+      h={20}
+      mx="auto"
+      align="center"
+      justify="space-between"
+      borderTop="1px solid #454545"
+      borderBottom="1px solid #454545"
+    >
+      <Text px={8}>{position.name}</Text>
+      <Flex direction="column">
+        <Text fontSize="2xs">Earned</Text>
+        <Text>{position.earned}</Text>
+      </Flex>
+      <Flex direction="column">
+        <Text fontSize="2xs">My Stake</Text>
+        <Text>{position.stake}</Text>
+      </Flex>
+      <Flex direction="column">
+        <Text fontSize="2xs">Daily Rate</Text>
+        <Text>{position.dailyRate}</Text>
+      </Flex>
+      <Flex direction="column">
+        <Text fontSize="2xs">Total Staked Liquidity</Text>
+        <Text>{position.totalStakedLiquidity}</Text>
+      </Flex>
+      <Flex gap={4}>
+        <Button borderRadius="3xl" disabled>
+          Boost
+        </Button>
+        <Tooltip
+          label={
+            !hasStake
+              ? "No locked assets in this position"
+              : `Locked for another ${countdown.label}`
+          }
+          isDisabled={canUnlock}
+          hasArrow
+          bg="#222"
+          color="#fff"
+        >
+          {/* Wrapper keeps the tooltip working while the button is disabled. */}
+          <Box>
+            <Button
+              borderRadius="3xl"
+              onClick={() => onUnlock(position)}
+              isDisabled={!canUnlock}
+            >
+              Unlock
+            </Button>
+          </Box>
+        </Tooltip>
+      </Flex>
+    </Flex>
+  );
+}
 
 export default function Farm() {
   const { publicKey } = useStellarWallet();
@@ -44,35 +125,47 @@ export default function Farm() {
     },
   ];
 
-  const mockEarnings = [
+  const [positions, setPositions] = useState<FarmPosition[]>(() => [
     {
+      id: "beam-1",
       name: "BEAM",
       img: "",
       earned: "12345",
       stake: "5.398",
       dailyRate: "0.00102",
       totalStakedLiquidity: "$141M",
+      symbol: "BEAM",
+      lockedAmount: 5.398,
+      // Locked well beyond the minimum period → eligible to unlock now.
+      lockedAt: Date.now() - 10 * DAY_MS,
+      lockPeriodSeconds: minLockPeriodSeconds,
     },
     {
+      id: "beam-2",
       name: "BEAM",
       img: "",
-      earned: "-",
-      stake: "-",
+      earned: "210",
+      stake: "2.5",
       dailyRate: "0.00102",
       totalStakedLiquidity: "$141M",
+      symbol: "BEAM",
+      lockedAmount: 2.5,
+      // Locked recently → still time-locked, Unlock disabled with countdown.
+      lockedAt: Date.now() - 2 * 60 * 1000,
+      lockPeriodSeconds: minLockPeriodSeconds,
     },
-  ];
+  ]);
 
-  const [selectedFarm, setSelectedFarm] = useState<{
-    name: string;
-    img: string;
-    earned: string;
-    stake: string;
-    dailyRate: string;
-    totalStakedLiquidity: string;
-  } | null>(null);
+  const [selectedFarm, setSelectedFarm] = useState<(typeof mockFarms)[0] | null>(
+    null
+  );
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [submitPending, setSubmitPending] = useState<boolean>(false);
+
+  const [unlockPosition, setUnlockPosition] = useState<FarmPosition | null>(
+    null
+  );
+  const [isUnlockOpen, setIsUnlockOpen] = useState(false);
 
   const [sliderValue, setSliderValue] = useState(50);
 
@@ -84,6 +177,31 @@ export default function Farm() {
   const handleModalClose = () => {
     setIsModalOpen(false);
     setSelectedFarm(null);
+  };
+
+  const handleUnlockClick = (position: FarmPosition) => {
+    setUnlockPosition(position);
+    setIsUnlockOpen(true);
+  };
+
+  const handleUnlockClose = () => {
+    setIsUnlockOpen(false);
+    setUnlockPosition(null);
+  };
+
+  // Reflect the reduced stake in the UI immediately after a confirmed unlock.
+  const handleUnlocked = (position: FarmPosition, amount: number) => {
+    setPositions((prev) =>
+      prev.map((p) => {
+        if (p.id !== position.id) return p;
+        const remaining = Math.max(0, p.lockedAmount - amount);
+        return {
+          ...p,
+          lockedAmount: remaining,
+          stake: remaining > 0 ? String(remaining) : "-",
+        };
+      })
+    );
   };
 
   const handleLockClick = async () => {
@@ -104,7 +222,7 @@ export default function Farm() {
         {" · "}
         {sorobanRpcUrl.replace(/^https:\/\//, "")}
       </Text>
-      {mockEarnings ? (
+      {positions.length > 0 ? (
         <>
           <Text
             my={8}
@@ -115,43 +233,12 @@ export default function Farm() {
             My earnings
           </Text>
 
-          {mockEarnings.map((farm, index) => (
-            <Flex
-              key={index}
-              w="95%"
-              h={20}
-              mx="auto"
-              align="center"
-              justify="space-between"
-              borderTop="1px solid #454545"
-              borderBottom="1px solid #454545"
-            >
-              <Text px={8}>{farm.name}</Text>
-              <Flex direction="column">
-                <Text fontSize="2xs">Earned</Text>
-                <Text>{farm.earned}</Text>
-              </Flex>
-              <Flex direction="column">
-                <Text fontSize="2xs">My Stake</Text>
-                <Text>{farm.stake}</Text>
-              </Flex>
-              <Flex direction="column">
-                <Text fontSize="2xs">Daily Rate</Text>
-                <Text>{farm.dailyRate}</Text>
-              </Flex>
-              <Flex direction="column">
-                <Text fontSize="2xs">Total Staked Liquidity</Text>
-                <Text>{farm.totalStakedLiquidity}</Text>
-              </Flex>
-              <Flex gap={4}>
-                <Button borderRadius="3xl" disabled>
-                  Boost
-                </Button>
-                <Button borderRadius="3xl" disabled>
-                  Manage
-                </Button>
-              </Flex>
-            </Flex>
+          {positions.map((position) => (
+            <EarningRow
+              key={position.id}
+              position={position}
+              onUnlock={handleUnlockClick}
+            />
           ))}
         </>
       ) : (
@@ -349,6 +436,13 @@ export default function Farm() {
           </ModalBody>
         </ModalContent>
       </Modal>
+
+      <UnlockModal
+        isOpen={isUnlockOpen}
+        position={unlockPosition}
+        onClose={handleUnlockClose}
+        onUnlocked={handleUnlocked}
+      />
     </Flex>
   );
 }

@@ -109,6 +109,8 @@ NEXT_PUBLIC_STELLAR_NETWORK=TESTNET
 # NEXT_PUBLIC_HORIZON_URL=https://horizon-testnet.stellar.org
 # NEXT_PUBLIC_SOROBAN_RPC_URL=https://soroban-testnet.stellar.org
 # NEXT_PUBLIC_FACTORY_CONTRACT_ID=C...
+# NEXT_PUBLIC_POOL_CONTRACT_ID=C...            # pool that custodies locked positions
+# NEXT_PUBLIC_MIN_LOCK_PERIOD_SECONDS=604800   # min lock before unlock (default 7 days)
 ```
 
 Then:
