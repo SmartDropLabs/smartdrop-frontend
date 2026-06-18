@@ -8,6 +8,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { FreighterError } from "@/lib/error-handler";
 
 type StellarWalletContextValue = {
   publicKey: string | null;
@@ -25,33 +26,71 @@ export function StellarWalletProvider({ children }: { children: ReactNode }) {
 
   const connect = useCallback(async () => {
     const freighter = await import("@stellar/freighter-api");
-    const connected = await freighter.isConnected();
-    if (!connected.isConnected || connected.error) {
-      window.alert(
-        "Install the Freighter wallet extension: https://www.freighter.app"
-      );
-      return;
-    }
+    
+    try {
+      const connected = await freighter.isConnected();
+      if (!connected.isConnected || connected.error) {
+        throw new FreighterError(
+          "FREIGHTER_NOT_INSTALLED",
+          "Freighter wallet not detected. Install it from https://www.freighter.app"
+        );
+      }
 
-    const allowed = await freighter.isAllowed();
-    if (!allowed.isAllowed || allowed.error) {
-      const access = await freighter.requestAccess();
-      if (access.error || !access.address) {
+      const allowed = await freighter.isAllowed();
+      if (!allowed.isAllowed || allowed.error) {
+        const access = await freighter.requestAccess();
+        if (access.error) {
+          throw new FreighterError(
+            "FREIGHTER_REJECTED",
+            access.error || "Wallet connection was rejected"
+          );
+        }
+        if (!access.address) {
+          throw new FreighterError(
+            "FREIGHTER_REJECTED",
+            "Failed to get wallet address"
+          );
+        }
+        setPublicKey(access.address);
         return;
       }
-      setPublicKey(access.address);
-      return;
-    }
 
-    const addr = await freighter.getAddress();
-    if (addr.error || !addr.address) {
-      const access = await freighter.requestAccess();
-      if (!access.error && access.address) {
-        setPublicKey(access.address);
+      const addr = await freighter.getAddress();
+      if (addr.error) {
+        throw new FreighterError(
+          "FREIGHTER_UNKNOWN",
+          addr.error || "Failed to get wallet address"
+        );
       }
-      return;
+      if (!addr.address) {
+        const access = await freighter.requestAccess();
+        if (access.error) {
+          throw new FreighterError(
+            "FREIGHTER_REJECTED",
+            access.error || "Wallet connection was rejected"
+          );
+        }
+        if (!access.address) {
+          throw new FreighterError(
+            "FREIGHTER_REJECTED",
+            "Failed to get wallet address"
+          );
+        }
+        setPublicKey(access.address);
+      } else {
+        setPublicKey(addr.address);
+      }
+    } catch (error) {
+      // Re-throw FreighterErrors as-is
+      if (error instanceof FreighterError) {
+        throw error;
+      }
+      // Wrap other errors
+      throw new FreighterError(
+        "FREIGHTER_UNKNOWN",
+        error instanceof Error ? error.message : "Failed to connect wallet"
+      );
     }
-    setPublicKey(addr.address);
   }, []);
 
   const disconnect = useCallback(() => {

@@ -20,6 +20,7 @@ import {
   Badge,
 } from "@chakra-ui/react";
 import { useStellarWallet } from "@/context/StellarWalletContext";
+import { useErrorHandler } from "@/context/ErrorContext";
 import {
   networkPassphrase,
   poolContractId,
@@ -27,7 +28,7 @@ import {
   stellarNetwork,
 } from "@/config";
 import { trackEvent } from "@/lib/analytics";
-import { UnlockError, stellarExpertTxUrl, unlockAssets } from "@/lib/soroban";
+import { stellarExpertTxUrl, unlockAssets } from "@/lib/soroban";
 import { useCountdown } from "@/hooks/useCountdown";
 import { unlockAvailableAt, type FarmPosition } from "@/types/farm";
 
@@ -48,6 +49,7 @@ export default function UnlockModal({
   onUnlocked,
 }: UnlockModalProps) {
   const { publicKey } = useStellarWallet();
+  const toast = useErrorHandler();
   const [amount, setAmount] = useState("");
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -120,6 +122,10 @@ export default function UnlockModal({
         rpcUrl: sorobanRpcUrl,
       });
       setTxHash(hash);
+      toast.success(
+        "Unlock Submitted",
+        `${numericAmount} ${position.symbol} unlock is being processed`
+      );
       trackEvent("unlock_succeeded", {
         farm: position.name,
         symbol: position.symbol,
@@ -128,16 +134,13 @@ export default function UnlockModal({
       });
       onUnlocked(position, numericAmount);
     } catch (err) {
-      const message =
-        err instanceof UnlockError
-          ? err.message
-          : "Unlock failed. Please try again.";
-      setError(message);
+      const normalizedError = toast.handleError(err, "Unlock Transaction");
+      setError(normalizedError.userMessage);
       trackEvent("unlock_failed", {
         farm: position.name,
         symbol: position.symbol,
         amount: numericAmount,
-        reason: err instanceof UnlockError ? err.code : "UNKNOWN",
+        reason: normalizedError.code,
       });
     } finally {
       setPending(false);

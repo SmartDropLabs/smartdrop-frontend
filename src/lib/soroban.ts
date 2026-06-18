@@ -9,6 +9,20 @@
  * is deployed (see issue: Deposit Flow with Freighter Transaction Signing).
  */
 
+import {
+  ValidationError,
+  ConfigError,
+  FreighterError,
+  ContractError,
+  RPCError,
+  withRetry,
+  type RetryConfig,
+} from "@/lib/error-handler";
+
+/**
+ * @deprecated Use SmartDropError subclasses from @/lib/error-handler instead.
+ * This is kept for backward compatibility only.
+ */
 export class UnlockError extends Error {
   code: "NO_FREIGHTER" | "REJECTED" | "NO_CONTRACT" | "INVALID_AMOUNT" | "NETWORK";
 
@@ -39,52 +53,117 @@ export type UnlockAssetsResult = {
 /**
  * Builds, signs (via Freighter) and submits an `unlock_assets(user, amount)`
  * invocation against the pool contract.
+ *
+ * Includes automatic retry logic for transient RPC failures.
  */
 export async function unlockAssets(
-  params: UnlockAssetsParams
+  params: UnlockAssetsParams,
+  retryConfig?: Partial<RetryConfig>
 ): Promise<UnlockAssetsResult> {
   const { poolContractId, publicKey, amount } = params;
 
+  // Validate configuration
   if (!poolContractId) {
-    throw new UnlockError(
-      "NO_CONTRACT",
+    throw new ConfigError(
       "Pool contract is not configured. Set NEXT_PUBLIC_POOL_CONTRACT_ID."
     );
   }
 
+  // Validate input
   const numeric = Number(amount);
   if (!Number.isFinite(numeric) || numeric <= 0) {
-    throw new UnlockError("INVALID_AMOUNT", "Enter an amount greater than zero.");
+    throw new ValidationError("Enter an amount greater than zero.");
   }
 
-  const freighter = await import("@stellar/freighter-api");
-  const connected = await freighter.isConnected();
-  if (!connected.isConnected || connected.error) {
-    throw new UnlockError(
-      "NO_FREIGHTER",
-      "Freighter wallet not detected. Install it from https://www.freighter.app"
+  // Validate wallet connectivity (with retry for transient failures)
+  return withRetry(
+    async () => {
+      try {
+        const freighter = await import("@stellar/freighter-api");
+        const connected = await freighter.isConnected();
+
+        if (!connected.isConnected || connected.error) {
+          throw new FreighterError(
+            "FREIGHTER_NOT_INSTALLED",
+            "Freighter wallet not detected. Install it from https://www.freighter.app"
+          );
+        }
+
+        // --- Wire to Soroban (requires @stellar/stellar-sdk + deployed pool) -------
+        // 1. Build the invoke transaction:
+        //      new TransactionBuilder(account, { fee, networkPassphrase })
+        //        .addOperation(contract.call("unlock_assets",
+        //            Address.fromString(publicKey).toScVal(),
+        //            nativeToScVal(amount, { type: "i128" })))
+        //        .setTimeout(30).build()
+        // 2. simulateTransaction(tx) on rpcUrl for fees + auth, then assemble.
+        // 3. const { signedTxXdr } = await freighter.signTransaction(preparedXdr, {
+        //        networkPassphrase, address: publicKey });
+        // 4. server.sendTransaction(TransactionBuilder.fromXDR(signedTxXdr, ...))
+        //    and poll getTransaction(hash) until SUCCESS.
+        //
+        // Until the pool contract is deployed we simulate latency and return a
+        // deterministic mock hash so the UI flow is fully exercisable end-to-end.
+        await new Promise((resolve) => setTimeout(resolve, 1500));
+
+        const hash = `mock-${publicKey.slice(0, 6)}-${Date.now().toString(16)}`;
+        return { hash };
+      } catch (error) {
+        // Re-throw SmartDropErrors as-is
+        if (error instanceof Error && error.name.includes("Error")) {
+          throw error;
+        }
+        // Wrap unexpected errors
+        throw new ContractError(
+          "CONTRACT_EXECUTION_FAILED",
+          error instanceof Error ? error.message : "Unlock failed"
+        );
+      }
+    },
+    retryConfig
+  );
+}
+
+/**
+ * Retrieves the Soroban RPC endpoint for the configured network.
+ * Throws ConfigError if not configured.
+ */
+export function getSorobanRpcUrl(): string {
+  const url = process.env.NEXT_PUBLIC_SOROBAN_RPC_URL;
+  if (!url) {
+    throw new ConfigError(
+      "NEXT_PUBLIC_SOROBAN_RPC_URL is not configured"
     );
   }
+  return url;
+}
 
-  // --- Wire to Soroban (requires @stellar/stellar-sdk + deployed pool) -------
-  // 1. Build the invoke transaction:
-  //      new TransactionBuilder(account, { fee, networkPassphrase })
-  //        .addOperation(contract.call("unlock_assets",
-  //            Address.fromString(publicKey).toScVal(),
-  //            nativeToScVal(amount, { type: "i128" })))
-  //        .setTimeout(30).build()
-  // 2. simulateTransaction(tx) on rpcUrl for fees + auth, then assemble.
-  // 3. const { signedTxXdr } = await freighter.signTransaction(preparedXdr, {
-  //        networkPassphrase, address: publicKey });
-  // 4. server.sendTransaction(TransactionBuilder.fromXDR(signedTxXdr, ...))
-  //    and poll getTransaction(hash) until SUCCESS.
-  //
-  // Until the pool contract is deployed we simulate latency and return a
-  // deterministic mock hash so the UI flow is fully exercisable end-to-end.
-  await new Promise((resolve) => setTimeout(resolve, 1500));
+/**
+ * Gets the network passphrase for the configured network.
+ * Throws ConfigError if not configured.
+ */
+export function getNetworkPassphrase(): string {
+  const passphrase = process.env.NEXT_PUBLIC_NETWORK_PASSPHRASE;
+  if (!passphrase) {
+    throw new ConfigError(
+      "NEXT_PUBLIC_NETWORK_PASSPHRASE is not configured"
+    );
+  }
+  return passphrase;
+}
 
-  const hash = `mock-${publicKey.slice(0, 6)}-${Date.now().toString(16)}`;
-  return { hash };
+/**
+ * Gets the pool contract ID from configuration.
+ * Throws ConfigError if not configured.
+ */
+export function getPoolContractId(): string {
+  const contractId = process.env.NEXT_PUBLIC_POOL_CONTRACT_ID;
+  if (!contractId) {
+    throw new ConfigError(
+      "NEXT_PUBLIC_POOL_CONTRACT_ID is not configured"
+    );
+  }
+  return contractId;
 }
 
 /** Stellar Expert explorer link for a submitted transaction. */
