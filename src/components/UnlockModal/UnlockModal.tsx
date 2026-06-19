@@ -288,6 +288,8 @@ export default function UnlockModal({
                       color={ACCENT}
                       cursor={canUnlock ? "pointer" : "not-allowed"}
                       onClick={canUnlock ? setMax : undefined}
+                      _hover={canUnlock ? { opacity: 0.8 } : {}}
+                      transition="opacity 0.2s"
                     >
                       Max
                     </Text>
