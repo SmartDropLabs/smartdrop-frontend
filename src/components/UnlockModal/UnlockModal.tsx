@@ -188,9 +188,9 @@ export default function UnlockModal({
               <Badge colorScheme="green" borderRadius="full" px={3} py={1}>
                 Unlock confirmed
               </Badge>
-              <Text fontSize="sm" color="#A2A2A2">
-                {numericAmount} {position.symbol} is on its way back to your
-                wallet.
+                <Text fontSize="sm" color="#A2A2A2">
+                {numericAmount} {position.symbol} unlock transaction submitted successfully.
+                Your assets will be available in your wallet shortly.
               </Text>
               <Box
                 w="100%"
