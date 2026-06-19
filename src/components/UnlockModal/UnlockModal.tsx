@@ -119,6 +119,7 @@ export default function UnlockModal({
       partial: numericAmount < position.lockedAmount,
       lockPeriodElapsed: canUnlock,
       timeRemaining: countdown.remainingMs,
+      userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : 'unknown',
     });
 
     try {
