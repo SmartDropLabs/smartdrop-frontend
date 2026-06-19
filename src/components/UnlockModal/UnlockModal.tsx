@@ -239,8 +239,8 @@ export default function UnlockModal({
                   fontSize="sm"
                 >
                   <AlertIcon color="#f6c453" />
-                  Assets are time-locked. You can unlock once the countdown
-                  reaches zero.
+                  Assets are time-locked for security. You can unlock once the countdown
+                  reaches zero to protect against impulsive withdrawals.
                 </Alert>
               )}
 
