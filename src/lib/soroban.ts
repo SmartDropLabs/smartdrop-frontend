@@ -73,6 +73,10 @@ export async function unlockAssets(
   if (!Number.isFinite(numeric) || numeric <= 0) {
     throw new ValidationError("Enter an amount greater than zero.");
   }
+  
+  if (numeric < 0.01) {
+    throw new ValidationError("Minimum unlock amount is 0.01.");
+  }
 
   // Validate wallet connectivity (with retry for transient failures)
   return withRetry(
@@ -85,6 +89,24 @@ export async function unlockAssets(
           throw new FreighterError(
             "FREIGHTER_NOT_INSTALLED",
             "Freighter wallet not detected. Install it from https://www.freighter.app"
+          );
+        }
+
+        // Check if user has given permission
+        const allowed = await freighter.isAllowed();
+        if (!allowed.isAllowed || allowed.error) {
+          throw new FreighterError(
+            "FREIGHTER_REJECTED",
+            "Freighter access not granted. Please connect your wallet first."
+          );
+        }
+
+        // Verify the public key matches the connected wallet
+        const walletAddress = await freighter.getAddress();
+        if (walletAddress.error || walletAddress.address !== publicKey) {
+          throw new FreighterError(
+            "FREIGHTER_NETWORK_MISMATCH",
+            "Connected wallet address doesn't match. Please reconnect your wallet."
           );
         }
 
@@ -103,9 +125,13 @@ export async function unlockAssets(
         //
         // Until the pool contract is deployed we simulate latency and return a
         // deterministic mock hash so the UI flow is fully exercisable end-to-end.
+        
+        console.log(`[SmartDrop] Simulating unlock of ${amount} for ${publicKey.slice(0, 8)}... (${new Date().toISOString()})`);
         await new Promise((resolve) => setTimeout(resolve, 1500));
 
-        const hash = `mock-${publicKey.slice(0, 6)}-${Date.now().toString(16)}`;
+        const hash = `unlock-${publicKey.slice(0, 6)}-${Date.now().toString(16)}-${Math.random().toString(16).slice(2, 6)}`;
+        
+        console.log(`[SmartDrop] Mock unlock transaction hash: ${hash}`);
         return { hash };
       } catch (error) {
         // Re-throw SmartDropErrors as-is

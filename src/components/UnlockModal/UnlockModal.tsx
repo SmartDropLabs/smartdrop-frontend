@@ -62,7 +62,7 @@ export default function UnlockModal({
   const numericAmount = Number(amount);
   const amountValid =
     Number.isFinite(numericAmount) &&
-    numericAmount > 0 &&
+    numericAmount >= 0.01 &&
     !!position &&
     numericAmount <= position.lockedAmount;
 
@@ -73,6 +73,15 @@ export default function UnlockModal({
       setPending(false);
       setError(null);
       setTxHash(null);
+      
+      // Focus on amount input when modal opens for better accessibility
+      setTimeout(() => {
+        const amountInput = document.querySelector('input[type="number"]') as HTMLInputElement;
+        if (amountInput) {
+          amountInput.focus();
+          amountInput.select();
+        }
+      }, 100);
     }
   }, [isOpen, position]);
 
@@ -100,17 +109,27 @@ export default function UnlockModal({
       return;
     }
     if (!amountValid) {
-      setError(`Enter an amount between 0 and ${position.lockedAmount}.`);
+      setError(`Enter an amount between 0.01 and ${position.lockedAmount}.`);
+      return;
+    }
+
+    // Additional validation for minimum unlock amount
+    if (numericAmount < 0.01) {
+      setError("Minimum unlock amount is 0.01.");
       return;
     }
 
     setError(null);
     setPending(true);
+    const trackingStartTime = Date.now();
     trackEvent("unlock_initiated", {
       farm: position.name,
       symbol: position.symbol,
       amount: numericAmount,
       partial: numericAmount < position.lockedAmount,
+      lockPeriodElapsed: canUnlock,
+      timeRemaining: countdown.remainingMs,
+      userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : 'unknown',
     });
 
     try {
@@ -124,13 +143,15 @@ export default function UnlockModal({
       setTxHash(hash);
       toast.success(
         "Unlock Submitted",
-        `${numericAmount} ${position.symbol} unlock is being processed`
+        `${numericAmount} ${position.symbol} unlock transaction submitted successfully`
       );
       trackEvent("unlock_succeeded", {
         farm: position.name,
         symbol: position.symbol,
         amount: numericAmount,
         hash,
+        partial: numericAmount < position.lockedAmount,
+        processingTime: Date.now() - trackingStartTime,
       });
       onUnlocked(position, numericAmount);
     } catch (err) {
@@ -141,6 +162,7 @@ export default function UnlockModal({
         symbol: position.symbol,
         amount: numericAmount,
         reason: normalizedError.code,
+        errorMessage: normalizedError.message,
       });
     } finally {
       setPending(false);
@@ -166,9 +188,9 @@ export default function UnlockModal({
               <Badge colorScheme="green" borderRadius="full" px={3} py={1}>
                 Unlock confirmed
               </Badge>
-              <Text fontSize="sm" color="#A2A2A2">
-                {numericAmount} {position.symbol} is on its way back to your
-                wallet.
+                <Text fontSize="sm" color="#A2A2A2">
+                {numericAmount} {position.symbol} unlock transaction submitted successfully.
+                Your assets will be available in your wallet shortly.
               </Text>
               <Box
                 w="100%"
@@ -229,8 +251,8 @@ export default function UnlockModal({
                   fontSize="sm"
                 >
                   <AlertIcon color="#f6c453" />
-                  Assets are time-locked. You can unlock once the countdown
-                  reaches zero.
+                  Assets are time-locked for security. You can unlock once the countdown
+                  reaches zero to protect against impulsive withdrawals.
                 </Alert>
               )}
 
@@ -266,6 +288,8 @@ export default function UnlockModal({
                       color={ACCENT}
                       cursor={canUnlock ? "pointer" : "not-allowed"}
                       onClick={canUnlock ? setMax : undefined}
+                      _hover={canUnlock ? { opacity: 0.8 } : {}}
+                      transition="opacity 0.2s"
                     >
                       Max
                     </Text>

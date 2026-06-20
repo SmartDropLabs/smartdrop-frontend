@@ -20,6 +20,26 @@ At a high level, SmartDrop has two layers:
 2. **Web app (Next.js)**  
    A Chakra UI front end with **Freighter** for wallet connection and Stellar network settings in `src/config/`. The **Farm** flow is ready to be wired to **Soroban RPC** (`invoke`, simulation, transaction submission); several dashboard numbers are still **placeholders** until your contracts are deployed and indexed.
 
+### 🔓 Asset Unlock & Withdrawal System
+
+SmartDrop implements a comprehensive asset unlock system with advanced features:
+
+- **⏰ Time-Lock Protection**: Assets are locked for a configurable minimum period (default: 7 days)
+- **📊 Partial Unlocks**: Users can unlock portions of their stake while keeping the rest earning
+- **⏱️ Real-Time Countdown**: Live countdown timer shows exactly when assets become unlockable  
+- **🔐 Freighter Integration**: Secure transaction signing through Freighter wallet
+- **⚠️ Comprehensive Error Handling**: User-friendly error messages and retry logic
+- **📈 Analytics Tracking**: Full event tracking for unlock actions and outcomes
+- **📱 Mobile Responsive**: Seamless unlock experience on all devices
+
+**Technical Features:**
+- Minimum unlock validation (0.01 minimum)
+- Wallet connectivity verification
+- Transaction simulation and fee estimation
+- Automatic retry logic for transient failures
+- Real-time UI updates upon confirmation
+- Stellar Expert transaction links
+
 ---
 
 ## Why it matters
