@@ -12,6 +12,7 @@ import {
 
 type StellarWalletContextValue = {
   publicKey: string | null;
+  walletApi: any | null;
   isConnected: boolean;
   connect: () => Promise<void>;
   disconnect: () => void;
@@ -23,6 +24,7 @@ const StellarWalletContext = createContext<StellarWalletContextValue | null>(
 
 export function StellarWalletProvider({ children }: { children: ReactNode }) {
   const [publicKey, setPublicKey] = useState<string | null>(null);
+  const [walletApi, setWalletApi] = useState<any | null>(null);
 
   const connect = useCallback(async () => {
     const freighter = await import("@stellar/freighter-api");
@@ -52,6 +54,7 @@ export function StellarWalletProvider({ children }: { children: ReactNode }) {
           );
         }
         setPublicKey(access.address);
+        setWalletApi(freighter);
         return;
       }
 
@@ -77,8 +80,10 @@ export function StellarWalletProvider({ children }: { children: ReactNode }) {
           );
         }
         setPublicKey(access.address);
+        setWalletApi(freighter);
       } else {
         setPublicKey(addr.address);
+        setWalletApi(freighter);
       }
     } catch (error) {
       // Re-throw FreighterErrors as-is
@@ -95,16 +100,18 @@ export function StellarWalletProvider({ children }: { children: ReactNode }) {
 
   const disconnect = useCallback(() => {
     setPublicKey(null);
+    setWalletApi(null);
   }, []);
 
   const value = useMemo(
     () => ({
       publicKey,
+      walletApi,
       isConnected: Boolean(publicKey),
       connect,
       disconnect,
     }),
-    [publicKey, connect, disconnect]
+    [publicKey, walletApi, connect, disconnect]
   );
 
   return (
