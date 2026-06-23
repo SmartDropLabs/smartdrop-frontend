@@ -1,9 +1,7 @@
 "use client";
 
 import {
-    networkPassphrase,
     poolContractId,
-    sorobanRpcUrl,
     stellarNetwork,
 } from "@/config";
 import { useErrorHandler } from "@/context/ErrorContext";
@@ -48,7 +46,7 @@ export default function UnlockModal({
   onClose,
   onUnlocked,
 }: UnlockModalProps) {
-  const { publicKey } = useStellarWallet();
+  const { publicKey, walletApi } = useStellarWallet();
   const toast = useErrorHandler();
   const [amount, setAmount] = useState("");
   const [pending, setPending] = useState(false);
@@ -133,14 +131,14 @@ export default function UnlockModal({
     });
 
     try {
-      const { hash } = await unlockAssets({
+      const result = await unlockAssets({
         poolContractId,
         publicKey,
         amount,
-        networkPassphrase,
-        rpcUrl: sorobanRpcUrl,
+        walletApi,
       });
-      setTxHash(hash);
+      const hash = result.hash || result.transactionHash;
+      setTxHash(hash || null);
       toast.success(
         "Unlock Submitted",
         `${numericAmount} ${position.symbol} unlock transaction submitted successfully`

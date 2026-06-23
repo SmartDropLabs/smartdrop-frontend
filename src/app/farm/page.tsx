@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Button,
   Text,
@@ -10,16 +10,12 @@ import {
   ModalHeader,
   ModalCloseButton,
   ModalBody,
-  Input,
   Box,
-  Slider,
-  SliderTrack,
-  SliderFilledTrack,
-  SliderThumb,
-  SliderMark,
-  chakra,
   Spinner,
   Tooltip,
+  Alert,
+  AlertIcon,
+  useToast,
 } from "@chakra-ui/react";
 import { useStellarWallet } from "@/context/StellarWalletContext";
 import {
@@ -31,10 +27,24 @@ import {
 import UnlockModal from "@/components/UnlockModal/UnlockModal";
 import { useCountdown } from "@/hooks/useCountdown";
 import { unlockAvailableAt, type FarmPosition } from "@/types/farm";
+import { useAllUserPositions, usePools } from "@/hooks/useSorobanQuery";
+import type { PoolInfo, UserPosition } from "@/lib/soroban";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-/** A single staked position row with a live-updating Unlock control. */
+type LivePoolRow = {
+  id: string;
+  name: string;
+  earned: string;
+  stake: string;
+  dailyRate: string;
+  totalStakedLiquidity: string;
+  symbol: string;
+  lockedAmount: number;
+  lockedAt: number;
+  lockPeriodSeconds: number;
+};
+
 function EarningRow({
   position,
   onUnlock,
@@ -55,27 +65,28 @@ function EarningRow({
       justify="space-between"
       borderTop="1px solid #454545"
       borderBottom="1px solid #454545"
+      px={4}
     >
-      <Text px={8}>{position.name}</Text>
-      <Flex direction="column">
+      <Text>{position.name}</Text>
+      <Flex direction="column" minW="110px" align="flex-start">
         <Text fontSize="2xs">Earned</Text>
         <Text>{position.earned}</Text>
       </Flex>
-      <Flex direction="column">
+      <Flex direction="column" minW="110px" align="flex-start">
         <Text fontSize="2xs">My Stake</Text>
         <Text>{position.stake}</Text>
       </Flex>
-      <Flex direction="column">
+      <Flex direction="column" minW="110px" align="flex-start">
         <Text fontSize="2xs">Daily Rate</Text>
         <Text>{position.dailyRate}</Text>
       </Flex>
-      <Flex direction="column">
+      <Flex direction="column" minW="180px" align="flex-start">
         <Text fontSize="2xs">Total Staked Liquidity</Text>
         <Text>{position.totalStakedLiquidity}</Text>
       </Flex>
       <Flex gap={4}>
-        <Button 
-          borderRadius="3xl" 
+        <Button
+          borderRadius="3xl"
           disabled
           opacity={0.6}
           cursor="not-allowed"
@@ -94,7 +105,6 @@ function EarningRow({
           bg="#222"
           color="#fff"
         >
-          {/* Wrapper keeps the tooltip working while the button is disabled. */}
           <Box>
             <Button
               borderRadius="3xl"
@@ -111,72 +121,104 @@ function EarningRow({
 }
 
 export default function Farm() {
-  const { publicKey } = useStellarWallet();
-  const mockFarms = [
-    {
-      name: "BEAM",
-      img: "",
-      earned: "-",
-      stake: "-",
-      dailyRate: "0.00102",
-      totalStakedLiquidity: "$141M",
-    },
-    {
-      name: "BEAM",
-      img: "",
-      earned: "-",
-      stake: "-",
-      dailyRate: "0.00102",
-      totalStakedLiquidity: "$141M",
-    },
-  ];
+  const { publicKey, isConnected } = useStellarWallet();
+  const toast = useToast();
+  const {
+    data: pools,
+    isLoading: poolsLoading,
+    isError: poolsError,
+    error: poolsErrorObj,
+  } = usePools();
 
-  const [positions, setPositions] = useState<FarmPosition[]>(() => [
-    {
-      id: "beam-1",
-      name: "BEAM",
-      img: "",
-      earned: "12345",
-      stake: "5.398",
-      dailyRate: "0.00102",
-      totalStakedLiquidity: "$141M",
-      symbol: "BEAM",
-      lockedAmount: 5.398,
-      // Locked well beyond the minimum period → eligible to unlock now.
-      lockedAt: Date.now() - 10 * DAY_MS,
-      lockPeriodSeconds: minLockPeriodSeconds,
-    },
-    {
-      id: "beam-2",
-      name: "BEAM",
-      img: "",
-      earned: "210",
-      stake: "2.5",
-      dailyRate: "0.00102",
-      totalStakedLiquidity: "$141M",
-      symbol: "BEAM",
-      lockedAmount: 2.5,
-      // Locked recently → still time-locked, Unlock disabled with countdown.
-      lockedAt: Date.now() - 2 * 60 * 1000,
-      lockPeriodSeconds: minLockPeriodSeconds,
-    },
-  ]);
+  const {
+    data: userPositions,
+    isLoading: positionsLoading,
+    isError: positionsError,
+    error: positionsErrorObj,
+  } = useAllUserPositions();
 
-  const [selectedFarm, setSelectedFarm] = useState<(typeof mockFarms)[0] | null>(
-    null
-  );
+  const [selectedFarm, setSelectedFarm] = useState<LivePoolRow | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [submitPending, setSubmitPending] = useState<boolean>(false);
-
-  const [unlockPosition, setUnlockPosition] = useState<FarmPosition | null>(
-    null
-  );
+  const [unlockPosition, setUnlockPosition] = useState<FarmPosition | null>(null);
   const [isUnlockOpen, setIsUnlockOpen] = useState(false);
-
+  const [submitPending, setSubmitPending] = useState(false);
   const [sliderValue, setSliderValue] = useState(50);
 
-  const handleDepositClick = (farm: (typeof mockFarms)[0]) => {
-    setSelectedFarm(farm);
+  useEffect(() => {
+    if (poolsError && poolsErrorObj) {
+      toast({
+        title: "Unable to load pools",
+        description:
+          poolsErrorObj instanceof Error
+            ? poolsErrorObj.message
+            : "Failed to fetch pool data from Soroban",
+        status: "error",
+        duration: 8000,
+        isClosable: true,
+      });
+    }
+  }, [poolsError, poolsErrorObj, toast]);
+
+  useEffect(() => {
+    if (positionsError && positionsErrorObj) {
+      toast({
+        title: "Unable to load positions",
+        description:
+          positionsErrorObj instanceof Error
+            ? positionsErrorObj.message
+            : "Failed to fetch user positions from Soroban",
+        status: "error",
+        duration: 8000,
+        isClosable: true,
+      });
+    }
+  }, [positionsError, positionsErrorObj, toast]);
+
+  const myPositions = useMemo<FarmPosition[]>(() => {
+    if (!userPositions) return [];
+
+    return userPositions.map(({ pool, position }) => ({
+      id: pool.id,
+      name: pool.asset.code,
+      img: "",
+      earned: position?.credits ?? "-",
+      stake: position?.amount ?? "-",
+      dailyRate: pool.dailyRate,
+      totalStakedLiquidity: `$${Number(pool.totalLocked).toLocaleString()}`,
+      symbol: pool.asset.code,
+      lockedAmount: position?.amount ? Number(position.amount) : 0,
+      lockedAt: position?.lockedAt ?? 0,
+      lockPeriodSeconds: position ? pool.minLockPeriod : minLockPeriodSeconds,
+    }));
+  }, [userPositions]);
+
+  const availablePools = useMemo<LivePoolRow[]>(() => {
+    if (!pools) return [];
+
+    const positionMap = new Map<string, UserPosition | null>();
+    userPositions?.forEach((item) => {
+      positionMap.set(item.pool.id, item.position);
+    });
+
+    return pools.map((pool) => {
+      const position = positionMap.get(pool.id);
+      return {
+        id: pool.id,
+        name: pool.asset.code,
+        earned: position?.credits ?? "-",
+        stake: position?.amount ?? "-",
+        dailyRate: pool.dailyRate,
+        totalStakedLiquidity: `$${Number(pool.totalLocked).toLocaleString()}`,
+        symbol: pool.asset.code,
+        lockedAmount: position?.amount ? Number(position.amount) : 0,
+        lockedAt: position?.lockedAt ?? 0,
+        lockPeriodSeconds: pool.minLockPeriod,
+      };
+    });
+  }, [pools, userPositions]);
+
+  const handleDepositClick = (pool: LivePoolRow) => {
+    setSelectedFarm(pool);
     setIsModalOpen(true);
   };
 
@@ -195,103 +237,112 @@ export default function Farm() {
     setUnlockPosition(null);
   };
 
-  // Reflect the reduced stake in the UI immediately after a confirmed unlock.
   const handleUnlocked = (position: FarmPosition, amount: number) => {
-    setPositions((prev) =>
-      prev.map((p) => {
-        if (p.id !== position.id) return p;
-        const remaining = Math.max(0, p.lockedAmount - amount);
-        return {
-          ...p,
-          lockedAmount: remaining,
-          stake: remaining > 0 ? String(remaining) : "-",
-          // Update earned credits to reflect the unlocked amount
-          earned: remaining > 0 ? p.earned : "-",
-        };
-      })
-    );
-    
-    // Show success message with unlock details
-    console.log(`[SmartDrop] Successfully unlocked ${amount} ${position.symbol} from ${position.name} position`);
+    setIsUnlockOpen(false);
+    setUnlockPosition(null);
+    toast({
+      title: "Unlock submitted",
+      description: `${amount} ${position.symbol} unlock request sent.`,
+      status: "success",
+      duration: 6000,
+      isClosable: true,
+    });
   };
 
   const handleLockClick = async () => {
     setSubmitPending(true);
-    // Wire to Soroban: build invoke transaction, sign with Freighter, submit to sorobanRpcUrl
     await new Promise((resolve) => setTimeout(resolve, 1500));
     setSubmitPending(false);
   };
 
+  const hasPositions = myPositions.length > 0;
+
   return (
-    <Flex direction="column" align="center">
-      <Text fontSize="xs" color="#A2A2A2" mt={4} px={4} textAlign="center">
+    <Flex direction="column" align="center" gap={6} px={8} py={6}>
+      <Text fontSize="xs" color="#A2A2A2" textAlign="center">
         Network: {stellarNetwork}
-        {publicKey ? ` · ${publicKey.slice(0, 4)}…` : ""}
+        {publicKey ? ` · ${publicKey.slice(0, 6)}…` : ""}
         {factoryContractId
           ? ` · Factory ${factoryContractId.slice(0, 8)}…`
           : " · Set NEXT_PUBLIC_FACTORY_CONTRACT_ID when your Soroban factory is deployed"}
         {" · "}
-        {sorobanRpcUrl.replace(/^https:\/\//, "")}
-      </Text>
-      {positions.length > 0 ? (
-        <>
-          <Text
-            my={8}
-            textTransform="uppercase"
-            fontSize="4xl"
-            fontWeight="bold"
-          >
-            My earnings
-          </Text>
-
-          {positions.map((position) => (
-            <EarningRow
-              key={position.id}
-              position={position}
-              onUnlock={handleUnlockClick}
-            />
-          ))}
-        </>
-      ) : (
-        <></>
-      )}
-      <Text my={8} textTransform="uppercase" fontSize="4xl" fontWeight="bold">
-        Deposit to <chakra.span color="#4ae292">earn points</chakra.span>
+        {sorobanRpcUrl.replace(/^https?:\/\//, "")}
       </Text>
 
-      {mockFarms.map((farm, index) => (
-        <Flex
-          key={index}
-          w="95%"
-          h={20}
-          mx="auto"
-          align="center"
-          justify="space-between"
-          borderTop="1px solid #454545"
-          borderBottom="1px solid #454545"
-        >
-          <Text px={8}>{farm.name}</Text>
-          <Flex direction="column">
-            <Text fontSize="2xs">Earned</Text>
-            <Text>{farm.earned}</Text>
-          </Flex>
-          <Flex direction="column">
-            <Text fontSize="2xs">My Stake</Text>
-            <Text>{farm.stake}</Text>
-          </Flex>
-          <Flex direction="column">
-            <Text fontSize="2xs">Daily Rate</Text>
-            <Text>{farm.dailyRate}</Text>
-          </Flex>
-          <Flex direction="column">
-            <Text fontSize="2xs">Total Staked Liquidity</Text>
-            <Text>{farm.totalStakedLiquidity}</Text>
-          </Flex>
-          <Button borderRadius="3xl" onClick={() => handleDepositClick(farm)}>
-            Deposit
-          </Button>
+      <Text fontSize="4xl" fontWeight="bold" textTransform="uppercase">
+        Farm pools
+      </Text>
+
+      {poolsLoading ? (
+        <Flex w="100%" justify="center" py={16}>
+          <Spinner size="xl" color="#4AE292" />
         </Flex>
-      ))}
+      ) : availablePools.length === 0 ? (
+        <Alert status="info" borderRadius="2xl" w="95%" maxW="1200px">
+          <AlertIcon /> No farm pools are currently available. Ensure your factory contract is deployed and the factory contract ID is configured.
+        </Alert>
+      ) : (
+        availablePools.map((farm) => (
+          <Flex
+            key={farm.id}
+            w="95%"
+            h={20}
+            mx="auto"
+            align="center"
+            justify="space-between"
+            borderTop="1px solid #454545"
+            borderBottom="1px solid #454545"
+            px={4}
+          >
+            <Text>{farm.name}</Text>
+            <Flex direction="column" minW="110px" align="flex-start">
+              <Text fontSize="2xs">Earned</Text>
+              <Text>{farm.earned}</Text>
+            </Flex>
+            <Flex direction="column" minW="110px" align="flex-start">
+              <Text fontSize="2xs">My Stake</Text>
+              <Text>{farm.stake}</Text>
+            </Flex>
+            <Flex direction="column" minW="110px" align="flex-start">
+              <Text fontSize="2xs">Daily Rate</Text>
+              <Text>{farm.dailyRate}</Text>
+            </Flex>
+            <Flex direction="column" minW="180px" align="flex-start">
+              <Text fontSize="2xs">Total Staked Liquidity</Text>
+              <Text>{farm.totalStakedLiquidity}</Text>
+            </Flex>
+            <Button borderRadius="3xl" onClick={() => handleDepositClick(farm)}>
+              Deposit
+            </Button>
+          </Flex>
+        ))
+      )}
+
+      <Text fontSize="4xl" fontWeight="bold" textTransform="uppercase" mt={10}>
+        My earnings
+      </Text>
+
+      {positionsLoading ? (
+        <Flex w="100%" justify="center" py={16}>
+          <Spinner size="xl" color="#4AE292" />
+        </Flex>
+      ) : !isConnected ? (
+        <Alert status="info" borderRadius="2xl" w="95%" maxW="1200px">
+          <AlertIcon /> Connect your Freighter wallet to view your positions.
+        </Alert>
+      ) : !hasPositions ? (
+        <Alert status="info" borderRadius="2xl" w="95%" maxW="1200px">
+          <AlertIcon /> No active positions found for the connected wallet.
+        </Alert>
+      ) : (
+        myPositions.map((position) => (
+          <EarningRow
+            key={position.id}
+            position={position}
+            onUnlock={handleUnlockClick}
+          />
+        ))
+      )}
 
       <Modal isOpen={isModalOpen} onClose={handleModalClose}>
         <ModalOverlay backdropFilter="blur(3px)" />
@@ -299,150 +350,39 @@ export default function Farm() {
           <ModalHeader mx="auto">{selectedFarm?.name}</ModalHeader>
           <ModalCloseButton />
           <ModalBody p={8}>
-            <Flex direction="column">
-              <Flex direction="column" gap={8}>
-                <Flex direction="column" gap={2}>
-                  <Text fontSize="2xs" color="#A2A2A2">
-                    Deposit
-                  </Text>
-                  <Box position="relative" w="100%">
-                    <Input
-                      type="number"
-                      borderRadius="2xl"
-                      placeholder="Amount"
-                      h="50px"
-                      borderColor="#454545"
-                      paddingBottom="16px"
-                      _placeholder={{
-                        color: "#A2A2A2",
-                      }}
-                      _hover={{
-                        borderColor: "#4ae292",
-                      }}
-                      _focus={{
-                        boxShadow: "none",
-                        borderColor: "#4ae292",
-                      }}
-                      zIndex={1}
-                    />
-                    <Text
-                      position="absolute"
-                      bottom="4px"
-                      left="16px"
-                      fontSize="xs"
-                      color="#A2A2A2"
-                    >
-                      $3,280.20
-                    </Text>
-                    <Text
-                      position="absolute"
-                      bottom="20px"
-                      right="10px"
-                      fontSize="md"
-                      color="white"
-                    >
-                      BEAM
-                    </Text>
-                    <Flex position="absolute" bottom="5px" right="10px" gap={2}>
-                      <Text fontSize="xs" color="#A2A2A2">
-                        Balance: 0($0)
-                      </Text>
-                      <Text
-                        fontSize="xs"
-                        color="#4ae292"
-                        cursor="pointer"
-                        zIndex={2}
-                      >
-                        Max
-                      </Text>
-                    </Flex>
-                  </Box>
-                </Flex>
-
-                <Flex
-                  direction="column"
-                  w="100%"
-                  border="1px solid #454545"
-                  borderRadius="2xl"
-                  p={2}
-                >
-                  <Text fontSize="xs" color="#A2A2A2">
-                    Boost allocation
-                  </Text>
-
-                  <Box py={6}>
-                    <Slider
-                      aria-label="slider-ex-6"
-                      onChange={(val) => setSliderValue(val)}
-                      pt={8}
-                    >
-                      <SliderMark
-                        value={sliderValue}
-                        textAlign="center"
-                        fontSize="xs"
-                        bg="#fff"
-                        color="#000"
-                        mt="-10"
-                        ml="-5"
-                        w="10"
-                      >
-                        {sliderValue}%
-                      </SliderMark>
-                      <SliderTrack>
-                        <SliderFilledTrack bg="#4ae292" />
-                      </SliderTrack>
-                      <SliderThumb />
-                    </Slider>
-                    <Flex justify="space-between">
-                      <Text fontSize="xs" mt="-5">
-                        1%
-                      </Text>
-                      <Text fontSize="xs" mt="-5">
-                        100%
-                      </Text>
-                    </Flex>
-                  </Box>
-
-                  <Flex justify="space-between" fontSize="xs" py={1}>
-                    <Text color="#A2A2A2">Principal Stake</Text>
-                    <Text>1,620,000 S</Text>
-                  </Flex>
-
-                  <Flex justify="space-between" fontSize="xs" py={1}>
-                    <Text color="#A2A2A2">Virtual Stake</Text>
-                    <Text>1,900,000 vS (380,000 x 5)</Text>
-                  </Flex>
-
-                  <Flex justify="space-between" fontSize="xs" py={1}>
-                    <Text color="#A2A2A2">Total Stake</Text>
-                    <Text>3,520,000 S</Text>
-                  </Flex>
-                </Flex>
-
-                <Flex
-                  w="100%"
-                  border="1px solid #454545"
-                  borderRadius="2xl"
-                  p={2}
-                  justify="space-between"
-                  fontSize="xs"
-                >
-                  <Text color="#A2A2A2">Expected Reward Earned Daily</Text>
-                  <Text fontSize="sm">3.255</Text>
-                </Flex>
-
-                <Button
-                  borderRadius="2xl"
-                  onClick={() => void handleLockClick()}
-                  disabled={submitPending}
-                >
-                  {submitPending ? (
-                    <Spinner />
-                  ) : (
-                    "Lock with Freighter (Soroban)"
-                  )}
-                </Button>
-              </Flex>
+            <Flex direction="column" gap={6}>
+              <Text color="#A2A2A2">
+                Deposit to earn points from this pool via Soroban.
+              </Text>
+              <Box>
+                <Text fontSize="md" mb={2}>
+                  Amount
+                </Text>
+                <Box mb={4}>
+                  <input
+                    type="number"
+                    value={sliderValue}
+                    onChange={(event) => setSliderValue(Number(event.target.value))}
+                    style={{
+                      width: "100%",
+                      padding: "12px",
+                      borderRadius: "16px",
+                      background: "#121212",
+                      border: "1px solid #454545",
+                      color: "#fff",
+                    }}
+                  />
+                </Box>
+              </Box>
+              <Button
+                borderRadius="3xl"
+                colorScheme="green"
+                isLoading={submitPending}
+                onClick={handleLockClick}
+                w="full"
+              >
+                Deposit {sliderValue} {selectedFarm?.symbol ?? "tokens"}
+              </Button>
             </Flex>
           </ModalBody>
         </ModalContent>
@@ -450,10 +390,11 @@ export default function Farm() {
 
       <UnlockModal
         isOpen={isUnlockOpen}
-        position={unlockPosition}
         onClose={handleUnlockClose}
         onUnlocked={handleUnlocked}
+        position={unlockPosition}
       />
     </Flex>
   );
 }
+
