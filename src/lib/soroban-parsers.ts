@@ -149,17 +149,33 @@ export function parseUserPositionFromNative(
   userAddress: string,
 ): UserPosition | null {
   if (!native || typeof native !== 'object') return null;
+
+  const lockedAt = Number(native['locked_at'] ?? native['timestamp'] ?? 0);
+
+  // Prefer explicit unlockable_at/unlock_at; fall back to lockedAt + min_lock_period.
+  let unlockableAt: number;
+  if (native['unlockable_at'] != null) {
+    unlockableAt = Number(native['unlockable_at']);
+  } else if (native['unlock_at'] != null) {
+    unlockableAt = Number(native['unlock_at']);
+  } else {
+    const minLock = Number(native['min_lock_period'] ?? native['lock_period'] ?? 0);
+    unlockableAt = minLock > 0 ? lockedAt + minLock : 0;
+  }
+
   return {
     user: userAddress,
     poolId,
     amount: bigintToDisplayAmount(native['amount'] ?? native['locked_amount'] ?? 0n),
-    lockedAt: Number(native['locked_at'] ?? native['timestamp'] ?? 0),
-    credits: bigintToDisplayAmount(native['credits'] ?? 0n),
+    lockedAt,
+    credits: bigintToDisplayAmount(native['credits'] ?? native['accrued_credits'] ?? 0n),
     isLocked: Boolean(native['is_locked'] ?? false),
-    unlockableAt: Number(native['unlockable_at'] ?? native['unlock_at'] ?? 0),
+    unlockableAt,
     boostAllocation:
       native['boost_allocation'] != null
         ? Number(native['boost_allocation'])
-        : undefined,
+        : native['boost'] != null
+          ? Number(native['boost'])
+          : undefined,
   };
 }

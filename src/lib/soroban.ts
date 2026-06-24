@@ -77,13 +77,22 @@ export function parseUserPositionFromXdrResult(
   poolId: string,
   userAddress: string,
 ): UserPosition | null {
+  let native: unknown;
   try {
-    const native = scValToNative(xdrResult) as Record<string, unknown>;
-    return parseUserPositionFromNative(native, poolId, userAddress);
+    native = scValToNative(xdrResult);
   } catch (err) {
-    console.warn('[SmartDrop] parseUserPositionFromXdr: failed to parse:', err);
+    console.warn('[SmartDrop] parseUserPositionFromXdr: failed to deserialise ScVal:', err);
     return null;
   }
+
+  if (native == null) return null;
+
+  if (typeof native !== 'object' || Array.isArray(native)) {
+    console.warn('[SmartDrop] parseUserPositionFromXdr: expected Map (object), got', typeof native);
+    return null;
+  }
+
+  return parseUserPositionFromNative(native as Record<string, unknown>, poolId, userAddress);
 }
 
 export function parseCreditsFromXdrResult(xdrResult: xdr.ScVal): string {
