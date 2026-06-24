@@ -15,6 +15,7 @@ import {
   Tooltip,
   Alert,
   AlertIcon,
+  Input,
   useToast,
 } from "@chakra-ui/react";
 import { useStellarWallet } from "@/context/StellarWalletContext";
@@ -63,8 +64,9 @@ function EarningRow({
       mx="auto"
       align="center"
       justify="space-between"
-      borderTop="1px solid #454545"
-      borderBottom="1px solid #454545"
+      borderTop="1px solid"
+      borderBottom="1px solid"
+      borderColor="app.border"
       px={4}
     >
       <Text>{position.name}</Text>
@@ -102,8 +104,8 @@ function EarningRow({
           }
           isDisabled={canUnlock}
           hasArrow
-          bg="#222"
-          color="#fff"
+          bg="app.tooltipBg"
+          color="app.tooltipFg"
         >
           <Box>
             <Button
@@ -259,7 +261,7 @@ export default function Farm() {
 
   return (
     <Flex direction="column" align="center" gap={6} px={8} py={6}>
-      <Text fontSize="xs" color="#A2A2A2" textAlign="center">
+      <Text fontSize="xs" color="app.muted" textAlign="center">
         Network: {stellarNetwork}
         {publicKey ? ` · ${publicKey.slice(0, 6)}…` : ""}
         {factoryContractId
@@ -275,7 +277,7 @@ export default function Farm() {
 
       {poolsLoading ? (
         <Flex w="100%" justify="center" py={16}>
-          <Spinner size="xl" color="#4AE292" />
+          <Spinner size="xl" color="app.accent" />
         </Flex>
       ) : availablePools.length === 0 ? (
         <Alert status="info" borderRadius="2xl" w="95%" maxW="1200px">
@@ -290,8 +292,9 @@ export default function Farm() {
             mx="auto"
             align="center"
             justify="space-between"
-            borderTop="1px solid #454545"
-            borderBottom="1px solid #454545"
+            borderTop="1px solid"
+            borderBottom="1px solid"
+            borderColor="app.border"
             px={4}
           >
             <Text>{farm.name}</Text>
@@ -324,7 +327,7 @@ export default function Farm() {
 
       {positionsLoading ? (
         <Flex w="100%" justify="center" py={16}>
-          <Spinner size="xl" color="#4AE292" />
+          <Spinner size="xl" color="app.accent" />
         </Flex>
       ) : !isConnected ? (
         <Alert status="info" borderRadius="2xl" w="95%" maxW="1200px">
@@ -346,12 +349,12 @@ export default function Farm() {
 
       <Modal isOpen={isModalOpen} onClose={handleModalClose}>
         <ModalOverlay backdropFilter="blur(3px)" />
-        <ModalContent bgColor="#171717" color="#fff" borderRadius="3xl">
+        <ModalContent bg="app.surface" color="app.text" borderRadius="3xl">
           <ModalHeader mx="auto">{selectedFarm?.name}</ModalHeader>
           <ModalCloseButton />
           <ModalBody p={8}>
             <Flex direction="column" gap={6}>
-              <Text color="#A2A2A2">
+              <Text color="app.muted">
                 Deposit to earn points from this pool via Soroban.
               </Text>
               <Box>
@@ -359,18 +362,16 @@ export default function Farm() {
                   Amount
                 </Text>
                 <Box mb={4}>
-                  <input
+                  <Input
                     type="number"
                     value={sliderValue}
                     onChange={(event) => setSliderValue(Number(event.target.value))}
-                    style={{
-                      width: "100%",
-                      padding: "12px",
-                      borderRadius: "16px",
-                      background: "#121212",
-                      border: "1px solid #454545",
-                      color: "#fff",
-                    }}
+                    borderRadius="2xl"
+                    bg="app.inputBg"
+                    borderColor="app.border"
+                    color="app.text"
+                    _focus={{ boxShadow: "none", borderColor: "app.accent" }}
+                    _hover={{ borderColor: "app.accent" }}
                   />
                 </Box>
               </Box>
@@ -397,4 +398,3 @@ export default function Farm() {
     </Flex>
   );
 }
-

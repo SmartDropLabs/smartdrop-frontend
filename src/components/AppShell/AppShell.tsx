@@ -5,33 +5,32 @@ import Footer from "@/components/Footer/Footer";
 import Navbar from "@/components/Navbar/Navbar";
 import ContextProvider from "@/context";
 import { useStellarWallet } from "@/context/StellarWalletContext";
+import { Box } from "@chakra-ui/react";
 
 function LayoutWrapper({ children }: { children: React.ReactNode }) {
   const { isConnected } = useStellarWallet();
 
   return (
-    <div
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        minHeight: "100vh",
-        backgroundColor: "black",
-        color: "white",
-      }}
+    <Box
+      display="flex"
+      flexDirection="column"
+      minH="100vh"
+      bg="app.bg"
+      color="app.text"
     >
       <Navbar />
       {isConnected ? (
         <>
-          <main style={{ flex: 1 }}>{children}</main>
+          <Box as="main" flex={1}>{children}</Box>
           <Footer />
         </>
       ) : (
         <>
-          <main style={{ flex: 1 }}>{children}</main>
+          <Box as="main" flex={1}>{children}</Box>
           <ConnectWalletButton />
         </>
       )}
-    </div>
+    </Box>
   );
 }
 
