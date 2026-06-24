@@ -28,6 +28,7 @@ import UnlockModal from "@/components/UnlockModal/UnlockModal";
 import { useCountdown } from "@/hooks/useCountdown";
 import { unlockAvailableAt, type FarmPosition } from "@/types/farm";
 import { useAllUserPositions, usePools } from "@/hooks/useSorobanQuery";
+import { useSorobanEvents } from "@/hooks/useSorobanEvents";
 import type { PoolInfo, UserPosition } from "@/lib/soroban";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -136,6 +137,17 @@ export default function Farm() {
     isError: positionsError,
     error: positionsErrorObj,
   } = useAllUserPositions();
+
+  const poolContractIds = useMemo(
+    () => (pools ?? []).map((p) => p.contractAddress).filter(Boolean),
+    [pools]
+  );
+
+  useSorobanEvents(poolContractIds, [
+    "lock_assets",
+    "unlock_assets",
+    "update_credits",
+  ]);
 
   const [selectedFarm, setSelectedFarm] = useState<LivePoolRow | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
