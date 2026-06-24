@@ -11,6 +11,8 @@ export default defineConfig({
       ['src/lib/**', 'node'],
     ],
     environment: 'jsdom',
+    exclude: ['node_modules', 'dist', '.next', 'tests/**/*.spec.ts'],
+
   },
   resolve: {
     alias: {

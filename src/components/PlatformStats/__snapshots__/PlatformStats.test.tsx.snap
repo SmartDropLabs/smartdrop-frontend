@@ -1,0 +1,110 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`<PlatformStats /> Layout Component > matches baseline style design snapshot tests 1`] = `
+<DocumentFragment>
+  <div
+    class="css-ozzi54"
+  >
+    <div
+      class="css-1viq6db"
+    >
+      <div
+        class="chakra-stat css-1mbo1ls"
+      >
+        <dl>
+          <dt
+            class="chakra-stat__label css-1kue1c1"
+          >
+            Total Value Locked
+          </dt>
+          <div
+            class="chakra-skeleton css-cdkrf0"
+          >
+            <dd
+              class="chakra-stat__number css-1skyldy"
+            >
+              42300000.0M XLM
+            </dd>
+          </div>
+        </dl>
+      </div>
+    </div>
+    <div
+      class="css-1viq6db"
+    >
+      <div
+        class="chakra-stat css-1mbo1ls"
+      >
+        <dl>
+          <dt
+            class="chakra-stat__label css-1kue1c1"
+          >
+            Active Pools
+          </dt>
+          <div
+            class="chakra-skeleton css-cdkrf0"
+          >
+            <dd
+              class="chakra-stat__number css-1skyldy"
+            >
+              12
+            </dd>
+          </div>
+        </dl>
+      </div>
+    </div>
+    <div
+      class="css-1viq6db"
+    >
+      <div
+        class="chakra-stat css-1mbo1ls"
+      >
+        <dl>
+          <dt
+            class="chakra-stat__label css-1kue1c1"
+          >
+            Total Farmers
+          </dt>
+          <div
+            class="chakra-skeleton css-cdkrf0"
+          >
+            <dd
+              class="chakra-stat__number css-1skyldy"
+            >
+              15,450
+            </dd>
+          </div>
+        </dl>
+      </div>
+    </div>
+    <div
+      class="css-1viq6db"
+    >
+      <div
+        class="chakra-stat css-1mbo1ls"
+      >
+        <dl>
+          <dt
+            class="chakra-stat__label css-1kue1c1"
+          >
+            24h Credit Velocity
+          </dt>
+          <div
+            class="chakra-skeleton css-cdkrf0"
+          >
+            <dd
+              class="chakra-stat__number css-1skyldy"
+            >
+              8500000.0M XLM
+            </dd>
+          </div>
+        </dl>
+      </div>
+    </div>
+  </div>
+  <span
+    hidden=""
+    id="__chakra_env"
+  />
+</DocumentFragment>
+`;
