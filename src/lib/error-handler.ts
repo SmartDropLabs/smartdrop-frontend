@@ -175,6 +175,30 @@ export class ValidationError extends SmartDropError {
 }
 
 /**
+ * Security-sensitive transaction validation errors.
+ */
+export class SecurityError extends SmartDropError {
+  readonly code = "SECURITY_ERROR";
+  readonly isTransient = false;
+  readonly isCritical = true;
+
+  constructor(message: string, originalError?: Error) {
+    super(message, originalError);
+    Object.setPrototypeOf(this, SecurityError.prototype);
+  }
+
+  readonly userMessage = this.message;
+
+  getLogContext() {
+    return {
+      ...super.getLogContext(),
+      errorType: "SecurityError",
+      isSigningSafetyIssue: true,
+    };
+  }
+}
+
+/**
  * Configuration errors (missing env vars, invalid config).
  */
 export class ConfigError extends SmartDropError {
@@ -247,6 +271,19 @@ export function normalizeError(error: unknown, context?: string): SmartDropError
       }
       return new FreighterError("FREIGHTER_UNKNOWN", error.message, error);
     }
+
+    // Security/signing-safety errors
+    if (
+      msg.includes("security") ||
+      msg.includes("signing was blocked") ||
+      msg.includes("authorization entry") ||
+      msg.includes("unexpected auth") ||
+      msg.includes("simulation auth") ||
+      msg.includes("simulated authorization")
+    ) {
+      return new SecurityError(error.message, error);
+    }
+
 
     // RPC errors
     if (msg.includes("timeout") || msg.includes("timed out")) {
