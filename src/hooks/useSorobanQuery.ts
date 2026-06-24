@@ -4,7 +4,7 @@
  */
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { sorobanService, type PoolInfo, type UserPosition, type TransactionResult } from '@/lib/soroban';
+import { sorobanService, type UserPosition, type TransactionResult } from '@/lib/soroban';
 import { useStellarWallet } from '@/context/StellarWalletContext';
 import { useToast } from '@chakra-ui/react';
 
@@ -402,6 +402,7 @@ export const useTransactionStates = () => {
     setBoost: boostMutation.mutate,
   };
 };
+
 
 export interface UIPlatformStats {
   tvl: string;

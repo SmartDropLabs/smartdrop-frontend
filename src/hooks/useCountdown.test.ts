@@ -1,4 +1,4 @@
-import { act, renderHook } from "@testing-library/react";
+import { act, renderHook } from "@/test/renderHook";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useCountdown } from "./useCountdown";
 

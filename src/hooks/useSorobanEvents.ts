@@ -63,7 +63,7 @@ export function useSorobanEvents(
           const response = await server.getEvents({
             startLedger: startLedgerRef.current,
             filters: [{ type: "contract", contractIds, topics: topicFilters }],
-            pagination: { limit: 100 },
+            limit: 100,
           });
 
           let hasPoolEvent = false;

@@ -26,20 +26,30 @@ export interface AppError {
   userMessage: string;
   retryable: boolean;
   actionable: string;
-  originalError?: any;
+  originalError?: unknown;
+}
+
+function isAppError(error: unknown): error is AppError {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    'type' in error &&
+    'userMessage' in error
+  );
 }
 
 export class ErrorHandler {
   /**
    * Parse and classify different types of errors
    */
-  static parseError(error: any): AppError {
+  static parseError(error: unknown): AppError {
     // Check if it's already an AppError
-    if (error.type && error.userMessage) {
-      return error as AppError;
+    if (isAppError(error)) {
+      return error;
     }
 
-    const errorMessage = error?.message || error?.toString() || 'Unknown error';
+    const errorMessage =
+      error instanceof Error ? error.message : String(error ?? 'Unknown error');
 
     // Freighter Wallet Errors
     if (errorMessage.includes('Freighter') || errorMessage.includes('wallet')) {
@@ -303,7 +313,7 @@ export class ErrorHandler {
 /**
  * Higher-order function for automatic error handling
  */
-export function withErrorHandler<T extends any[], R>(
+export function withErrorHandler<T extends unknown[], R>(
   fn: (...args: T) => Promise<R>,
   context?: string
 ) {
@@ -322,13 +332,13 @@ export function withErrorHandler<T extends any[], R>(
  * React hook for error handling
  */
 export function useErrorHandler() {
-  const handleError = (error: any, context?: string) => {
+  const handleError = (error: unknown, context?: string) => {
     const appError = ErrorHandler.parseError(error);
     ErrorHandler.logError(appError, context);
     return appError;
   };
 
-  const getToastConfig = (error: any) => {
+  const getToastConfig = (error: unknown) => {
     const appError = ErrorHandler.parseError(error);
     return ErrorHandler.getToastConfig(appError);
   };

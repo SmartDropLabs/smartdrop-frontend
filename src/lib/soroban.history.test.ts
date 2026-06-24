@@ -1,11 +1,10 @@
 import { describe, it, expect, vi } from 'vitest';
-import { xdr, nativeToScVal, Address } from '@stellar/stellar-sdk';
+import { describe, it, expect, vi } from 'vitest';
+import { xdr, nativeToScVal, StrKey, Address } from '@stellar/stellar-sdk';
 import { getUserTransactionHistory } from './soroban';
-
-// Generate deterministic valid Stellar public keys from known fixed seeds.
-const USER_KEY = "GDCJRTP662NNRW7LEX6WHJI2WMABZYJN6L6D64HDRN7K5Z4ZK3UQWN6M";
-const OTHER_KEY = "GCZG424BRIH2WPNF2Y6ZK5SSKZ26TP4GXRCJMSN52DTNPOGRIXJOX3BK";
-
+// Generate valid-format Stellar G-addresses from fixed 32-byte seeds.
+const USER_KEY = StrKey.encodeEd25519PublicKey(new Uint8Array(32));
+const OTHER_KEY = StrKey.encodeEd25519PublicKey(new Uint8Array(32).fill(1));
 const POOL_ID = 'CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4';
 const TX_HASH_1 = 'abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890';
 const TX_HASH_2 = 'fedcba0987654321fedcba0987654321fedcba0987654321fedcba0987654321';

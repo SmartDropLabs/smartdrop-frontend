@@ -8,8 +8,9 @@ import { useErrorHandler } from "@/context/ErrorContext";
 import { useStellarWallet } from "@/context/StellarWalletContext";
 import { useCountdown } from "@/hooks/useCountdown";
 import { trackEvent } from "@/lib/analytics";
-import { stellarExpertTxUrl, unlockAssets } from "@/lib/soroban";
-import { unlockAvailableAt, type FarmPosition } from "@/types/farm";
+import { stellarExpertTxUrl, unlockAssets, computePartialUnlockPreview } from "@/lib/soroban";
+import { useFarmStore } from "@/store/farmStore";
+import { unlockAvailableAt } from "@/types/farm";
 import {
     Alert,
     AlertIcon,
@@ -30,20 +31,11 @@ import {
 } from "@chakra-ui/react";
 import { useEffect, useMemo, useState } from "react";
 
-type UnlockModalProps = {
-  isOpen: boolean;
-  position: FarmPosition | null;
-  onClose: () => void;
-  /** Called after a confirmed unlock with the amount removed from the stake. */
-  onUnlocked: (position: FarmPosition, amount: number) => void;
-};
-
-export default function UnlockModal({
-  isOpen,
-  position,
-  onClose,
-  onUnlocked,
-}: UnlockModalProps) {
+export default function UnlockModal() {
+  const selectedPosition = useFarmStore((s) => s.selectedPosition);
+  const isUnlock = useFarmStore((s) => s.activeModal === "unlock");
+  const close = useFarmStore((s) => s.close);
+  const position = selectedPosition;
   const { publicKey, walletApi } = useStellarWallet();
   const toast = useErrorHandler();
   const [amount, setAmount] = useState("");
@@ -64,7 +56,7 @@ export default function UnlockModal({
 
   // Reset transient state whenever the modal opens for a (new) position.
   useEffect(() => {
-    if (isOpen && position) {
+    if (isUnlock && position) {
       setAmount(String(position.lockedAmount));
       setPending(false);
       setError(null);
@@ -79,7 +71,7 @@ export default function UnlockModal({
         }
       }, 100);
     }
-  }, [isOpen, position]);
+  }, [isUnlock, position]);
 
   const explorerUrl = useMemo(
     () => (txHash ? stellarExpertTxUrl(txHash, stellarNetwork) : null),
@@ -90,13 +82,21 @@ export default function UnlockModal({
 
   const handleClose = () => {
     if (pending) return;
-    onClose();
+    close();
   };
 
   const setMax = () => setAmount(String(position.lockedAmount));
+  const set50Pct = () => setAmount(String(position.lockedAmount / 2));
+
+  const numericDailyRate = parseFloat(position.dailyRate) || 0;
+  const { remainingStake, newDailyRate } = computePartialUnlockPreview(
+    position.lockedAmount,
+    numericAmount,
+    numericDailyRate,
+  );
 
   const handleUnlock = async () => {
-    if (!publicKey) {
+    if (!publicKey || !walletApi) {
       setError("Connect your Freighter wallet to unlock.");
       return;
     }
@@ -149,7 +149,13 @@ export default function UnlockModal({
         partial: numericAmount < position.lockedAmount,
         processingTime: Date.now() - trackingStartTime,
       });
-      onUnlocked(position, numericAmount);
+      // TODO(#28): optimistic queryClient.getQueryData update attaches here pending
+      //            maintainer confirmation — see issue discussion
+      toast.success(
+        "Unlock submitted",
+        `${numericAmount} ${position.symbol} unlock request sent.`
+      );
+      close();
     } catch (err) {
       const normalizedError = toast.handleError(err, "Unlock Transaction");
       setError(normalizedError.userMessage);
@@ -173,12 +179,17 @@ export default function UnlockModal({
   );
 
   return (
-    <Modal isOpen={isOpen} onClose={handleClose}>
+    <Modal isOpen={isUnlock} onClose={handleClose}>
       <ModalOverlay backdropFilter="blur(3px)" />
-      <ModalContent bg="app.surface" color="app.text" borderRadius="3xl">
+      <ModalContent
+        bg="app.surface"
+        color="app.text"
+        borderRadius="3xl"
+        mx={{ base: 4, md: "auto" }}
+      >
         <ModalHeader mx="auto">Unlock {position.symbol}</ModalHeader>
         <ModalCloseButton isDisabled={pending} />
-        <ModalBody p={8}>
+        <ModalBody p={{ base: 4, md: 8 }}>
           {txHash ? (
             <Flex direction="column" gap={4} align="center" textAlign="center">
               <Badge colorScheme="green" borderRadius="full" px={3} py={1}>
@@ -211,11 +222,11 @@ export default function UnlockModal({
               </Box>
               <Button
                 borderRadius="2xl"
-                w="100%"
+                w="full"
                 bg="app.accent"
                 color="app.onAccent"
                 _hover={{ opacity: 0.9 }}
-                onClick={onClose}
+                onClick={handleClose}
               >
                 Done
               </Button>
@@ -263,6 +274,8 @@ export default function UnlockModal({
                     borderRadius="2xl"
                     placeholder="Amount"
                     h="50px"
+                    w="full"
+                    pr="120px"
                     value={amount}
                     onChange={(e) => setAmount(e.target.value)}
                     isDisabled={!canUnlock || pending}
@@ -286,6 +299,16 @@ export default function UnlockModal({
                       fontSize="xs"
                       color="app.accent"
                       cursor={canUnlock ? "pointer" : "not-allowed"}
+                      onClick={canUnlock ? set50Pct : undefined}
+                      _hover={canUnlock ? { opacity: 0.8 } : {}}
+                      transition="opacity 0.2s"
+                    >
+                      50%
+                    </Text>
+                    <Text
+                      fontSize="xs"
+                      color={ACCENT}
+                      cursor={canUnlock ? "pointer" : "not-allowed"}
                       onClick={canUnlock ? setMax : undefined}
                       _hover={canUnlock ? { opacity: 0.8 } : {}}
                       transition="opacity 0.2s"
@@ -295,6 +318,35 @@ export default function UnlockModal({
                   </Flex>
                 </Box>
               </Flex>
+
+              {amountValid && (
+                <Box border="1px solid #303030" borderRadius="2xl" p={3}>
+                  {infoRow(
+                    "Remaining stake",
+                    `${remainingStake.toFixed(4)} ${position.symbol}`,
+                  )}
+                  {infoRow(
+                    "New daily rate",
+                    `${newDailyRate.toFixed(6)} credits/day`,
+                  )}
+                </Box>
+              )}
+
+              {amountValid &&
+                !!position.minDepositAmount &&
+                remainingStake > 0 &&
+                remainingStake < position.minDepositAmount && (
+                  <Alert
+                    status="warning"
+                    borderRadius="2xl"
+                    bg="#2a2412"
+                    color="#f6c453"
+                    fontSize="sm"
+                  >
+                    <AlertIcon color="#f6c453" />
+                    Warning: remaining stake below minimum — the contract will close this position entirely
+                  </Alert>
+                )}
 
               {error && (
                 <Alert
@@ -316,6 +368,7 @@ export default function UnlockModal({
                 _hover={{ opacity: 0.9 }}
                 isDisabled={!canUnlock || !amountValid || pending}
                 onClick={() => void handleUnlock()}
+                w="full"
               >
                 {pending ? <Spinner size="sm" /> : "Unlock with Freighter"}
               </Button>

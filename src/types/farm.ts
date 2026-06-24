@@ -13,6 +13,8 @@ export type FarmPosition = {
   symbol: string;
   /** Amount currently locked, in display units. */
   lockedAmount: number;
+  /** Pool minimum deposit in display units. If set and remaining < this after unlock, contract closes the position entirely. */
+  minDepositAmount?: number;
   /** Unix epoch (ms) when the position was locked. */
   lockedAt: number;
   /** Minimum lock period (seconds) before the position can be unlocked. */
