@@ -10,9 +10,9 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
+    "test": "vitest run",
     "contributors:sync": "node scripts/sync-lernza-contributors.mjs",
-    "contributors:github-insights": "node scripts/record-lernza-github-coauthors.mjs",
-    "test": "vitest run"
+    "contributors:github-insights": "node scripts/record-lernza-github-coauthors.mjs"
   },
   "dependencies": {
     "@chakra-ui/next-js": "^2.4.2",

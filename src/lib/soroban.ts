@@ -16,6 +16,12 @@ import {
   scValToNative,
   rpc,
 } from '@stellar/stellar-sdk';
+import {
+  bigintToDisplayAmount,
+  parsePoolsFromNative,
+  parseUserPositionFromNative,
+} from './soroban-parsers';
+export type { AssetInfo, PoolInfo, UserPosition } from './soroban-parsers';
 
 // Soroban RPC Configuration
 const RPC_URL = process.env.NEXT_PUBLIC_SOROBAN_RPC_URL || 'https://soroban-testnet.stellar.org:443';
@@ -28,35 +34,6 @@ const DEFAULT_POOL_CONTRACT_ADDRESS = process.env.NEXT_PUBLIC_DEFAULT_POOL_CONTR
 
 // Initialize Soroban RPC Server
 const rpcServer = new rpc.Server(RPC_URL);
-
-export interface AssetInfo {
-  code: string;
-  issuer?: string;
-  isNative?: boolean;
-}
-
-export interface PoolInfo {
-  id: string;
-  contractAddress: string;
-  asset: AssetInfo;
-  dailyRate: string;
-  minLockPeriod: number;
-  totalLocked: string;
-  totalUsers: number;
-  isActive: boolean;
-  createdAt: number;
-}
-
-export interface UserPosition {
-  user: string;
-  poolId: string;
-  amount: string;
-  lockedAt: number;
-  credits: string;
-  isLocked: boolean;
-  unlockableAt: number;
-  boostAllocation?: number;
-}
 
 export interface BoostConfig {
   multiplier: number;
@@ -77,6 +54,49 @@ export interface ContractCallOptions {
   fee?: number;
   memo?: string;
 }
+
+// ── XDR-level wrappers (pure parsing logic lives in ./soroban-parsers) ───────
+
+export function parsePoolsFromXdrResult(xdrResult: xdr.ScVal): PoolInfo[] {
+  let native: unknown;
+  try {
+    native = scValToNative(xdrResult);
+  } catch (err) {
+    console.warn('[SmartDrop] parsePoolsFromXdr: failed to deserialise ScVal:', err);
+    return [];
+  }
+  if (!Array.isArray(native)) {
+    console.warn('[SmartDrop] parsePoolsFromXdr: expected Vec (array), got', typeof native);
+    return [];
+  }
+  return parsePoolsFromNative(native);
+}
+
+export function parseUserPositionFromXdrResult(
+  xdrResult: xdr.ScVal,
+  poolId: string,
+  userAddress: string,
+): UserPosition | null {
+  try {
+    const native = scValToNative(xdrResult) as Record<string, unknown>;
+    return parseUserPositionFromNative(native, poolId, userAddress);
+  } catch (err) {
+    console.warn('[SmartDrop] parseUserPositionFromXdr: failed to parse:', err);
+    return null;
+  }
+}
+
+export function parseCreditsFromXdrResult(xdrResult: xdr.ScVal): string {
+  try {
+    const native = scValToNative(xdrResult);
+    return bigintToDisplayAmount(native);
+  } catch (err) {
+    console.warn('[SmartDrop] parseCreditsFromXdr: failed to parse:', err);
+    return '0';
+  }
+}
+
+// ── SorobanService class ──────────────────────────────────────────────────────
 
 /**
  * SorobanService class - Main interface for contract interactions
@@ -540,22 +560,19 @@ export class SorobanService {
 
   // Helper methods for parsing XDR data
   private parsePoolsFromXdr(xdrResult: xdr.ScVal): PoolInfo[] {
-    // Actual contract parsing should be implemented here when the Soroban result schema is available.
-    return [];
+    return parsePoolsFromXdrResult(xdrResult);
   }
 
   private parseUserPositionFromXdr(
     xdrResult: xdr.ScVal,
     poolId: string,
-    userAddress: string
+    userAddress: string,
   ): UserPosition | null {
-    // Actual contract parsing should be implemented here when the Soroban result schema is available.
-    return null;
+    return parseUserPositionFromXdrResult(xdrResult, poolId, userAddress);
   }
 
   private parseCreditsFromXdr(xdrResult: xdr.ScVal): string {
-    // Actual contract parsing should be implemented here when the Soroban result schema is available.
-    return '0';
+    return parseCreditsFromXdrResult(xdrResult);
   }
 }
 
