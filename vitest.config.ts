@@ -5,8 +5,12 @@ import path from 'path';
 export default defineConfig({
   plugins: [react()],
   test: {
-    environment: 'node',
     globals: true,
+    environmentMatchGlobs: [
+      ['src/hooks/**', 'jsdom'],
+      ['src/lib/**', 'node'],
+    ],
+    environment: 'jsdom',
   },
   resolve: {
     alias: {
