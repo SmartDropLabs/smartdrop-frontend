@@ -1,5 +1,5 @@
 "use client";
-import { memo, useEffect, useMemo, useState } from "react";
+import { memo, useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   Button,
   Text,
@@ -26,14 +26,13 @@ import {
   stellarNetwork,
 } from "@/config";
 import UnlockModal from "@/components/UnlockModal/UnlockModal";
+import ConnectWalletButton from "@/components/ConnectWalletButton/ConnectWalletButton";
 import { useCountdown } from "@/hooks/useCountdown";
 import { unlockAvailableAt, type FarmPosition } from "@/types/farm";
 import { useAllUserPositions, usePools } from "@/hooks/useSorobanQuery";
 import { useSorobanEvents } from "@/hooks/useSorobanEvents";
+import type { UserPosition } from "@/lib/soroban";
 import { useFarmStore } from "@/store/farmStore";
-import type { PoolInfo, UserPosition } from "@/lib/soroban";
-
-const DAY_MS = 24 * 60 * 60 * 1000;
 
 type LivePoolRow = {
   id: string;
@@ -47,6 +46,33 @@ type LivePoolRow = {
   lockedAt: number;
   lockPeriodSeconds: number;
 };
+
+function MetricColumn({
+  label,
+  value,
+  minW = "110px",
+}: {
+  label: string;
+  value: ReactNode;
+  minW?: string;
+}) {
+  return (
+    <Flex
+      direction="column"
+      minW={{ base: 0, md: minW }}
+      w={{ base: "full", md: "auto" }}
+      align={{ base: "stretch", md: "flex-start" }}
+      gap={1}
+    >
+      <Text fontSize="2xs" color="app.muted" textTransform="uppercase">
+        {label}
+      </Text>
+      <Text fontWeight={{ base: "semibold", md: "normal" }} overflowWrap="anywhere">
+        {value}
+      </Text>
+    </Flex>
+  );
+}
 
 type EarningRowProps = {
   position: FarmPosition;
@@ -87,40 +113,65 @@ export const EarningRow = memo(function EarningRow({
 
   return (
     <Flex
-      w="95%"
-      h={20}
+      display={{ base: 'flex', md: 'flex' }}
+      flexDirection={{ base: 'column', md: 'row' }}
+      w={{ base: "full", md: "95%" }}
+      h={{ base: "auto", md: 20 }}
       mx="auto"
-      align="center"
-      justify="space-between"
+      align={{ base: "stretch", md: "center" }}
+      justify={{ base: "flex-start", md: "space-between" }}
+      gap={{ base: 4, md: 0 }}
       borderTop="1px solid"
       borderBottom="1px solid"
+      borderX={{ base: "1px solid", md: "0" }}
       borderColor="app.border"
+      borderRadius={{ base: "2xl", md: "none" }}
       px={4}
+      py={{ base: 4, md: 0 }}
     >
-      <Text>{position.name}</Text>
-      <Flex direction="column" minW="110px" align="flex-start">
-        <Text fontSize="2xs">Earned</Text>
-        <Text>{position.earned}</Text>
-      </Flex>
-      <Flex direction="column" minW="110px" align="flex-start">
-        <Text fontSize="2xs">My Stake</Text>
-        <Text>{position.stake}</Text>
-      </Flex>
-      <Flex direction="column" minW="110px" align="flex-start">
-        <Text fontSize="2xs">Daily Rate</Text>
-        <Text>{position.dailyRate}</Text>
-      </Flex>
-      <Flex direction="column" minW="180px" align="flex-start">
-        <Text fontSize="2xs">Total Staked Liquidity</Text>
-        <Text>{position.totalStakedLiquidity}</Text>
-      </Flex>
-      <Flex gap={4}>
+      <Text fontWeight={{ base: "bold", md: "normal" }} w={{ base: "full", md: "auto" }}>
+        {position.name}
+      </Text>
+      <MetricColumn label="Earned" value={position.earned} />
+      <MetricColumn label="My Stake" value={position.stake} />
+      <MetricColumn label="Daily Rate" value={position.dailyRate} />
+      <MetricColumn
+        label="Total Staked Liquidity"
+        value={position.totalStakedLiquidity}
+        minW="180px"
+      />
+      {hasStake && !canUnlock && (
+        <Box
+          display={{ base: "block", md: "none" }}
+          w="full"
+          textAlign="center"
+          border="1px solid"
+          borderColor="app.border"
+          borderRadius="2xl"
+          bg="app.inputBg"
+          px={3}
+          py={3}
+        >
+          <Text fontSize="2xs" color="app.muted" textTransform="uppercase">
+            Unlock countdown
+          </Text>
+          <Text fontSize="lg" fontWeight="bold">
+            {countdown.label}
+          </Text>
+        </Box>
+      )}
+      <Flex
+        gap={{ base: 3, md: 4 }}
+        direction={{ base: "column", md: "row" }}
+        w={{ base: "full", md: "auto" }}
+      >
         <Button
           borderRadius="3xl"
-          disabled
+          isDisabled
           opacity={0.6}
           cursor="not-allowed"
           _hover={{ opacity: 0.6 }}
+          w={{ base: "full", md: "auto" }}
         >
           Boost
         </Button>
@@ -135,11 +186,12 @@ export const EarningRow = memo(function EarningRow({
           bg="app.tooltipBg"
           color="app.tooltipFg"
         >
-          <Box>
+          <Box w={{ base: "full", md: "auto" }}>
             <Button
               borderRadius="3xl"
               onClick={() => openUnlock(position)}
               isDisabled={!canUnlock}
+              w={{ base: "full", md: "auto" }}
             >
               Unlock
             </Button>
@@ -275,8 +327,8 @@ export default function Farm() {
   const hasPositions = myPositions.length > 0;
 
   return (
-    <Flex direction="column" align="center" gap={6} px={8} py={6}>
-      <Text fontSize="xs" color="app.muted" textAlign="center">
+    <Flex direction="column" align="center" gap={6} px={{ base: 4, md: 8 }} py={6}>
+      <Text fontSize="xs" color="app.muted" textAlign="center" overflowWrap="anywhere">
         Network: {stellarNetwork}
         {publicKey ? ` · ${publicKey.slice(0, 6)}…` : ""}
         {factoryContractId
@@ -302,34 +354,38 @@ export default function Farm() {
         availablePools.map((farm) => (
           <Flex
             key={farm.id}
-            w="95%"
-            h={20}
+            display={{ base: "flex", md: "flex" }}
+            flexDirection={{ base: "column", md: "row" }}
+            w={{ base: "full", md: "95%" }}
+            h={{ base: "auto", md: 20 }}
             mx="auto"
-            align="center"
-            justify="space-between"
+            align={{ base: "stretch", md: "center" }}
+            justify={{ base: "flex-start", md: "space-between" }}
+            gap={{ base: 4, md: 0 }}
             borderTop="1px solid"
             borderBottom="1px solid"
+            borderX={{ base: "1px solid", md: "0" }}
             borderColor="app.border"
+            borderRadius={{ base: "2xl", md: "none" }}
             px={4}
+            py={{ base: 4, md: 0 }}
           >
-            <Text>{farm.name}</Text>
-            <Flex direction="column" minW="110px" align="flex-start">
-              <Text fontSize="2xs">Earned</Text>
-              <Text>{farm.earned}</Text>
-            </Flex>
-            <Flex direction="column" minW="110px" align="flex-start">
-              <Text fontSize="2xs">My Stake</Text>
-              <Text>{farm.stake}</Text>
-            </Flex>
-            <Flex direction="column" minW="110px" align="flex-start">
-              <Text fontSize="2xs">Daily Rate</Text>
-              <Text>{farm.dailyRate}</Text>
-            </Flex>
-            <Flex direction="column" minW="180px" align="flex-start">
-              <Text fontSize="2xs">Total Staked Liquidity</Text>
-              <Text>{farm.totalStakedLiquidity}</Text>
-            </Flex>
-            <Button borderRadius="3xl" onClick={() => handleDepositClick(farm)}>
+            <Text fontWeight={{ base: "bold", md: "normal" }} w={{ base: "full", md: "auto" }}>
+              {farm.name}
+            </Text>
+            <MetricColumn label="Earned" value={farm.earned} />
+            <MetricColumn label="My Stake" value={farm.stake} />
+            <MetricColumn label="Daily Rate" value={farm.dailyRate} />
+            <MetricColumn
+              label="Total Staked Liquidity"
+              value={farm.totalStakedLiquidity}
+              minW="180px"
+            />
+            <Button
+              borderRadius="3xl"
+              onClick={() => handleDepositClick(farm)}
+              w={{ base: "full", md: "auto" }}
+            >
               Deposit
             </Button>
           </Flex>
@@ -345,11 +401,38 @@ export default function Farm() {
           <Spinner size="xl" color="app.accent" />
         </Flex>
       ) : !isConnected ? (
-        <Alert status="info" borderRadius="2xl" w="95%" maxW="1200px">
-          <AlertIcon /> Connect your Freighter wallet to view your positions.
+        <Alert
+          status="info"
+          borderRadius="2xl"
+          w={{ base: "full", md: "95%" }}
+          maxW="1200px"
+          flexDirection={{ base: "column", md: "row" }}
+          alignItems={{ base: "stretch", md: "center" }}
+          gap={{ base: 3, md: 4 }}
+        >
+          <Flex
+            flex="1"
+            direction={{ base: "column", md: "row" }}
+            align={{ base: "stretch", md: "center" }}
+            justify="space-between"
+            gap={4}
+          >
+            <Flex align="center" gap={2}>
+              <AlertIcon m={0} />
+              <Text>Connect your Freighter wallet to view your positions.</Text>
+            </Flex>
+            <ConnectWalletButton
+              label="Connect Wallet"
+              position="static"
+              bottom="auto"
+              right="auto"
+              left="auto"
+              w={{ base: "full", md: "auto" }}
+            />
+          </Flex>
         </Alert>
       ) : !hasPositions ? (
-        <Alert status="info" borderRadius="2xl" w="95%" maxW="1200px">
+        <Alert status="info" borderRadius="2xl" w={{ base: "full", md: "95%" }} maxW="1200px">
           <AlertIcon /> No active positions found for the connected wallet.
         </Alert>
       ) : (

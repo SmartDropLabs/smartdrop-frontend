@@ -36,7 +36,7 @@ export abstract class SmartDropError extends Error {
    * Additional context for error logging (not shown to users).
    * Override in subclasses to add specific diagnostic info.
    */
-  getLogContext(): Record<string, any> {
+  getLogContext(): Record<string, unknown> {
     return {
       code: this.code,
       message: this.message,

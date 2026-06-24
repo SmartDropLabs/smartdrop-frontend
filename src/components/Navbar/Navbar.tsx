@@ -17,17 +17,27 @@ export default function Navbar() {
 
   return isConnected && publicKey ? (
     <Flex
-      w="95%"
-      h={20}
+      w={{ base: "full", md: "95%" }}
+      h={{ base: "auto", md: 20 }}
+      minH={20}
       mx="auto"
-      align="center"
-      justify="space-between"
+      align={{ base: "stretch", md: "center" }}
+      justify={{ base: "flex-start", md: "space-between" }}
+      direction={{ base: "column", md: "row" }}
+      gap={{ base: 3, md: 0 }}
       borderTop="1px solid"
       borderBottom="1px solid"
       borderColor="app.border"
+      px={{ base: 4, md: 0 }}
+      py={{ base: 4, md: 0 }}
     >
-      <Text px={8}>{shortenStellarAddress(publicKey)}</Text>
-      <Flex gap={8} p={8} align="center">
+      <Text px={{ base: 0, md: 8 }}>{shortenStellarAddress(publicKey)}</Text>
+      <Flex
+        gap={{ base: 4, md: 8 }}
+        p={{ base: 0, md: 8 }}
+        align="center"
+        flexWrap="wrap"
+      >
         <ChakraLink as={NextLink} href="/" color="app.text">Home</ChakraLink>
         <ChakraLink as={NextLink} href="/farm" color="app.text">Farm</ChakraLink>
         <ChakraLink as={NextLink} href="/history" color="app.text">History</ChakraLink>
@@ -35,25 +45,36 @@ export default function Navbar() {
         <ChakraLink as={NextLink} href="/contributors" color="app.text">Contributors</ChakraLink>
         <ThemeToggle />
       </Flex>
-      <Text px={8} fontWeight="bold">
+      <Text px={{ base: 0, md: 8 }} fontWeight="bold">
         SMARTDROP
       </Text>
     </Flex>
   ) : (
     <Flex
-      w="95%"
-      h={20}
+      w={{ base: "full", md: "95%" }}
+      h={{ base: "auto", md: 20 }}
+      minH={20}
       mx="auto"
-      align="center"
-      justify="space-between"
+      align={{ base: "stretch", md: "center" }}
+      justify={{ base: "flex-start", md: "space-between" }}
+      direction={{ base: "column", md: "row" }}
+      gap={{ base: 3, md: 0 }}
       borderTop="1px solid"
       borderBottom="1px solid"
       borderColor="app.border"
+      px={{ base: 4, md: 0 }}
+      py={{ base: 4, md: 0 }}
     >
-      <Text px={8} fontWeight="bold">
+      <Text px={{ base: 0, md: 8 }} fontWeight="bold">
         SMARTDROP
       </Text>
-      <Flex gap={8} p={8} align="center" flexWrap="wrap" justify="flex-end">
+      <Flex
+        gap={{ base: 4, md: 8 }}
+        p={{ base: 0, md: 8 }}
+        align="center"
+        flexWrap="wrap"
+        justify={{ base: "flex-start", md: "flex-end" }}
+      >
         <ChakraLink as={NextLink} href="/history" color="app.text" textDecoration="underline">
           History
         </ChakraLink>

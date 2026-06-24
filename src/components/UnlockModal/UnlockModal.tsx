@@ -88,7 +88,7 @@ export default function UnlockModal() {
   const setMax = () => setAmount(String(position.lockedAmount));
 
   const handleUnlock = async () => {
-    if (!publicKey) {
+    if (!publicKey || !walletApi) {
       setError("Connect your Freighter wallet to unlock.");
       return;
     }
@@ -173,10 +173,15 @@ export default function UnlockModal() {
   return (
     <Modal isOpen={isUnlock} onClose={handleClose}>
       <ModalOverlay backdropFilter="blur(3px)" />
-      <ModalContent bg="app.surface" color="app.text" borderRadius="3xl">
+      <ModalContent
+        bg="app.surface"
+        color="app.text"
+        borderRadius="3xl"
+        mx={{ base: 4, md: "auto" }}
+      >
         <ModalHeader mx="auto">Unlock {position.symbol}</ModalHeader>
         <ModalCloseButton isDisabled={pending} />
-        <ModalBody p={8}>
+        <ModalBody p={{ base: 4, md: 8 }}>
           {txHash ? (
             <Flex direction="column" gap={4} align="center" textAlign="center">
               <Badge colorScheme="green" borderRadius="full" px={3} py={1}>
@@ -209,7 +214,7 @@ export default function UnlockModal() {
               </Box>
               <Button
                 borderRadius="2xl"
-                w="100%"
+                w="full"
                 bg="app.accent"
                 color="app.onAccent"
                 _hover={{ opacity: 0.9 }}
@@ -261,6 +266,8 @@ export default function UnlockModal() {
                     borderRadius="2xl"
                     placeholder="Amount"
                     h="50px"
+                    w="full"
+                    pr="88px"
                     value={amount}
                     onChange={(e) => setAmount(e.target.value)}
                     isDisabled={!canUnlock || pending}
@@ -314,6 +321,7 @@ export default function UnlockModal() {
                 _hover={{ opacity: 0.9 }}
                 isDisabled={!canUnlock || !amountValid || pending}
                 onClick={() => void handleUnlock()}
+                w="full"
               >
                 {pending ? <Spinner size="sm" /> : "Unlock with Freighter"}
               </Button>
