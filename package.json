@@ -11,6 +11,7 @@
     "start": "next start",
     "lint": "next lint",
     "test": "vitest run",
+    "playwright": "playwright test --config e2e/playwright.config.ts",
     "contributors:sync": "node scripts/sync-lernza-contributors.mjs",
     "contributors:github-insights": "node scripts/record-lernza-github-coauthors.mjs"
   },
@@ -31,6 +32,7 @@
     "stellar-plus": "^0.14.4"
   },
   "devDependencies": {
+    "@playwright/test": "^1.49.0",
     "@testing-library/react": "^16.3.2",
     "@types/node": "^20",
     "@types/react": "^19",
