@@ -1,8 +1,9 @@
 "use client";
 
-import { Flex, Text } from "@chakra-ui/react";
+import { Flex, Link as ChakraLink, Text } from "@chakra-ui/react";
 import { useStellarWallet } from "@/context/StellarWalletContext";
-import Link from "next/link";
+import NextLink from "next/link";
+import ThemeToggle from "@/components/ThemeToggle/ThemeToggle";
 
 function shortenStellarAddress(address: string) {
   if (!address || address.length < 12) {
@@ -21,26 +22,18 @@ export default function Navbar() {
       mx="auto"
       align="center"
       justify="space-between"
-      borderTop="1px solid #454545"
-      borderBottom="1px solid #454545"
+      borderTop="1px solid"
+      borderBottom="1px solid"
+      borderColor="app.border"
     >
       <Text px={8}>{shortenStellarAddress(publicKey)}</Text>
-      <Flex gap={8} p={8}>
-        <Link href="/" style={{ color: "white" }}>
-          Home
-        </Link>
-        <Link href="/farm" style={{ color: "white" }}>
-          Farm
-        </Link>
-        <Link href="/history" style={{ color: "white" }}>
-          History
-        </Link>
-        <Link href="/leaderboard" style={{ color: "white" }}>
-          Leaderboard
-        </Link>
-        <Link href="/contributors" style={{ color: "white" }}>
-          Contributors
-        </Link>
+      <Flex gap={8} p={8} align="center">
+        <ChakraLink as={NextLink} href="/" color="app.text">Home</ChakraLink>
+        <ChakraLink as={NextLink} href="/farm" color="app.text">Farm</ChakraLink>
+        <ChakraLink as={NextLink} href="/history" color="app.text">History</ChakraLink>
+        <ChakraLink as={NextLink} href="/leaderboard" color="app.text">Leaderboard</ChakraLink>
+        <ChakraLink as={NextLink} href="/contributors" color="app.text">Contributors</ChakraLink>
+        <ThemeToggle />
       </Flex>
       <Text px={8} fontWeight="bold">
         SMARTDROP
@@ -53,22 +46,24 @@ export default function Navbar() {
       mx="auto"
       align="center"
       justify="space-between"
-      borderTop="1px solid #454545"
-      borderBottom="1px solid #454545"
+      borderTop="1px solid"
+      borderBottom="1px solid"
+      borderColor="app.border"
     >
       <Text px={8} fontWeight="bold">
         SMARTDROP
       </Text>
       <Flex gap={8} p={8} align="center" flexWrap="wrap" justify="flex-end">
-        <Link href="/history" style={{ color: "white", textDecoration: "underline" }}>
+        <ChakraLink as={NextLink} href="/history" color="app.text" textDecoration="underline">
           History
-        </Link>
-        <Link href="/contributors" style={{ color: "white", textDecoration: "underline" }}>
+        </ChakraLink>
+        <ChakraLink as={NextLink} href="/contributors" color="app.text" textDecoration="underline">
           Contributors
-        </Link>
+        </ChakraLink>
         <Text>Users online: 213</Text>
         <Text>Total Users: 30,738</Text>
         <Text>Total Value Locked: $302M</Text>
+        <ThemeToggle />
       </Flex>
     </Flex>
   );

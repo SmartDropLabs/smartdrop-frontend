@@ -38,8 +38,6 @@ type UnlockModalProps = {
   onUnlocked: (position: FarmPosition, amount: number) => void;
 };
 
-const ACCENT = "#4ae292";
-
 export default function UnlockModal({
   isOpen,
   position,
@@ -71,7 +69,7 @@ export default function UnlockModal({
       setPending(false);
       setError(null);
       setTxHash(null);
-      
+
       // Focus on amount input when modal opens for better accessibility
       setTimeout(() => {
         const amountInput = document.querySelector('input[type="number"]') as HTMLInputElement;
@@ -169,7 +167,7 @@ export default function UnlockModal({
 
   const infoRow = (label: string, value: React.ReactNode) => (
     <Flex justify="space-between" fontSize="sm" py={1}>
-      <Text color="#A2A2A2">{label}</Text>
+      <Text color="app.muted">{label}</Text>
       <Text>{value}</Text>
     </Flex>
   );
@@ -177,7 +175,7 @@ export default function UnlockModal({
   return (
     <Modal isOpen={isOpen} onClose={handleClose}>
       <ModalOverlay backdropFilter="blur(3px)" />
-      <ModalContent bgColor="#171717" color="#fff" borderRadius="3xl">
+      <ModalContent bg="app.surface" color="app.text" borderRadius="3xl">
         <ModalHeader mx="auto">Unlock {position.symbol}</ModalHeader>
         <ModalCloseButton isDisabled={pending} />
         <ModalBody p={8}>
@@ -186,13 +184,14 @@ export default function UnlockModal({
               <Badge colorScheme="green" borderRadius="full" px={3} py={1}>
                 Unlock confirmed
               </Badge>
-                <Text fontSize="sm" color="#A2A2A2">
+                <Text fontSize="sm" color="app.muted">
                 {numericAmount} {position.symbol} unlock transaction submitted successfully.
                 Your assets will be available in your wallet shortly.
               </Text>
               <Box
                 w="100%"
-                border="1px solid #454545"
+                border="1px solid"
+                borderColor="app.border"
                 borderRadius="2xl"
                 p={3}
               >
@@ -205,7 +204,7 @@ export default function UnlockModal({
                 {explorerUrl &&
                   infoRow(
                     "Transaction",
-                    <Link href={explorerUrl} isExternal color={ACCENT}>
+                    <Link href={explorerUrl} isExternal color="app.accent">
                       View on Stellar Expert
                     </Link>
                   )}
@@ -213,8 +212,8 @@ export default function UnlockModal({
               <Button
                 borderRadius="2xl"
                 w="100%"
-                bg={ACCENT}
-                color="#000"
+                bg="app.accent"
+                color="app.onAccent"
                 _hover={{ opacity: 0.9 }}
                 onClick={onClose}
               >
@@ -223,14 +222,14 @@ export default function UnlockModal({
             </Flex>
           ) : (
             <Flex direction="column" gap={6}>
-              <Box border="1px solid #454545" borderRadius="2xl" p={3}>
+              <Box border="1px solid" borderColor="app.border" borderRadius="2xl" p={3}>
                 {infoRow(
                   "Amount locked",
                   `${position.lockedAmount} ${position.symbol}`
                 )}
                 {infoRow(
                   "Time remaining",
-                  <Text color={canUnlock ? ACCENT : "white"}>
+                  <Text color={canUnlock ? "app.accent" : "app.text"}>
                     {countdown.label}
                   </Text>
                 )}
@@ -255,7 +254,7 @@ export default function UnlockModal({
               )}
 
               <Flex direction="column" gap={2}>
-                <Text fontSize="2xs" color="#A2A2A2">
+                <Text fontSize="2xs" color="app.muted">
                   Amount to unlock (partial allowed)
                 </Text>
                 <Box position="relative" w="100%">
@@ -267,10 +266,12 @@ export default function UnlockModal({
                     value={amount}
                     onChange={(e) => setAmount(e.target.value)}
                     isDisabled={!canUnlock || pending}
-                    borderColor="#454545"
-                    _placeholder={{ color: "#A2A2A2" }}
-                    _hover={{ borderColor: ACCENT }}
-                    _focus={{ boxShadow: "none", borderColor: ACCENT }}
+                    borderColor="app.border"
+                    bg="app.inputBg"
+                    color="app.text"
+                    _placeholder={{ color: "app.muted" }}
+                    _hover={{ borderColor: "app.accent" }}
+                    _focus={{ boxShadow: "none", borderColor: "app.accent" }}
                   />
                   <Flex
                     position="absolute"
@@ -283,7 +284,7 @@ export default function UnlockModal({
                     <Text fontSize="sm">{position.symbol}</Text>
                     <Text
                       fontSize="xs"
-                      color={ACCENT}
+                      color="app.accent"
                       cursor={canUnlock ? "pointer" : "not-allowed"}
                       onClick={canUnlock ? setMax : undefined}
                       _hover={canUnlock ? { opacity: 0.8 } : {}}
@@ -310,8 +311,8 @@ export default function UnlockModal({
 
               <Button
                 borderRadius="2xl"
-                bg={ACCENT}
-                color="#000"
+                bg="app.accent"
+                color="app.onAccent"
                 _hover={{ opacity: 0.9 }}
                 isDisabled={!canUnlock || !amountValid || pending}
                 onClick={() => void handleUnlock()}
