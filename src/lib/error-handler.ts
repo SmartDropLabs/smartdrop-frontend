@@ -234,12 +234,28 @@ export function normalizeError(error: unknown, context?: string): SmartDropError
   if (error instanceof Error) {
     const msg = error.message.toLowerCase();
 
-    // Freighter errors
+    // Freighter errors — check sign-rejection first so "user declined" messages
+    // that don't contain the word "freighter" are still caught correctly.
+    const isSignRejection =
+      msg.includes("user declined") ||
+      msg.includes("user rejected") ||
+      msg.includes("user denied") ||
+      msg.includes("transaction was rejected") ||
+      msg.includes("signing was rejected");
+
+    if (isSignRejection) {
+      return new FreighterError(
+        "FREIGHTER_REJECTED",
+        "You declined the signature request in Freighter. Approve the transaction to continue.",
+        error,
+      );
+    }
+
     if (msg.includes("freighter") || msg.includes("wallet")) {
       if (msg.includes("not installed") || msg.includes("not available")) {
         return new FreighterError("FREIGHTER_NOT_INSTALLED", error.message, error);
       }
-      if (msg.includes("rejected") || msg.includes("user denied")) {
+      if (msg.includes("rejected") || msg.includes("denied")) {
         return new FreighterError("FREIGHTER_REJECTED", error.message, error);
       }
       if (msg.includes("network") || msg.includes("mismatch")) {

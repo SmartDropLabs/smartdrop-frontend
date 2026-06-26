@@ -77,9 +77,14 @@ export const usePlatformStats = () => {
 };
 
 /**
- * Hook to lock assets in a pool
+ * Hook to lock assets in a pool.
+ *
+ * Accepts an optional onStep callback so callers can drive step-by-step UI
+ * without coupling the mutation to internal implementation details.
  */
-export const useLockAssets = () => {
+export const useLockAssets = (options?: {
+  onStep?: (step: "simulating" | "signing" | "submitting") => void;
+}) => {
   const { walletApi, publicKey } = useStellarWallet();
   const queryClient = useQueryClient();
   const toast = useToast();
@@ -93,37 +98,34 @@ export const useLockAssets = () => {
       amount: string;
     }) => {
       if (!walletApi || !publicKey) {
-        throw new Error('Wallet not connected');
+        throw new Error('Wallet not connected. Please connect Freighter before depositing.');
       }
-      return sorobanService.lockAssets(poolId, publicKey, amount, walletApi);
+      options?.onStep?.("simulating");
+      const result = await sorobanService.lockAssets(poolId, publicKey, amount, walletApi);
+      // lockAssets internally signs then submits — surface the submitting step
+      // once the call returns (Freighter popup closed).
+      if (result.success) options?.onStep?.("submitting");
+      return result;
     },
     onSuccess: (result: TransactionResult, variables) => {
       if (result.success) {
+        const shortHash = (result.transactionHash ?? result.hash ?? "").slice(0, 10);
         toast({
-          title: 'Assets Locked Successfully',
-          description: `Transaction: ${result.transactionHash?.slice(0, 8)}...`,
+          title: 'Assets locked',
+          description: shortHash ? `Tx ${shortHash}… confirmed` : 'Deposit confirmed on Stellar',
           status: 'success',
-          duration: 5000,
+          duration: 6000,
           isClosable: true,
         });
 
-        // Invalidate related queries to refetch data
-        queryClient.invalidateQueries({
-          queryKey: [QUERY_KEYS.USER_POSITION, variables.poolId],
-        });
-        queryClient.invalidateQueries({
-          queryKey: [QUERY_KEYS.USER_CREDITS, variables.poolId],
-        });
-        queryClient.invalidateQueries({
-          queryKey: [QUERY_KEYS.PLATFORM_STATS],
-        });
-        queryClient.invalidateQueries({
-          queryKey: [QUERY_KEYS.POOLS],
-        });
+        queryClient.invalidateQueries({ queryKey: [QUERY_KEYS.USER_POSITION, variables.poolId] });
+        queryClient.invalidateQueries({ queryKey: [QUERY_KEYS.USER_CREDITS, variables.poolId] });
+        queryClient.invalidateQueries({ queryKey: [QUERY_KEYS.PLATFORM_STATS] });
+        queryClient.invalidateQueries({ queryKey: [QUERY_KEYS.POOLS] });
       } else {
         toast({
-          title: 'Lock Assets Failed',
-          description: result.error || 'Unknown error occurred',
+          title: 'Deposit failed',
+          description: result.error ?? 'Unknown error — please try again',
           status: 'error',
           duration: 8000,
           isClosable: true,
@@ -132,7 +134,7 @@ export const useLockAssets = () => {
     },
     onError: (error: Error) => {
       toast({
-        title: 'Transaction Error',
+        title: 'Transaction error',
         description: error.message,
         status: 'error',
         duration: 8000,
