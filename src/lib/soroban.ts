@@ -16,6 +16,12 @@ import {
   scValToNative,
   rpc,
 } from '@stellar/stellar-sdk';
+import {
+  bigintToDisplayAmount,
+  parsePoolsFromNative,
+  parseUserPositionFromNative,
+} from './soroban-parsers';
+export type { AssetInfo, PoolInfo, UserPosition } from './soroban-parsers';
 
 // Soroban RPC Configuration
 const RPC_URL = process.env.NEXT_PUBLIC_SOROBAN_RPC_URL || 'https://soroban-testnet.stellar.org:443';
@@ -28,35 +34,6 @@ const DEFAULT_POOL_CONTRACT_ADDRESS = process.env.NEXT_PUBLIC_DEFAULT_POOL_CONTR
 
 // Initialize Soroban RPC Server
 const rpcServer = new rpc.Server(RPC_URL);
-
-export interface AssetInfo {
-  code: string;
-  issuer?: string;
-  isNative?: boolean;
-}
-
-export interface PoolInfo {
-  id: string;
-  contractAddress: string;
-  asset: AssetInfo;
-  dailyRate: string;
-  minLockPeriod: number;
-  totalLocked: string;
-  totalUsers: number;
-  isActive: boolean;
-  createdAt: number;
-}
-
-export interface UserPosition {
-  user: string;
-  poolId: string;
-  amount: string;
-  lockedAt: number;
-  credits: string;
-  isLocked: boolean;
-  unlockableAt: number;
-  boostAllocation?: number;
-}
 
 export interface BoostConfig {
   multiplier: number;
@@ -77,6 +54,58 @@ export interface ContractCallOptions {
   fee?: number;
   memo?: string;
 }
+
+// ── XDR-level wrappers (pure parsing logic lives in ./soroban-parsers) ───────
+
+export function parsePoolsFromXdrResult(xdrResult: xdr.ScVal): PoolInfo[] {
+  let native: unknown;
+  try {
+    native = scValToNative(xdrResult);
+  } catch (err) {
+    console.warn('[SmartDrop] parsePoolsFromXdr: failed to deserialise ScVal:', err);
+    return [];
+  }
+  if (!Array.isArray(native)) {
+    console.warn('[SmartDrop] parsePoolsFromXdr: expected Vec (array), got', typeof native);
+    return [];
+  }
+  return parsePoolsFromNative(native);
+}
+
+export function parseUserPositionFromXdrResult(
+  xdrResult: xdr.ScVal,
+  poolId: string,
+  userAddress: string,
+): UserPosition | null {
+  let native: unknown;
+  try {
+    native = scValToNative(xdrResult);
+  } catch (err) {
+    console.warn('[SmartDrop] parseUserPositionFromXdr: failed to deserialise ScVal:', err);
+    return null;
+  }
+
+  if (native == null) return null;
+
+  if (typeof native !== 'object' || Array.isArray(native)) {
+    console.warn('[SmartDrop] parseUserPositionFromXdr: expected Map (object), got', typeof native);
+    return null;
+  }
+
+  return parseUserPositionFromNative(native as Record<string, unknown>, poolId, userAddress);
+}
+
+export function parseCreditsFromXdrResult(xdrResult: xdr.ScVal): string {
+  try {
+    const native = scValToNative(xdrResult);
+    return bigintToDisplayAmount(native);
+  } catch (err) {
+    console.warn('[SmartDrop] parseCreditsFromXdr: failed to parse:', err);
+    return '0';
+  }
+}
+
+// ── SorobanService class ──────────────────────────────────────────────────────
 
 /**
  * SorobanService class - Main interface for contract interactions
@@ -371,6 +400,7 @@ export class SorobanService {
       return {
         success: false,
         error: error instanceof Error ? error.message : 'Unknown error locking assets',
+        error: error instanceof Error ? error.message : 'Unknown error',
       };
     }
   }
@@ -618,22 +648,19 @@ export class SorobanService {
 
   // Helper methods for parsing XDR data
   private parsePoolsFromXdr(xdrResult: xdr.ScVal): PoolInfo[] {
-    // Actual contract parsing should be implemented here when the Soroban result schema is available.
-    return [];
+    return parsePoolsFromXdrResult(xdrResult);
   }
 
   private parseUserPositionFromXdr(
     xdrResult: xdr.ScVal,
     poolId: string,
-    userAddress: string
+    userAddress: string,
   ): UserPosition | null {
-    // Actual contract parsing should be implemented here when the Soroban result schema is available.
-    return null;
+    return parseUserPositionFromXdrResult(xdrResult, poolId, userAddress);
   }
 
   private parseCreditsFromXdr(xdrResult: xdr.ScVal): string {
-    // Actual contract parsing should be implemented here when the Soroban result schema is available.
-    return '0';
+    return parseCreditsFromXdrResult(xdrResult);
   }
 }
 
@@ -702,7 +729,152 @@ export const unlockAssets = async ({
   publicKey: string;
   amount: string;
   walletApi: any;
-}) => sorobanService.unlockAssets(poolContractId, publicKey, amount, walletApi);
+}) => {
+  // Convert display-unit amount to integer stroops before passing as i128.
+  // 1 display unit = 10,000,000 stroops (Stellar's fixed-point precision).
+  const stroops = Math.round(parseFloat(amount) * 10_000_000).toString();
+  return sorobanService.unlockAssets(poolContractId, publicKey, stroops, walletApi);
+};
 
 export const stellarExpertTxUrl = (hash: string, network: string) =>
   `https://stellar.expert/explorer/${network}/tx/${hash}`;
+
+/**
+ * Compute live-preview values for a partial unlock.
+ * All arguments and return values are in display units (not stroops).
+ */
+export function computePartialUnlockPreview(
+  lockedAmount: number,
+  unlockAmount: number,
+  dailyRate: number,
+): { remainingStake: number; newDailyRate: number } {
+  const remainingStake = lockedAmount - unlockAmount;
+  const newDailyRate =
+    lockedAmount > 0 ? (remainingStake / lockedAmount) * dailyRate : 0;
+  return { remainingStake, newDailyRate };
+}
+
+// ── Transaction history ───────────────────────────────────────────────────────
+
+export interface TxHistoryEntry {
+  date: string;
+  action: 'lock' | 'unlock';
+  amount: string;
+  symbol: string;
+  poolId: string;
+  creditsEarned?: string;
+  txHash: string;
+}
+
+// Ledger lookback window: ~7 days at ~5 s per ledger.
+const HISTORY_LOOKBACK_LEDGERS = 120960;
+
+interface SorobanRpcServer {
+  getLatestLedger(): Promise<{ sequence: number }>;
+  getEvents(request: Parameters<rpc.Server['getEvents']>[0]): ReturnType<rpc.Server['getEvents']>;
+}
+
+function parseTxHistoryEvent(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  evt: any,
+  publicKey: string,
+): TxHistoryEntry | null {
+  try {
+    if (!evt.inSuccessfulContractCall) return null;
+
+    const topicNatives = (evt.topic as xdr.ScVal[]).map(scValToNative);
+    const actionRaw = topicNatives[0] as string;
+    if (actionRaw !== 'lock_assets' && actionRaw !== 'unlock_assets') return null;
+
+    // topic[1] is the user's address — only include events for this wallet
+    const userAddr = topicNatives[1] as string;
+    if (userAddr !== publicKey) return null;
+
+    const action: 'lock' | 'unlock' = actionRaw === 'lock_assets' ? 'lock' : 'unlock';
+
+    const valueNative = scValToNative(evt.value as xdr.ScVal);
+    let amount = '0';
+    let symbol = 'XLM';
+    let creditsEarned: string | undefined;
+
+    if (Array.isArray(valueNative)) {
+      amount = String(valueNative[0] ?? '0');
+      symbol = String(valueNative[1] ?? 'XLM');
+      if (action === 'unlock' && valueNative[2] != null) {
+        creditsEarned = String(valueNative[2]);
+      }
+    } else if (valueNative && typeof valueNative === 'object') {
+      const v = valueNative as Record<string, unknown>;
+      amount = String(v['amount'] ?? '0');
+      symbol = String(v['symbol'] ?? 'XLM');
+      if (action === 'unlock' && v['credits_earned'] != null) {
+        creditsEarned = String(v['credits_earned']);
+      }
+    }
+
+    return {
+      date: evt.ledgerClosedAt as string,
+      action,
+      amount,
+      symbol,
+      poolId: evt.contractId as string,
+      creditsEarned,
+      txHash: evt.txHash as string,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Fetch a user's lock/unlock history by scanning Soroban contract events
+ * emitted by the given pool contracts over the past ~7 days.
+ *
+ * Pass `rpcOverride` in tests to inject a mock RPC server.
+ */
+export async function getUserTransactionHistory(
+  publicKey: string,
+  poolContractIds: string[],
+  rpcOverride?: SorobanRpcServer,
+): Promise<TxHistoryEntry[]> {
+  if (!publicKey || poolContractIds.length === 0) return [];
+
+  const server: SorobanRpcServer = rpcOverride ?? rpcServer;
+
+  try {
+    const latest = await server.getLatestLedger();
+    const startLedger = Math.max(1, latest.sequence - HISTORY_LOOKBACK_LEDGERS);
+
+    const lockSymbol = xdr.ScVal.scvSymbol('lock_assets').toXDR('base64');
+    const unlockSymbol = xdr.ScVal.scvSymbol('unlock_assets').toXDR('base64');
+
+    const response = await server.getEvents({
+      startLedger,
+      filters: [
+        {
+          type: 'contract',
+          contractIds: poolContractIds,
+          topics: [
+            [lockSymbol, '*'],
+            [unlockSymbol, '*'],
+          ],
+        },
+      ],
+      pagination: { limit: 200 },
+    });
+
+    const entries: TxHistoryEntry[] = [];
+    for (const evt of response.events) {
+      const entry = parseTxHistoryEvent(evt, publicKey);
+      if (entry) entries.push(entry);
+    }
+
+    // Newest first
+    return entries.sort(
+      (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime(),
+    );
+  } catch (error) {
+    console.error('Error fetching transaction history:', error);
+    return [];
+  }
+}

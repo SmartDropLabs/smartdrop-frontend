@@ -20,6 +20,18 @@ function truncateKey(key: string): string {
  */
 export default function ConnectWalletButton() {
   const { connect, disconnect, publicKey, isConnected } = useStellarWallet();
+import { Button, type ButtonProps } from "@chakra-ui/react";
+import { useState } from "react";
+
+type ConnectWalletButtonProps = ButtonProps & {
+  label?: string;
+};
+
+export default function ConnectWalletButton({
+  label = "Connect Freighter",
+  ...buttonProps
+}: ConnectWalletButtonProps) {
+  const { connect } = useStellarWallet();
   const toast = useErrorHandler();
   const [isConnecting, setIsConnecting] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -110,8 +122,17 @@ export default function ConnectWalletButton() {
       isLoading={isConnecting}
       loadingText="Connecting…"
       _hover={{ opacity: 0.9 }}
+      bottom={{ base: "16px", md: "20px" }}
+      right={{ base: "16px", md: "20px" }}
+      left={{ base: "16px", md: "auto" }}
+      w={{ base: "calc(100% - 32px)", md: "auto" }}
+      p={4}
+      onClick={handleConnect}
+      isLoading={isLoading}
+      loadingText="Connecting..."
+      {...buttonProps}
     >
-      Connect Freighter
+      {label}
     </Button>
   );
 }
