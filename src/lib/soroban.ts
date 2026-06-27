@@ -646,6 +646,142 @@ export class SorobanService {
     throw new Error(`Transaction ${hash} not confirmed after ${maxAttempts} attempts`);
   }
 
+
+  /**
+   * Get 7-day TVL history for a pool by scanning lock/unlock events.
+   * Returns synthetic daily snapshots derived from on-chain events.
+   * Falls back to empty array if the RPC is unreachable.
+   */
+  async getPoolHistory(
+    poolId: string,
+    days: number = 7,
+  ): Promise<{ date: string; tvl: string }[]> {
+    try {
+      const latest = await this.rpcServer.getLatestLedger();
+      // ~5 s per ledger; days * 86400 / 5
+      const ledgersPerDay = Math.floor(86400 / 5);
+      const startLedger = Math.max(1, latest.sequence - days * ledgersPerDay);
+
+      const { xdr, scValToNative } = await import('@stellar/stellar-sdk');
+      const lockSym = xdr.ScVal.scvSymbol('lock_assets').toXDR('base64');
+      const unlockSym = xdr.ScVal.scvSymbol('unlock_assets').toXDR('base64');
+
+      const response = await this.rpcServer.getEvents({
+        startLedger,
+        filters: [
+          {
+            type: 'contract',
+            contractIds: [poolId],
+            topics: [[lockSym, '*'], [unlockSym, '*']],
+          },
+        ],
+        pagination: { limit: 500 },
+      });
+
+      // Build a running TVL map keyed by ISO date string
+      const dailyMap = new Map<string, number>();
+      let runningTvl = 0;
+
+      // Seed today and past N days so chart always has points
+      for (let i = days - 1; i >= 0; i--) {
+        const d = new Date();
+        d.setDate(d.getDate() - i);
+        dailyMap.set(d.toISOString().slice(0, 10), 0);
+      }
+
+      for (const evt of response.events) {
+        if (!evt.inSuccessfulContractCall) continue;
+        const topics = (evt.topic as import('@stellar/stellar-sdk').xdr.ScVal[]).map(scValToNative);
+        const action = topics[0] as string;
+        const valueNative = scValToNative(evt.value as import('@stellar/stellar-sdk').xdr.ScVal);
+        let amount = 0;
+        if (Array.isArray(valueNative)) amount = Number(valueNative[0] ?? 0);
+        else if (valueNative && typeof valueNative === 'object') {
+          amount = Number((valueNative as Record<string, unknown>)['amount'] ?? 0);
+        }
+        const amountDisplay = amount / 10_000_000;
+        if (action === 'lock_assets') runningTvl += amountDisplay;
+        else if (action === 'unlock_assets') runningTvl = Math.max(0, runningTvl - amountDisplay);
+
+        const dateKey = (evt.ledgerClosedAt as string).slice(0, 10);
+        if (dailyMap.has(dateKey)) dailyMap.set(dateKey, runningTvl);
+      }
+
+      return Array.from(dailyMap.entries())
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([date, tvl]) => ({ date, tvl: String(tvl) }));
+    } catch (err) {
+      console.warn('[SmartDrop] getPoolHistory failed:', err);
+      return [];
+    }
+  }
+
+  /**
+   * Get top N depositors for a pool by scanning lock events.
+   * Returns depositors sorted by amount descending.
+   * Falls back to empty array if the RPC is unreachable.
+   */
+  async getPoolDepositors(
+    poolId: string,
+    limit: number = 20,
+  ): Promise<{ address: string; amount: string; credits: string }[]> {
+    try {
+      const latest = await this.rpcServer.getLatestLedger();
+      const startLedger = Math.max(1, latest.sequence - 120960); // ~7 days
+
+      const { xdr, scValToNative } = await import('@stellar/stellar-sdk');
+      const lockSym = xdr.ScVal.scvSymbol('lock_assets').toXDR('base64');
+      const unlockSym = xdr.ScVal.scvSymbol('unlock_assets').toXDR('base64');
+
+      const response = await this.rpcServer.getEvents({
+        startLedger,
+        filters: [
+          {
+            type: 'contract',
+            contractIds: [poolId],
+            topics: [[lockSym, '*'], [unlockSym, '*']],
+          },
+        ],
+        pagination: { limit: 500 },
+      });
+
+      const balances = new Map<string, number>();
+
+      for (const evt of response.events) {
+        if (!evt.inSuccessfulContractCall) continue;
+        const topics = (evt.topic as import('@stellar/stellar-sdk').xdr.ScVal[]).map(scValToNative);
+        const action = topics[0] as string;
+        const address = String(topics[1] ?? '');
+        if (!address) continue;
+
+        const valueNative = scValToNative(evt.value as import('@stellar/stellar-sdk').xdr.ScVal);
+        let amount = 0;
+        if (Array.isArray(valueNative)) amount = Number(valueNative[0] ?? 0);
+        else if (valueNative && typeof valueNative === 'object') {
+          amount = Number((valueNative as Record<string, unknown>)['amount'] ?? 0);
+        }
+        const amountDisplay = amount / 10_000_000;
+
+        const current = balances.get(address) ?? 0;
+        if (action === 'lock_assets') balances.set(address, current + amountDisplay);
+        else if (action === 'unlock_assets') balances.set(address, Math.max(0, current - amountDisplay));
+      }
+
+      return Array.from(balances.entries())
+        .filter(([, amt]) => amt > 0)
+        .sort(([, a], [, b]) => b - a)
+        .slice(0, limit)
+        .map(([address, amount]) => ({
+          address,
+          amount: amount.toLocaleString(undefined, { maximumFractionDigits: 7 }),
+          credits: '—',
+        }));
+    } catch (err) {
+      console.warn('[SmartDrop] getPoolDepositors failed:', err);
+      return [];
+    }
+  }
+
   // Helper methods for parsing XDR data
   private parsePoolsFromXdr(xdrResult: xdr.ScVal): PoolInfo[] {
     return parsePoolsFromXdrResult(xdrResult);

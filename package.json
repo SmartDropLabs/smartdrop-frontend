@@ -28,6 +28,7 @@
     "next": "15.5.18",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
+    "recharts": "^3.9.0",
     "soroban-client": "^1.0.1",
     "stellar-plus": "^0.14.4",
     "zustand": "^5.0.14"

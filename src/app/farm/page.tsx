@@ -1,4 +1,5 @@
-"use client";
+bash apply_changes.sh"use client";
+import NextLink from "next/link";
 import { memo, useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   Alert,
@@ -619,9 +620,16 @@ export default function Farm() {
             px={4}
             py={{ base: 4, md: 0 }}
           >
-            <Text fontWeight={{ base: "bold", md: "normal" }} w={{ base: "full", md: "auto" }}>
-              {farm.name}
-            </Text>
+            <NextLink href={`/farm/${farm.id}`} style={{ textDecoration: "none" }}>
+              <Text
+                fontWeight={{ base: "bold", md: "normal" }}
+                w={{ base: "full", md: "auto" }}
+                _hover={{ color: "#4ae292", textDecoration: "underline" }}
+                cursor="pointer"
+              >
+                {farm.name}
+              </Text>
+            </NextLink>
             <MetricColumn label="Earned" value={farm.earned} />
             <MetricColumn label="My Stake" value={farm.stake} />
             <MetricColumn label="Daily Rate" value={farm.dailyRate} />
