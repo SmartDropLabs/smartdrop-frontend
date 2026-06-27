@@ -4,9 +4,15 @@
  */
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { sorobanService, type UserPosition, type TransactionResult } from '@/lib/soroban';
+import { useEffect, useState } from 'react';
+import type { UserPosition, TransactionResult } from '@/lib/soroban';
 import { useStellarWallet } from '@/context/StellarWalletContext';
 import { useToast } from '@chakra-ui/react';
+
+async function getSorobanService() {
+  const { sorobanService } = await import('@/lib/soroban');
+  return sorobanService;
+}
 
 // Query Keys
 export const QUERY_KEYS = {
@@ -23,7 +29,7 @@ export const QUERY_KEYS = {
 export const usePools = () => {
   return useQuery({
     queryKey: [QUERY_KEYS.POOLS],
-    queryFn: () => sorobanService.getFactoryPools(),
+    queryFn: async () => (await getSorobanService()).getFactoryPools(),
     staleTime: 30000, // 30 seconds
     refetchInterval: 60000, // 1 minute
     retry: 3,
@@ -39,7 +45,7 @@ export const useUserPosition = (poolId: string, enabled: boolean = true) => {
 
   return useQuery({
     queryKey: [QUERY_KEYS.USER_POSITION, poolId, publicKey],
-    queryFn: () => sorobanService.getUserPosition(poolId, publicKey!),
+    queryFn: async () => (await getSorobanService()).getUserPosition(poolId, publicKey!),
     enabled: enabled && !!publicKey && !!poolId,
     staleTime: 15000, // 15 seconds
     refetchInterval: 30000, // 30 seconds
@@ -55,7 +61,7 @@ export const useUserCredits = (poolId: string, enabled: boolean = true) => {
 
   return useQuery({
     queryKey: [QUERY_KEYS.USER_CREDITS, poolId, publicKey],
-    queryFn: () => sorobanService.calculateUserCredits(poolId, publicKey!),
+    queryFn: async () => (await getSorobanService()).calculateUserCredits(poolId, publicKey!),
     enabled: enabled && !!publicKey && !!poolId,
     staleTime: 5000, // 5 seconds (credits change frequently)
     refetchInterval: 10000, // 10 seconds
@@ -64,12 +70,26 @@ export const useUserCredits = (poolId: string, enabled: boolean = true) => {
 };
 
 /**
- * Hook to fetch platform statistics
+ * Hook to fetch platform statistics (deferred until the browser is idle so
+ * the home page shell can paint without loading the Soroban SDK immediately).
  */
 export const usePlatformStats = () => {
+  const [enabled, setEnabled] = useState(false);
+
+  useEffect(() => {
+    const enable = () => setEnabled(true);
+    if (typeof requestIdleCallback === 'function') {
+      const id = requestIdleCallback(enable);
+      return () => cancelIdleCallback(id);
+    }
+    const timer = setTimeout(enable, 1);
+    return () => clearTimeout(timer);
+  }, []);
+
   return useQuery({
     queryKey: [QUERY_KEYS.PLATFORM_STATS],
-    queryFn: () => sorobanService.getPlatformStats(),
+    queryFn: async () => (await getSorobanService()).getPlatformStats(),
+    enabled,
     staleTime: 60000, // 1 minute
     refetchInterval: 120000, // 2 minutes
     retry: 3,
@@ -101,7 +121,7 @@ export const useLockAssets = (options?: {
         throw new Error('Wallet not connected. Please connect Freighter before depositing.');
       }
       options?.onStep?.("simulating");
-      const result = await sorobanService.lockAssets(poolId, publicKey, amount, walletApi);
+      const result = await (await getSorobanService()).lockAssets(poolId, publicKey, amount, walletApi);
       // lockAssets internally signs then submits — surface the submitting step
       // once the call returns (Freighter popup closed).
       if (result.success) options?.onStep?.("submitting");
@@ -163,7 +183,7 @@ export const useUnlockAssets = () => {
       if (!walletApi || !publicKey) {
         throw new Error('Wallet not connected');
       }
-      return sorobanService.unlockAssets(poolId, publicKey, amount, walletApi);
+      return (await getSorobanService()).unlockAssets(poolId, publicKey, amount, walletApi);
     },
     onSuccess: (result: TransactionResult, variables) => {
       if (result.success) {
@@ -229,7 +249,7 @@ export const useSetBoost = () => {
       if (!walletApi || !publicKey) {
         throw new Error('Wallet not connected');
       }
-      return sorobanService.setBoost(poolId, publicKey, allocationPercentage, walletApi);
+      return (await getSorobanService()).setBoost(poolId, publicKey, allocationPercentage, walletApi);
     },
     onSuccess: (result: TransactionResult, variables) => {
       if (result.success) {
@@ -286,7 +306,7 @@ export const useAllUserPositions = () => {
       if (!publicKey || !pools) return [];
 
       const positions = await Promise.allSettled(
-        pools.map(pool => sorobanService.getUserPosition(pool.id, publicKey))
+        pools.map(async (pool) => (await getSorobanService()).getUserPosition(pool.id, publicKey))
       );
 
       return positions
@@ -315,7 +335,7 @@ export const useTotalUserCredits = () => {
       if (!publicKey || !pools) return '0';
 
       const credits = await Promise.allSettled(
-        pools.map(pool => sorobanService.calculateUserCredits(pool.id, publicKey))
+        pools.map(async (pool) => (await getSorobanService()).calculateUserCredits(pool.id, publicKey))
       );
 
       const totalCredits = credits.reduce((total, result) => {

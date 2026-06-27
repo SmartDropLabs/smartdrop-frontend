@@ -1,5 +1,5 @@
 "use client";
-import { memo, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Alert,
   AlertIcon,
@@ -18,9 +18,6 @@ import {
   Spinner,
   Text,
   Tooltip,
-  Alert,
-  AlertIcon,
-  Input,
   useToast,
 } from "@chakra-ui/react";
 import { useStellarWallet } from "@/context/StellarWalletContext";
@@ -31,6 +28,7 @@ import {
   stellarNetwork,
 } from "@/config";
 import UnlockModal from "@/components/UnlockModal/UnlockModal";
+import { EarningRow, MetricColumn } from "@/components/EarningRow/EarningRow";
 import ConnectWalletButton from "@/components/ConnectWalletButton/ConnectWalletButton";
 import { useCountdown } from "@/hooks/useCountdown";
 import { unlockAvailableAt, DEPOSIT_STEP_LABEL, isDepositPending, type FarmPosition } from "@/types/farm";
@@ -41,7 +39,6 @@ import type { UserPosition } from "@/lib/soroban";
 
 const ACCENT = "#4AE292";
 import { useSorobanEvents } from "@/hooks/useSorobanEvents";
-import type { UserPosition } from "@/lib/soroban";
 import { useFarmStore } from "@/store/farmStore";
 
 type LivePoolRow = {
@@ -56,161 +53,6 @@ type LivePoolRow = {
   lockedAt: number;
   lockPeriodSeconds: number;
 };
-
-function MetricColumn({
-  label,
-  value,
-  minW = "110px",
-}: {
-  label: string;
-  value: ReactNode;
-  minW?: string;
-}) {
-  return (
-    <Flex
-      direction="column"
-      minW={{ base: 0, md: minW }}
-      w={{ base: "full", md: "auto" }}
-      align={{ base: "stretch", md: "flex-start" }}
-      gap={1}
-    >
-      <Text fontSize="2xs" color="app.muted" textTransform="uppercase">
-        {label}
-      </Text>
-      <Text fontWeight={{ base: "semibold", md: "normal" }} overflowWrap="anywhere">
-        {value}
-      </Text>
-    </Flex>
-  );
-}
-
-type EarningRowProps = {
-  position: FarmPosition;
-};
-
-// Keep this synchronized with FarmPosition in src/types/farm.ts. Every rendered
-// field must be compared, or memoization can hide row updates when fields change.
-function earningRowPropsAreEqual(
-  previous: EarningRowProps,
-  next: EarningRowProps
-) {
-  const previousPosition = previous.position;
-  const nextPosition = next.position;
-
-  return (
-    previousPosition.id === nextPosition.id &&
-    previousPosition.name === nextPosition.name &&
-    previousPosition.img === nextPosition.img &&
-    previousPosition.earned === nextPosition.earned &&
-    previousPosition.stake === nextPosition.stake &&
-    previousPosition.dailyRate === nextPosition.dailyRate &&
-    previousPosition.totalStakedLiquidity ===
-      nextPosition.totalStakedLiquidity &&
-    previousPosition.symbol === nextPosition.symbol &&
-    previousPosition.lockedAmount === nextPosition.lockedAmount &&
-    previousPosition.lockedAt === nextPosition.lockedAt &&
-    previousPosition.lockPeriodSeconds === nextPosition.lockPeriodSeconds
-  );
-}
-
-export const EarningRow = memo(function EarningRow({
-  position,
-}: EarningRowProps) {
-  const openUnlock = useFarmStore((s) => s.openUnlock);
-  const countdown = useCountdown(unlockAvailableAt(position));
-  const hasStake = position.lockedAmount > 0;
-  const canUnlock = hasStake && countdown.isElapsed;
-
-  return (
-    <Flex
-      display={{ base: 'flex', md: 'flex' }}
-      flexDirection={{ base: 'column', md: 'row' }}
-      w={{ base: "full", md: "95%" }}
-      h={{ base: "auto", md: 20 }}
-      mx="auto"
-      align={{ base: "stretch", md: "center" }}
-      justify={{ base: "flex-start", md: "space-between" }}
-      gap={{ base: 4, md: 0 }}
-      borderTop="1px solid"
-      borderBottom="1px solid"
-      borderX={{ base: "1px solid", md: "0" }}
-      borderColor="app.border"
-      borderRadius={{ base: "2xl", md: "none" }}
-      px={4}
-      py={{ base: 4, md: 0 }}
-    >
-      <Text fontWeight={{ base: "bold", md: "normal" }} w={{ base: "full", md: "auto" }}>
-        {position.name}
-      </Text>
-      <MetricColumn label="Earned" value={position.earned} />
-      <MetricColumn label="My Stake" value={position.stake} />
-      <MetricColumn label="Daily Rate" value={position.dailyRate} />
-      <MetricColumn
-        label="Total Staked Liquidity"
-        value={position.totalStakedLiquidity}
-        minW="180px"
-      />
-      {hasStake && !canUnlock && (
-        <Box
-          display={{ base: "block", md: "none" }}
-          w="full"
-          textAlign="center"
-          border="1px solid"
-          borderColor="app.border"
-          borderRadius="2xl"
-          bg="app.inputBg"
-          px={3}
-          py={3}
-        >
-          <Text fontSize="2xs" color="app.muted" textTransform="uppercase">
-            Unlock countdown
-          </Text>
-          <Text fontSize="lg" fontWeight="bold">
-            {countdown.label}
-          </Text>
-        </Box>
-      )}
-      <Flex
-        gap={{ base: 3, md: 4 }}
-        direction={{ base: "column", md: "row" }}
-        w={{ base: "full", md: "auto" }}
-      >
-        <Button
-          borderRadius="3xl"
-          isDisabled
-          opacity={0.6}
-          cursor="not-allowed"
-          _hover={{ opacity: 0.6 }}
-          w={{ base: "full", md: "auto" }}
-        >
-          Boost
-        </Button>
-        <Tooltip
-          label={
-            !hasStake
-              ? "No locked assets in this position"
-              : `Locked for another ${countdown.label}`
-          }
-          isDisabled={canUnlock}
-          hasArrow
-          bg="app.tooltipBg"
-          color="app.tooltipFg"
-        >
-          <Box w={{ base: "full", md: "auto" }}>
-            <Button
-              borderRadius="3xl"
-              onClick={() => openUnlock(position)}
-              isDisabled={!canUnlock}
-              w={{ base: "full", md: "auto" }}
-            >
-              Unlock
-            </Button>
-          </Box>
-        </Tooltip>
-      </Flex>
-    </Flex>
-  );
-}, earningRowPropsAreEqual);
 
 /** Deposit modal — delegates all transaction logic to useLockFlow. */
 function DepositModal({
@@ -311,7 +153,7 @@ function DepositModal({
             /* ── Input / in-progress / error screen ──────────────────── */
             <Flex direction="column" gap={6}>
               <Text color="#A2A2A2" fontSize="sm">
-                Lock {farm.symbol} to earn credits from this pool. Assets are time-locked for the pool's minimum period.
+                Lock {farm.symbol} to earn credits from this pool. Assets are time-locked for the pool&apos;s minimum period.
               </Text>
 
               {/* Amount input */}
@@ -462,10 +304,6 @@ export default function Farm() {
 
   const [selectedFarm, setSelectedFarm] = useState<LivePoolRow | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [unlockPosition, setUnlockPosition] = useState<FarmPosition | null>(null);
-  const [isUnlockOpen, setIsUnlockOpen] = useState(false);
-  const [submitPending, setSubmitPending] = useState(false);
-  const [sliderValue, setSliderValue] = useState(50);
 
   useEffect(() => {
     if (poolsError && poolsErrorObj) {
@@ -544,32 +382,6 @@ export default function Farm() {
   const handleModalClose = () => {
     setIsModalOpen(false);
     setSelectedFarm(null);
-  };
-
-  const handleUnlockClick = (position: FarmPosition) => {
-    setUnlockPosition(position);
-    setIsUnlockOpen(true);
-  };
-
-  const handleUnlockClose = () => {
-    setIsUnlockOpen(false);
-    setUnlockPosition(null);
-  };
-
-  const handleUnlocked = (position: FarmPosition, amount: number) => {
-    setIsUnlockOpen(false);
-    setUnlockPosition(null);
-    toast({
-      title: "Unlock submitted",
-      description: `${amount} ${position.symbol} unlock request sent.`,
-      status: "success",
-      duration: 6000,
-      isClosable: true,
-    });
-  const handleLockClick = async () => {
-    setSubmitPending(true);
-    await new Promise((resolve) => setTimeout(resolve, 1500));
-    setSubmitPending(false);
   };
 
   const hasPositions = myPositions.length > 0;
@@ -696,47 +508,6 @@ export default function Farm() {
         isOpen={isModalOpen}
         onClose={handleModalClose}
       />
-      <Modal isOpen={isModalOpen} onClose={handleModalClose}>
-        <ModalOverlay backdropFilter="blur(3px)" />
-        <ModalContent bg="app.surface" color="app.text" borderRadius="3xl">
-          <ModalHeader mx="auto">{selectedFarm?.name}</ModalHeader>
-          <ModalCloseButton />
-          <ModalBody p={8}>
-            <Flex direction="column" gap={6}>
-              <Text color="app.muted">
-                Deposit to earn points from this pool via Soroban.
-              </Text>
-              <Box>
-                <Text fontSize="md" mb={2}>
-                  Amount
-                </Text>
-                <Box mb={4}>
-                  <Input
-                    type="number"
-                    value={sliderValue}
-                    onChange={(event) => setSliderValue(Number(event.target.value))}
-                    borderRadius="2xl"
-                    bg="app.inputBg"
-                    borderColor="app.border"
-                    color="app.text"
-                    _focus={{ boxShadow: "none", borderColor: "app.accent" }}
-                    _hover={{ borderColor: "app.accent" }}
-                  />
-                </Box>
-              </Box>
-              <Button
-                borderRadius="3xl"
-                colorScheme="green"
-                isLoading={submitPending}
-                onClick={handleLockClick}
-                w="full"
-              >
-                Deposit {sliderValue} {selectedFarm?.symbol ?? "tokens"}
-              </Button>
-            </Flex>
-          </ModalBody>
-        </ModalContent>
-      </Modal>
 
       <UnlockModal />
     </Flex>

@@ -31,6 +31,8 @@ import {
 } from "@chakra-ui/react";
 import { useEffect, useMemo, useState } from "react";
 
+const ACCENT = "#4AE292";
+
 export default function UnlockModal() {
   const selectedPosition = useFarmStore((s) => s.selectedPosition);
   const isUnlock = useFarmStore((s) => s.activeModal === "unlock");

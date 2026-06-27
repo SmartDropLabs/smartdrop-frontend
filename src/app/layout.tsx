@@ -1,4 +1,5 @@
-﻿import AppShell from "@/components/AppShell/AppShell";
+﻿import ChakraUIProvider from "@/components/ChakraUIProvider/ChakraUIProvider";
+import AppShell from "@/components/AppShell/AppShell";
 import type { Metadata } from "next";
 import { CSP_POLICY } from "../../next.config";
 
@@ -21,7 +22,9 @@ export default function RootLayout({
         <meta httpEquiv="Content-Security-Policy" content={CSP_POLICY} />
       </head>
       <body>
-        <AppShell>{children}</AppShell>
+        <ChakraUIProvider>
+          <AppShell>{children}</AppShell>
+        </ChakraUIProvider>
       </body>
     </html>
   );

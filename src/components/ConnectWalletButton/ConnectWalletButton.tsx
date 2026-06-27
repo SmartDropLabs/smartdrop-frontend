@@ -1,7 +1,7 @@
 "use client";
 import { useErrorHandler } from "@/context/ErrorContext";
 import { useStellarWallet } from "@/context/StellarWalletContext";
-import { Button, Flex, Text, Tooltip } from "@chakra-ui/react";
+import { Button, Flex, Text, Tooltip, type ButtonProps } from "@chakra-ui/react";
 import { useState } from "react";
 
 const ACCENT = "#4AE292";
@@ -11,6 +11,10 @@ function truncateKey(key: string): string {
   return `${key.slice(0, 4)}…${key.slice(-4)}`;
 }
 
+type ConnectWalletButtonProps = ButtonProps & {
+  label?: string;
+};
+
 /**
  * ConnectWalletButton
  *
@@ -18,20 +22,11 @@ function truncateKey(key: string): string {
  * - Connected: shows a condensed address badge with a "Disconnect" action.
  * Clicking the address badge copies the full key to the clipboard.
  */
-export default function ConnectWalletButton() {
-  const { connect, disconnect, publicKey, isConnected } = useStellarWallet();
-import { Button, type ButtonProps } from "@chakra-ui/react";
-import { useState } from "react";
-
-type ConnectWalletButtonProps = ButtonProps & {
-  label?: string;
-};
-
 export default function ConnectWalletButton({
   label = "Connect Freighter",
   ...buttonProps
 }: ConnectWalletButtonProps) {
-  const { connect } = useStellarWallet();
+  const { connect, disconnect, publicKey, isConnected } = useStellarWallet();
   const toast = useErrorHandler();
   const [isConnecting, setIsConnecting] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -113,8 +108,10 @@ export default function ConnectWalletButton({
       color="#000"
       borderRadius="3xl"
       position="fixed"
-      bottom="20px"
-      right="20px"
+      bottom={{ base: "16px", md: "20px" }}
+      right={{ base: "16px", md: "20px" }}
+      left={{ base: "16px", md: "auto" }}
+      w={{ base: "calc(100% - 32px)", md: "auto" }}
       px={6}
       py={4}
       fontWeight="bold"
@@ -122,14 +119,6 @@ export default function ConnectWalletButton({
       isLoading={isConnecting}
       loadingText="Connecting…"
       _hover={{ opacity: 0.9 }}
-      bottom={{ base: "16px", md: "20px" }}
-      right={{ base: "16px", md: "20px" }}
-      left={{ base: "16px", md: "auto" }}
-      w={{ base: "calc(100% - 32px)", md: "auto" }}
-      p={4}
-      onClick={handleConnect}
-      isLoading={isLoading}
-      loadingText="Connecting..."
       {...buttonProps}
     >
       {label}

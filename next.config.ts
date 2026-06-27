@@ -1,7 +1,12 @@
 ﻿import type { NextConfig } from "next";
+import bundleAnalyzer from "@next/bundle-analyzer";
+
+const withBundleAnalyzer = bundleAnalyzer({
+  enabled: process.env.ANALYZE === "true",
+});
 
 const raw = process.env.BASE_PATH?.trim() ?? "";
-const basePath = raw.startsWith("/") ? raw : raw ? / : "";
+const basePath = raw.startsWith("/") ? raw : raw ? `/${raw}` : "";
 
 const CSP_POLICY = [
   "default-src 'self'",
@@ -24,5 +29,5 @@ const nextConfig: NextConfig = {
   ...(basePath ? { basePath, assetPrefix: basePath } : {}),
 };
 
-export default nextConfig;
+export default withBundleAnalyzer(nextConfig);
 export { CSP_POLICY };

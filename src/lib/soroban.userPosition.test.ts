@@ -11,7 +11,7 @@ function makePositionScVal(fields: Record<string, unknown>): xdr.ScVal {
 }
 
 describe('parseUserPositionFromXdrResult', () => {
-  it('parses every UserPosition field from canonical contract names', () => {
+  it('parses every UserPosition field from canonical contract names', async () => {
     const scVal = makePositionScVal({
       amount: 50_000_000n,        // 5.0000000 XLM
       locked_at: 1_700_000_000n,
@@ -21,7 +21,7 @@ describe('parseUserPositionFromXdrResult', () => {
       boost_allocation: 2,
     });
 
-    const pos = parseUserPositionFromXdrResult(scVal, POOL_ID, USER_ADDR);
+    const pos = await parseUserPositionFromXdrResult(scVal, POOL_ID, USER_ADDR);
 
     expect(pos).not.toBeNull();
     expect(pos!.user).toBe(USER_ADDR);
@@ -34,7 +34,7 @@ describe('parseUserPositionFromXdrResult', () => {
     expect(pos!.boostAllocation).toBe(2);
   });
 
-  it('derives unlockableAt from lockedAt + min_lock_period when unlockable_at is absent', () => {
+  it('derives unlockableAt from lockedAt + min_lock_period when unlockable_at is absent', async () => {
     const LOCKED_AT = 1_700_000_000n;
     const MIN_LOCK = 86_400n; // 1 day in seconds
 
@@ -46,13 +46,13 @@ describe('parseUserPositionFromXdrResult', () => {
       min_lock_period: MIN_LOCK,
     });
 
-    const pos = parseUserPositionFromXdrResult(scVal, POOL_ID, USER_ADDR);
+    const pos = await parseUserPositionFromXdrResult(scVal, POOL_ID, USER_ADDR);
 
     expect(pos).not.toBeNull();
     expect(pos!.unlockableAt).toBe(Number(LOCKED_AT) + Number(MIN_LOCK));
   });
 
-  it('accepts the unlock_at alias for unlockableAt', () => {
+  it('accepts the unlock_at alias for unlockableAt', async () => {
     const scVal = makePositionScVal({
       amount: 10_000_000n,
       locked_at: 1_700_000_000n,
@@ -61,12 +61,12 @@ describe('parseUserPositionFromXdrResult', () => {
       unlock_at: 1_700_100_000n,
     });
 
-    const pos = parseUserPositionFromXdrResult(scVal, POOL_ID, USER_ADDR);
+    const pos = await parseUserPositionFromXdrResult(scVal, POOL_ID, USER_ADDR);
 
     expect(pos!.unlockableAt).toBe(1_700_100_000);
   });
 
-  it('defaults unlockableAt to 0 when neither unlockable_at nor min_lock_period are present', () => {
+  it('defaults unlockableAt to 0 when neither unlockable_at nor min_lock_period are present', async () => {
     const scVal = makePositionScVal({
       amount: 10_000_000n,
       locked_at: 1_700_000_000n,
@@ -74,12 +74,12 @@ describe('parseUserPositionFromXdrResult', () => {
       is_locked: false,
     });
 
-    const pos = parseUserPositionFromXdrResult(scVal, POOL_ID, USER_ADDR);
+    const pos = await parseUserPositionFromXdrResult(scVal, POOL_ID, USER_ADDR);
 
     expect(pos!.unlockableAt).toBe(0);
   });
 
-  it('accepts locked_amount alias for amount field', () => {
+  it('accepts locked_amount alias for amount field', async () => {
     const scVal = makePositionScVal({
       locked_amount: 20_000_000n, // 2.0000000 XLM
       locked_at: 1_700_000_000n,
@@ -87,12 +87,12 @@ describe('parseUserPositionFromXdrResult', () => {
       is_locked: true,
     });
 
-    const pos = parseUserPositionFromXdrResult(scVal, POOL_ID, USER_ADDR);
+    const pos = await parseUserPositionFromXdrResult(scVal, POOL_ID, USER_ADDR);
 
     expect(pos!.amount).toBe('2.0000000');
   });
 
-  it('accepts accrued_credits alias for credits field', () => {
+  it('accepts accrued_credits alias for credits field', async () => {
     const scVal = makePositionScVal({
       amount: 10_000_000n,
       locked_at: 1_700_000_000n,
@@ -100,28 +100,28 @@ describe('parseUserPositionFromXdrResult', () => {
       is_locked: false,
     });
 
-    const pos = parseUserPositionFromXdrResult(scVal, POOL_ID, USER_ADDR);
+    const pos = await parseUserPositionFromXdrResult(scVal, POOL_ID, USER_ADDR);
 
     expect(pos!.credits).toBe('0.5000000');
   });
 
-  it('returns null for a void/null ScVal (wallet has no position)', () => {
+  it('returns null for a void/null ScVal (wallet has no position)', async () => {
     const scVal = xdr.ScVal.scvVoid();
 
-    const pos = parseUserPositionFromXdrResult(scVal, POOL_ID, USER_ADDR);
+    const pos = await parseUserPositionFromXdrResult(scVal, POOL_ID, USER_ADDR);
 
     expect(pos).toBeNull();
   });
 
-  it('returns null for a non-map ScVal (unexpected type)', () => {
+  it('returns null for a non-map ScVal (unexpected type)', async () => {
     const scVal = nativeToScVal('unexpected-string');
 
-    const pos = parseUserPositionFromXdrResult(scVal, POOL_ID, USER_ADDR);
+    const pos = await parseUserPositionFromXdrResult(scVal, POOL_ID, USER_ADDR);
 
     expect(pos).toBeNull();
   });
 
-  it('omits boostAllocation when neither boost_allocation nor boost are present', () => {
+  it('omits boostAllocation when neither boost_allocation nor boost are present', async () => {
     const scVal = makePositionScVal({
       amount: 10_000_000n,
       locked_at: 1_700_000_000n,
@@ -129,12 +129,12 @@ describe('parseUserPositionFromXdrResult', () => {
       is_locked: false,
     });
 
-    const pos = parseUserPositionFromXdrResult(scVal, POOL_ID, USER_ADDR);
+    const pos = await parseUserPositionFromXdrResult(scVal, POOL_ID, USER_ADDR);
 
     expect(pos!.boostAllocation).toBeUndefined();
   });
 
-  it('converts zero-amount fields to 0.0000000', () => {
+  it('converts zero-amount fields to 0.0000000', async () => {
     const scVal = makePositionScVal({
       amount: 0n,
       locked_at: 0n,
@@ -142,7 +142,7 @@ describe('parseUserPositionFromXdrResult', () => {
       is_locked: false,
     });
 
-    const pos = parseUserPositionFromXdrResult(scVal, POOL_ID, USER_ADDR);
+    const pos = await parseUserPositionFromXdrResult(scVal, POOL_ID, USER_ADDR);
 
     expect(pos!.amount).toBe('0.0000000');
     expect(pos!.credits).toBe('0.0000000');

@@ -1,39 +1,34 @@
 /**
  * Comprehensive Soroban Contract Integration Layer
  * Handles all smart contract interactions for SmartDrop
+ *
+ * @stellar/stellar-sdk is loaded lazily via dynamic import() so the XDR
+ * codegen (~400 KB minified) is not included in the initial JS bundle.
  */
 
-import {
-  Contract,
-  Networks,
-  Operation,
-  TransactionBuilder,
-  BASE_FEE,
-  Memo,
-  xdr,
-  Address,
-  nativeToScVal,
-  scValToNative,
-  rpc,
-} from '@stellar/stellar-sdk';
+import type { xdr } from '@stellar/stellar-sdk';
+import { networkPassphrase } from '@/config';
 import {
   bigintToDisplayAmount,
   parsePoolsFromNative,
   parseUserPositionFromNative,
+  type AssetInfo,
+  type PoolInfo,
+  type UserPosition,
 } from './soroban-parsers';
-export type { AssetInfo, PoolInfo, UserPosition } from './soroban-parsers';
+import { loadStellarSdk, type StellarSdkModule } from './stellar-sdk-loader';
+
+export type { AssetInfo, PoolInfo, UserPosition };
 
 // Soroban RPC Configuration
 const RPC_URL = process.env.NEXT_PUBLIC_SOROBAN_RPC_URL || 'https://soroban-testnet.stellar.org:443';
-const NETWORK = process.env.NEXT_PUBLIC_STELLAR_NETWORK || 'testnet';
-const NETWORK_PASSPHRASE = process.env.NEXT_PUBLIC_NETWORK_PASSPHRASE || Networks.TESTNET;
+const NETWORK_PASSPHRASE = networkPassphrase;
 
 // Contract Addresses (will be set via environment variables in production)
 const FACTORY_CONTRACT_ADDRESS = process.env.NEXT_PUBLIC_FACTORY_CONTRACT_ADDRESS || '';
-const DEFAULT_POOL_CONTRACT_ADDRESS = process.env.NEXT_PUBLIC_DEFAULT_POOL_CONTRACT_ADDRESS || '';
 
-// Initialize Soroban RPC Server
-const rpcServer = new rpc.Server(RPC_URL);
+type RpcServer = InstanceType<StellarSdkModule['rpc']['Server']>;
+type StellarContract = InstanceType<StellarSdkModule['Contract']>;
 
 export interface BoostConfig {
   multiplier: number;
@@ -57,7 +52,8 @@ export interface ContractCallOptions {
 
 // ── XDR-level wrappers (pure parsing logic lives in ./soroban-parsers) ───────
 
-export function parsePoolsFromXdrResult(xdrResult: xdr.ScVal): PoolInfo[] {
+export async function parsePoolsFromXdrResult(xdrResult: xdr.ScVal): Promise<PoolInfo[]> {
+  const { scValToNative } = await loadStellarSdk();
   let native: unknown;
   try {
     native = scValToNative(xdrResult);
@@ -72,11 +68,12 @@ export function parsePoolsFromXdrResult(xdrResult: xdr.ScVal): PoolInfo[] {
   return parsePoolsFromNative(native);
 }
 
-export function parseUserPositionFromXdrResult(
+export async function parseUserPositionFromXdrResult(
   xdrResult: xdr.ScVal,
   poolId: string,
   userAddress: string,
-): UserPosition | null {
+): Promise<UserPosition | null> {
+  const { scValToNative } = await loadStellarSdk();
   let native: unknown;
   try {
     native = scValToNative(xdrResult);
@@ -95,7 +92,8 @@ export function parseUserPositionFromXdrResult(
   return parseUserPositionFromNative(native as Record<string, unknown>, poolId, userAddress);
 }
 
-export function parseCreditsFromXdrResult(xdrResult: xdr.ScVal): string {
+export async function parseCreditsFromXdrResult(xdrResult: xdr.ScVal): Promise<string> {
+  const { scValToNative } = await loadStellarSdk();
   try {
     const native = scValToNative(xdrResult);
     return bigintToDisplayAmount(native);
@@ -111,26 +109,44 @@ export function parseCreditsFromXdrResult(xdrResult: xdr.ScVal): string {
  * SorobanService class - Main interface for contract interactions
  */
 export class SorobanService {
-  private rpcServer: rpc.Server;
-  private factoryContract?: Contract;
-  private poolContracts: Map<string, Contract> = new Map();
+  private rpcServer: RpcServer | null = null;
+  private factoryContract?: StellarContract;
+  private poolContracts: Map<string, StellarContract> = new Map();
+  private initPromise: Promise<void> | null = null;
 
   constructor() {
-    this.rpcServer = rpcServer;
-    if (FACTORY_CONTRACT_ADDRESS) {
-      this.factoryContract = new Contract(FACTORY_CONTRACT_ADDRESS);
+    // Factory contract is created lazily on first initialize()
+  }
+
+  private async getRpcServer(): Promise<RpcServer> {
+    if (!this.rpcServer) {
+      const { rpc } = await loadStellarSdk();
+      this.rpcServer = new rpc.Server(RPC_URL);
     }
+    return this.rpcServer;
+  }
+
+  private async setFactoryContract(address: string): Promise<void> {
+    const { Contract } = await loadStellarSdk();
+    this.factoryContract = new Contract(address);
+  }
+
+  private async ensureInitialized(factoryAddress?: string): Promise<void> {
+    if (!this.initPromise) {
+      this.initPromise = this.initialize(factoryAddress);
+    }
+    await this.initPromise;
   }
 
   /**
    * Initialize the service with contract addresses
    */
   async initialize(factoryAddress?: string) {
-    if (factoryAddress) {
-      this.factoryContract = new Contract(factoryAddress);
+    const address = factoryAddress || FACTORY_CONTRACT_ADDRESS;
+    if (address) {
+      await this.setFactoryContract(address);
     }
-    
-    // Load existing pools
+
     await this.loadPoolContracts();
   }
 
@@ -139,8 +155,9 @@ export class SorobanService {
    */
   private async loadPoolContracts() {
     try {
-      const pools = await this.getFactoryPools();
-      pools.forEach(pool => {
+      const pools = await this.fetchFactoryPools();
+      const { Contract } = await loadStellarSdk();
+      pools.forEach((pool) => {
         this.poolContracts.set(pool.id, new Contract(pool.contractAddress));
       });
     } catch (error) {
@@ -149,19 +166,21 @@ export class SorobanService {
   }
 
   /**
-   * Get all pools from the factory contract
+   * Fetch pools from the factory contract (no ensureInitialized — used during init).
    */
-  async getFactoryPools(): Promise<PoolInfo[]> {
+  private async fetchFactoryPools(): Promise<PoolInfo[]> {
     if (!this.factoryContract) {
       console.warn('Factory contract not initialized; returning empty pool list');
       return [];
     }
 
     try {
-      const call = this.factoryContract.call("get_pools");
+      const { TransactionBuilder, BASE_FEE } = await loadStellarSdk();
+      const rpcServer = await this.getRpcServer();
+      const call = this.factoryContract.call('get_pools');
 
-      const account = await this.rpcServer.getAccount(
-        'GBQ3WPTHKJ5XKWLOKUZJLZL2GVXR6RWQCXUVDQZWM7Q2YNLDRVGM5ZWJ'
+      const account = await rpcServer.getAccount(
+        'GBQ3WPTHKJ5XKWLOKUZJLZL2GVXR6RWQCXUVDQZWM7Q2YNLDRVGM5ZWJ',
       );
       const transaction = new TransactionBuilder(account, {
         fee: BASE_FEE,
@@ -171,9 +190,9 @@ export class SorobanService {
         .setTimeout(30)
         .build();
 
-      const simulation = await this.rpcServer.simulateTransaction(transaction);
+      const simulation = await rpcServer.simulateTransaction(transaction);
 
-      if ("error" in simulation) {
+      if ('error' in simulation) {
         throw new Error(`Simulation failed: ${simulation.error}`);
       }
 
@@ -190,12 +209,25 @@ export class SorobanService {
   }
 
   /**
+   * Get all pools from the factory contract
+   */
+  async getFactoryPools(): Promise<PoolInfo[]> {
+    await this.ensureInitialized();
+
+    if (!this.factoryContract) {
+      console.warn('Factory contract not initialized; returning empty pool list');
+      return [];
+    }
+
+    return this.fetchFactoryPools();
+  }
+
+  /**
    * Get user position for a specific pool
    */
-  async getUserPosition(
-    poolId: string,
-    userAddress: string
-  ): Promise<UserPosition | null> {
+  async getUserPosition(poolId: string, userAddress: string): Promise<UserPosition | null> {
+    await this.ensureInitialized();
+
     const poolContract = this.poolContracts.get(poolId);
     if (!poolContract) {
       console.warn(`Pool contract not found for ID: ${poolId}`);
@@ -203,13 +235,15 @@ export class SorobanService {
     }
 
     try {
+      const { TransactionBuilder, BASE_FEE, Address } = await loadStellarSdk();
+      const rpcServer = await this.getRpcServer();
       const call = poolContract.call(
-        "get_user_position",
+        'get_user_position',
         Address.fromString(userAddress).toScVal(),
       );
 
-      const account = await this.rpcServer.getAccount(
-        'GBQ3WPTHKJ5XKWLOKUZJLZL2GVXR6RWQCXUVDQZWM7Q2YNLDRVGM5ZWJ'
+      const account = await rpcServer.getAccount(
+        'GBQ3WPTHKJ5XKWLOKUZJLZL2GVXR6RWQCXUVDQZWM7Q2YNLDRVGM5ZWJ',
       );
       const transaction = new TransactionBuilder(account, {
         fee: BASE_FEE,
@@ -219,9 +253,9 @@ export class SorobanService {
         .setTimeout(30)
         .build();
 
-      const simulation = await this.rpcServer.simulateTransaction(transaction);
+      const simulation = await rpcServer.simulateTransaction(transaction);
 
-      if ("error" in simulation) {
+      if ('error' in simulation) {
         throw new Error(`Failed to get user position: ${simulation.error}`);
       }
 
@@ -240,10 +274,9 @@ export class SorobanService {
   /**
    * Calculate user credits for a specific pool
    */
-  async calculateUserCredits(
-    poolId: string,
-    userAddress: string
-  ): Promise<string> {
+  async calculateUserCredits(poolId: string, userAddress: string): Promise<string> {
+    await this.ensureInitialized();
+
     const poolContract = this.poolContracts.get(poolId);
     if (!poolContract) {
       console.warn(`Pool contract not found for ID: ${poolId}`);
@@ -251,13 +284,15 @@ export class SorobanService {
     }
 
     try {
+      const { TransactionBuilder, BASE_FEE, Address } = await loadStellarSdk();
+      const rpcServer = await this.getRpcServer();
       const call = poolContract.call(
-        "calculate_credits",
+        'calculate_credits',
         Address.fromString(userAddress).toScVal(),
       );
 
-      const account = await this.rpcServer.getAccount(
-        'GBQ3WPTHKJ5XKWLOKUZJLZL2GVXR6RWQCXUVDQZWM7Q2YNLDRVGM5ZWJ'
+      const account = await rpcServer.getAccount(
+        'GBQ3WPTHKJ5XKWLOKUZJLZL2GVXR6RWQCXUVDQZWM7Q2YNLDRVGM5ZWJ',
       );
       const transaction = new TransactionBuilder(account, {
         fee: BASE_FEE,
@@ -267,9 +302,9 @@ export class SorobanService {
         .setTimeout(30)
         .build();
 
-      const simulation = await this.rpcServer.simulateTransaction(transaction);
+      const simulation = await rpcServer.simulateTransaction(transaction);
 
-      if ("error" in simulation) {
+      if ('error' in simulation) {
         throw new Error(`Failed to calculate credits: ${simulation.error}`);
       }
 
@@ -286,18 +321,13 @@ export class SorobanService {
   }
 
   /**
-   * Lock assets in a pool
-   */
-  /**
    * Resolve a pool contract from the cache or directly from a contract address.
-   * Falls back to constructing a Contract on the fly when the pool was discovered
-   * outside the factory (e.g. via the NEXT_PUBLIC_POOL_CONTRACT_ID env var).
    */
-  private resolvePoolContract(poolId: string): Contract {
+  private async resolvePoolContract(poolId: string): Promise<StellarContract> {
     const cached = this.poolContracts.get(poolId);
     if (cached) return cached;
-    // Stellar contract IDs start with 'C' and are 56 characters long.
     if (poolId.startsWith('C') && poolId.length >= 56) {
+      const { Contract } = await loadStellarSdk();
       const contract = new Contract(poolId);
       this.poolContracts.set(poolId, contract);
       return contract;
@@ -307,15 +337,17 @@ export class SorobanService {
 
   /**
    * Poll getTransaction until the tx is no longer PENDING or NOT_FOUND.
-   * Throws if the tx fails or the poll limit is exceeded.
    */
   async waitForConfirmation(
     hash: string,
     maxAttempts = 30,
     intervalMs = 2000,
   ): Promise<void> {
+    const { rpc } = await loadStellarSdk();
+    const rpcServer = await this.getRpcServer();
+
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
-      const tx = await this.rpcServer.getTransaction(hash);
+      const tx = await rpcServer.getTransaction(hash);
       if (tx.status === rpc.Api.GetTransactionStatus.SUCCESS) return;
       if (tx.status === rpc.Api.GetTransactionStatus.FAILED) {
         throw new Error(`Transaction ${hash} failed on-chain`);
@@ -329,102 +361,25 @@ export class SorobanService {
     poolId: string,
     userAddress: string,
     amount: string,
-    walletApi: any // Freighter API instance
+    walletApi: any,
   ): Promise<TransactionResult> {
-    const poolContract = this.resolvePoolContract(poolId);
+    await this.ensureInitialized();
+
+    const poolContract = await this.resolvePoolContract(poolId);
 
     try {
-      // Build the lock_assets call
+      const { TransactionBuilder, BASE_FEE, Address, nativeToScVal, rpc } =
+        await loadStellarSdk();
+      const rpcServer = await this.getRpcServer();
+
       const call = poolContract.call(
-        "lock_assets",
+        'lock_assets',
         Address.fromString(userAddress).toScVal(),
-        nativeToScVal(BigInt(amount), { type: "i128" }),
+        nativeToScVal(BigInt(amount), { type: 'i128' }),
       );
 
-      // Get user account for transaction building
-      const account = await this.rpcServer.getAccount(userAddress);
-      
-      const transaction = new TransactionBuilder(account, {
-        fee: BASE_FEE,
-        networkPassphrase: NETWORK_PASSPHRASE,
-      })
-        .addOperation(call)
-        .setTimeout(300) // 5 minutes
-        .build();
+      const account = await rpcServer.getAccount(userAddress);
 
-      // Simulate first to get fee estimation
-      const simulation = await this.rpcServer.simulateTransaction(transaction);
-      
-      if ("error" in simulation) {
-        return {
-          success: false,
-          error: `Simulation failed: ${simulation.error}`,
-        };
-      }
-
-      // Prepare transaction for signing
-      const preparedTransaction = rpc.assembleTransaction(transaction, simulation).build();
-
-      // Request signature from Freighter
-      const signedTransaction = await walletApi.signTransaction(
-        preparedTransaction.toXDR(),
-        {
-          networkPassphrase: NETWORK_PASSPHRASE,
-        }
-      );
-
-      // Submit transaction
-      const submissionResult = await this.rpcServer.sendTransaction(
-        TransactionBuilder.fromXDR(signedTransaction, NETWORK_PASSPHRASE)
-      );
-
-      if (submissionResult.status === 'ERROR') {
-        return {
-          success: false,
-          error: `Transaction failed: ${submissionResult.errorResult}`,
-        };
-      }
-
-      // Poll until the transaction is confirmed (status leaves PENDING)
-      await this.waitForConfirmation(submissionResult.hash);
-
-      return {
-        success: true,
-        transactionHash: submissionResult.hash,
-        hash: submissionResult.hash,
-        gasUsed: simulation.minResourceFee || '0',
-      };
-
-    } catch (error) {
-      console.error('Error locking assets:', error);
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Unknown error locking assets',
-        error: error instanceof Error ? error.message : 'Unknown error',
-      };
-    }
-  }
-
-  /**
-   * Unlock assets from a pool
-   */
-  async unlockAssets(
-    poolId: string,
-    userAddress: string,
-    amount: string,
-    walletApi: any
-  ): Promise<TransactionResult> {
-    const poolContract = this.resolvePoolContract(poolId);
-
-    try {
-      const call = poolContract.call(
-        "unlock_assets",
-        Address.fromString(userAddress).toScVal(),
-        nativeToScVal(BigInt(amount), { type: "i128" }),
-      );
-
-      const account = await this.rpcServer.getAccount(userAddress);
-      
       const transaction = new TransactionBuilder(account, {
         fee: BASE_FEE,
         networkPassphrase: NETWORK_PASSPHRASE,
@@ -433,9 +388,9 @@ export class SorobanService {
         .setTimeout(300)
         .build();
 
-      const simulation = await this.rpcServer.simulateTransaction(transaction);
-      
-      if ("error" in simulation) {
+      const simulation = await rpcServer.simulateTransaction(transaction);
+
+      if ('error' in simulation) {
         return {
           success: false,
           error: `Simulation failed: ${simulation.error}`,
@@ -444,15 +399,12 @@ export class SorobanService {
 
       const preparedTransaction = rpc.assembleTransaction(transaction, simulation).build();
 
-      const signedTransaction = await walletApi.signTransaction(
-        preparedTransaction.toXDR(),
-        {
-          networkPassphrase: NETWORK_PASSPHRASE,
-        }
-      );
+      const signedTransaction = await walletApi.signTransaction(preparedTransaction.toXDR(), {
+        networkPassphrase: NETWORK_PASSPHRASE,
+      });
 
-      const submissionResult = await this.rpcServer.sendTransaction(
-        TransactionBuilder.fromXDR(signedTransaction, NETWORK_PASSPHRASE)
+      const submissionResult = await rpcServer.sendTransaction(
+        TransactionBuilder.fromXDR(signedTransaction, NETWORK_PASSPHRASE),
       );
 
       if (submissionResult.status === 'ERROR') {
@@ -470,7 +422,80 @@ export class SorobanService {
         hash: submissionResult.hash,
         gasUsed: simulation.minResourceFee || '0',
       };
+    } catch (error) {
+      console.error('Error locking assets:', error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error locking assets',
+      };
+    }
+  }
 
+  async unlockAssets(
+    poolId: string,
+    userAddress: string,
+    amount: string,
+    walletApi: any,
+  ): Promise<TransactionResult> {
+    await this.ensureInitialized();
+
+    const poolContract = await this.resolvePoolContract(poolId);
+
+    try {
+      const { TransactionBuilder, BASE_FEE, Address, nativeToScVal, rpc } =
+        await loadStellarSdk();
+      const rpcServer = await this.getRpcServer();
+
+      const call = poolContract.call(
+        'unlock_assets',
+        Address.fromString(userAddress).toScVal(),
+        nativeToScVal(BigInt(amount), { type: 'i128' }),
+      );
+
+      const account = await rpcServer.getAccount(userAddress);
+
+      const transaction = new TransactionBuilder(account, {
+        fee: BASE_FEE,
+        networkPassphrase: NETWORK_PASSPHRASE,
+      })
+        .addOperation(call)
+        .setTimeout(300)
+        .build();
+
+      const simulation = await rpcServer.simulateTransaction(transaction);
+
+      if ('error' in simulation) {
+        return {
+          success: false,
+          error: `Simulation failed: ${simulation.error}`,
+        };
+      }
+
+      const preparedTransaction = rpc.assembleTransaction(transaction, simulation).build();
+
+      const signedTransaction = await walletApi.signTransaction(preparedTransaction.toXDR(), {
+        networkPassphrase: NETWORK_PASSPHRASE,
+      });
+
+      const submissionResult = await rpcServer.sendTransaction(
+        TransactionBuilder.fromXDR(signedTransaction, NETWORK_PASSPHRASE),
+      );
+
+      if (submissionResult.status === 'ERROR') {
+        return {
+          success: false,
+          error: `Transaction failed: ${submissionResult.errorResult}`,
+        };
+      }
+
+      await this.waitForConfirmation(submissionResult.hash);
+
+      return {
+        success: true,
+        transactionHash: submissionResult.hash,
+        hash: submissionResult.hash,
+        gasUsed: simulation.minResourceFee || '0',
+      };
     } catch (error) {
       console.error('Error unlocking assets:', error);
       return {
@@ -480,16 +505,13 @@ export class SorobanService {
     }
   }
 
-  /**
-   * Set boost configuration for a user
-   */
   async setBoost(
     poolId: string,
     userAddress: string,
     allocationPercentage: number,
-    walletApi: any
+    walletApi: any,
   ): Promise<TransactionResult> {
-    const poolContract = this.resolvePoolContract(poolId);
+    await this.ensureInitialized();
 
     if (allocationPercentage < 0 || allocationPercentage > 100) {
       return {
@@ -498,15 +520,21 @@ export class SorobanService {
       };
     }
 
+    const poolContract = await this.resolvePoolContract(poolId);
+
     try {
+      const { TransactionBuilder, BASE_FEE, Address, nativeToScVal, rpc } =
+        await loadStellarSdk();
+      const rpcServer = await this.getRpcServer();
+
       const call = poolContract.call(
-        "set_boost",
+        'set_boost',
         Address.fromString(userAddress).toScVal(),
-        nativeToScVal(allocationPercentage, { type: "u32" }),
+        nativeToScVal(allocationPercentage, { type: 'u32' }),
       );
 
-      const account = await this.rpcServer.getAccount(userAddress);
-      
+      const account = await rpcServer.getAccount(userAddress);
+
       const transaction = new TransactionBuilder(account, {
         fee: BASE_FEE,
         networkPassphrase: NETWORK_PASSPHRASE,
@@ -515,9 +543,9 @@ export class SorobanService {
         .setTimeout(300)
         .build();
 
-      const simulation = await this.rpcServer.simulateTransaction(transaction);
-      
-      if ("error" in simulation) {
+      const simulation = await rpcServer.simulateTransaction(transaction);
+
+      if ('error' in simulation) {
         return {
           success: false,
           error: `Simulation failed: ${simulation.error}`,
@@ -526,15 +554,12 @@ export class SorobanService {
 
       const preparedTransaction = rpc.assembleTransaction(transaction, simulation).build();
 
-      const signedTransaction = await walletApi.signTransaction(
-        preparedTransaction.toXDR(),
-        {
-          networkPassphrase: NETWORK_PASSPHRASE,
-        }
-      );
+      const signedTransaction = await walletApi.signTransaction(preparedTransaction.toXDR(), {
+        networkPassphrase: NETWORK_PASSPHRASE,
+      });
 
-      const submissionResult = await this.rpcServer.sendTransaction(
-        TransactionBuilder.fromXDR(signedTransaction, NETWORK_PASSPHRASE)
+      const submissionResult = await rpcServer.sendTransaction(
+        TransactionBuilder.fromXDR(signedTransaction, NETWORK_PASSPHRASE),
       );
 
       if (submissionResult.status === 'ERROR') {
@@ -550,7 +575,6 @@ export class SorobanService {
         hash: submissionResult.hash,
         gasUsed: simulation.minResourceFee || '0',
       };
-      
     } catch (error) {
       console.error('Error setting boost:', error);
       return {
@@ -560,9 +584,6 @@ export class SorobanService {
     }
   }
 
-  /**
-   * Get total platform statistics
-   */
   async getPlatformStats(): Promise<{
     totalValueLocked: string;
     totalUsers: number;
@@ -571,11 +592,11 @@ export class SorobanService {
   }> {
     try {
       const pools = await this.getFactoryPools();
-      
+
       let totalTVL = 0;
       let totalUsers = 0;
-      
-      pools.forEach(pool => {
+
+      pools.forEach((pool) => {
         totalTVL += parseFloat(pool.totalLocked);
         totalUsers += pool.totalUsers;
       });
@@ -602,73 +623,25 @@ export class SorobanService {
     }
   }
 
-  /**
-   * Resolve a pool contract either from the cached map or directly from a
-   * contract ID string.  Allows the deposit flow to work even when the factory
-   * is not configured and pools were discovered another way.
-   */
-  private resolvePoolContract(poolId: string): Contract {
-    const cached = this.poolContracts.get(poolId);
-    if (cached) return cached;
-
-    // If the poolId itself looks like a Stellar contract address (C…) treat it
-    // as a contract ID and create a Contract on the fly.
-    if (poolId.startsWith('C') && poolId.length >= 56) {
-      const contract = new Contract(poolId);
-      this.poolContracts.set(poolId, contract);
-      return contract;
-    }
-
-    throw new Error(`Pool contract not found for ID: ${poolId}`);
-  }
-
-  /**
-   * Poll until a submitted transaction leaves the PENDING state.
-   * Returns true when the transaction is confirmed (SUCCESS), throws on failure.
-   */
-  async waitForConfirmation(
-    hash: string,
-    maxAttempts = 30,
-    intervalMs = 2000,
-  ): Promise<void> {
-    for (let attempt = 0; attempt < maxAttempts; attempt++) {
-      const tx = await this.rpcServer.getTransaction(hash);
-
-      if (tx.status === rpc.Api.GetTransactionStatus.SUCCESS) {
-        return;
-      }
-      if (tx.status === rpc.Api.GetTransactionStatus.FAILED) {
-        throw new Error(`Transaction ${hash} failed on-chain`);
-      }
-      // NOT_FOUND or PENDING — keep polling
-      await new Promise((resolve) => setTimeout(resolve, intervalMs));
-    }
-    throw new Error(`Transaction ${hash} not confirmed after ${maxAttempts} attempts`);
-  }
-
-  // Helper methods for parsing XDR data
-  private parsePoolsFromXdr(xdrResult: xdr.ScVal): PoolInfo[] {
+  private async parsePoolsFromXdr(xdrResult: xdr.ScVal): Promise<PoolInfo[]> {
     return parsePoolsFromXdrResult(xdrResult);
   }
 
-  private parseUserPositionFromXdr(
+  private async parseUserPositionFromXdr(
     xdrResult: xdr.ScVal,
     poolId: string,
     userAddress: string,
-  ): UserPosition | null {
+  ): Promise<UserPosition | null> {
     return parseUserPositionFromXdrResult(xdrResult, poolId, userAddress);
   }
 
-  private parseCreditsFromXdr(xdrResult: xdr.ScVal): string {
+  private async parseCreditsFromXdr(xdrResult: xdr.ScVal): Promise<string> {
     return parseCreditsFromXdrResult(xdrResult);
   }
 }
 
-// Export singleton instance
+// Export singleton instance (initialization is deferred until first contract call)
 export const sorobanService = new SorobanService();
-
-// Initialize on import
-sorobanService.initialize();
 
 // Utility functions
 export const formatCredits = (credits: string): string => {
@@ -684,14 +657,14 @@ export const formatCredits = (credits: string): string => {
 export const formatLockTime = (timestamp: number): string => {
   const now = Date.now();
   const diff = timestamp - now;
-  
+
   if (diff <= 0) {
     return 'Unlockable now';
   }
-  
+
   const hours = Math.floor(diff / (1000 * 60 * 60));
   const days = Math.floor(hours / 24);
-  
+
   if (days > 0) {
     return `${days} day${days > 1 ? 's' : ''} remaining`;
   } else if (hours > 0) {
@@ -730,8 +703,6 @@ export const unlockAssets = async ({
   amount: string;
   walletApi: any;
 }) => {
-  // Convert display-unit amount to integer stroops before passing as i128.
-  // 1 display unit = 10,000,000 stroops (Stellar's fixed-point precision).
   const stroops = Math.round(parseFloat(amount) * 10_000_000).toString();
   return sorobanService.unlockAssets(poolContractId, publicKey, stroops, walletApi);
 };
@@ -739,10 +710,6 @@ export const unlockAssets = async ({
 export const stellarExpertTxUrl = (hash: string, network: string) =>
   `https://stellar.expert/explorer/${network}/tx/${hash}`;
 
-/**
- * Compute live-preview values for a partial unlock.
- * All arguments and return values are in display units (not stroops).
- */
 export function computePartialUnlockPreview(
   lockedAmount: number,
   unlockAmount: number,
@@ -766,33 +733,34 @@ export interface TxHistoryEntry {
   txHash: string;
 }
 
-// Ledger lookback window: ~7 days at ~5 s per ledger.
 const HISTORY_LOOKBACK_LEDGERS = 120960;
 
 interface SorobanRpcServer {
   getLatestLedger(): Promise<{ sequence: number }>;
-  getEvents(request: Parameters<rpc.Server['getEvents']>[0]): ReturnType<rpc.Server['getEvents']>;
+  getEvents(
+    request: Parameters<StellarSdkModule['rpc']['Server']['prototype']['getEvents']>[0],
+  ): ReturnType<StellarSdkModule['rpc']['Server']['prototype']['getEvents']>;
 }
 
-function parseTxHistoryEvent(
+async function parseTxHistoryEvent(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   evt: any,
   publicKey: string,
-): TxHistoryEntry | null {
+): Promise<TxHistoryEntry | null> {
   try {
     if (!evt.inSuccessfulContractCall) return null;
 
-    const topicNatives = (evt.topic as xdr.ScVal[]).map(scValToNative);
+    const { scValToNative } = await loadStellarSdk();
+    const topicNatives = evt.topic.map(scValToNative);
     const actionRaw = topicNatives[0] as string;
     if (actionRaw !== 'lock_assets' && actionRaw !== 'unlock_assets') return null;
 
-    // topic[1] is the user's address — only include events for this wallet
     const userAddr = topicNatives[1] as string;
     if (userAddr !== publicKey) return null;
 
     const action: 'lock' | 'unlock' = actionRaw === 'lock_assets' ? 'lock' : 'unlock';
 
-    const valueNative = scValToNative(evt.value as xdr.ScVal);
+    const valueNative = scValToNative(evt.value);
     let amount = '0';
     let symbol = 'XLM';
     let creditsEarned: string | undefined;
@@ -813,25 +781,19 @@ function parseTxHistoryEvent(
     }
 
     return {
-      date: evt.ledgerClosedAt as string,
+      date: evt.ledgerClosedAt,
       action,
       amount,
       symbol,
-      poolId: evt.contractId as string,
+      poolId: evt.contractId,
       creditsEarned,
-      txHash: evt.txHash as string,
+      txHash: evt.txHash,
     };
   } catch {
     return null;
   }
 }
 
-/**
- * Fetch a user's lock/unlock history by scanning Soroban contract events
- * emitted by the given pool contracts over the past ~7 days.
- *
- * Pass `rpcOverride` in tests to inject a mock RPC server.
- */
 export async function getUserTransactionHistory(
   publicKey: string,
   poolContractIds: string[],
@@ -839,7 +801,12 @@ export async function getUserTransactionHistory(
 ): Promise<TxHistoryEntry[]> {
   if (!publicKey || poolContractIds.length === 0) return [];
 
-  const server: SorobanRpcServer = rpcOverride ?? rpcServer;
+  const { xdr, rpc } = await loadStellarSdk();
+  const server: SorobanRpcServer =
+    rpcOverride ?? (await (async () => {
+      const rpcServer = new rpc.Server(RPC_URL);
+      return rpcServer;
+    })());
 
   try {
     const latest = await server.getLatestLedger();
@@ -854,22 +821,18 @@ export async function getUserTransactionHistory(
         {
           type: 'contract',
           contractIds: poolContractIds,
-          topics: [
-            [lockSymbol, '*'],
-            [unlockSymbol, '*'],
-          ],
+          topics: [[lockSymbol, '*'], [unlockSymbol, '*']],
         },
       ],
-      pagination: { limit: 200 },
+      limit: 200,
     });
 
     const entries: TxHistoryEntry[] = [];
     for (const evt of response.events) {
-      const entry = parseTxHistoryEvent(evt, publicKey);
+      const entry = await parseTxHistoryEvent(evt, publicKey);
       if (entry) entries.push(entry);
     }
 
-    // Newest first
     return entries.sort(
       (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime(),
     );

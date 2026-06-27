@@ -141,6 +141,6 @@ describe('getUserTransactionHistory', () => {
     expect(callArg.filters[0].type).toBe('contract');
     expect(callArg.filters[0].contractIds).toEqual([POOL_ID]);
     expect(callArg.filters[0].topics).toHaveLength(2);
-    expect(callArg.pagination.limit).toBe(200);
+    expect(callArg.limit).toBe(200);
   });
 });
