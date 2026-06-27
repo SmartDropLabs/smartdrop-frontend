@@ -175,6 +175,30 @@ export class ValidationError extends SmartDropError {
 }
 
 /**
+ * Security-sensitive transaction validation errors.
+ */
+export class SecurityError extends SmartDropError {
+  readonly code = "SECURITY_ERROR";
+  readonly isTransient = false;
+  readonly isCritical = true;
+
+  constructor(message: string, originalError?: Error) {
+    super(message, originalError);
+    Object.setPrototypeOf(this, SecurityError.prototype);
+  }
+
+  readonly userMessage = this.message;
+
+  getLogContext() {
+    return {
+      ...super.getLogContext(),
+      errorType: "SecurityError",
+      isSigningSafetyIssue: true,
+    };
+  }
+}
+
+/**
  * Configuration errors (missing env vars, invalid config).
  */
 export class ConfigError extends SmartDropError {
@@ -234,12 +258,28 @@ export function normalizeError(error: unknown, context?: string): SmartDropError
   if (error instanceof Error) {
     const msg = error.message.toLowerCase();
 
-    // Freighter errors
+    // Freighter errors — check sign-rejection first so "user declined" messages
+    // that don't contain the word "freighter" are still caught correctly.
+    const isSignRejection =
+      msg.includes("user declined") ||
+      msg.includes("user rejected") ||
+      msg.includes("user denied") ||
+      msg.includes("transaction was rejected") ||
+      msg.includes("signing was rejected");
+
+    if (isSignRejection) {
+      return new FreighterError(
+        "FREIGHTER_REJECTED",
+        "You declined the signature request in Freighter. Approve the transaction to continue.",
+        error,
+      );
+    }
+
     if (msg.includes("freighter") || msg.includes("wallet")) {
       if (msg.includes("not installed") || msg.includes("not available")) {
         return new FreighterError("FREIGHTER_NOT_INSTALLED", error.message, error);
       }
-      if (msg.includes("rejected") || msg.includes("user denied")) {
+      if (msg.includes("rejected") || msg.includes("denied")) {
         return new FreighterError("FREIGHTER_REJECTED", error.message, error);
       }
       if (msg.includes("network") || msg.includes("mismatch")) {
@@ -247,6 +287,19 @@ export function normalizeError(error: unknown, context?: string): SmartDropError
       }
       return new FreighterError("FREIGHTER_UNKNOWN", error.message, error);
     }
+
+    // Security/signing-safety errors
+    if (
+      msg.includes("security") ||
+      msg.includes("signing was blocked") ||
+      msg.includes("authorization entry") ||
+      msg.includes("unexpected auth") ||
+      msg.includes("simulation auth") ||
+      msg.includes("simulated authorization")
+    ) {
+      return new SecurityError(error.message, error);
+    }
+
 
     // RPC errors
     if (msg.includes("timeout") || msg.includes("timed out")) {

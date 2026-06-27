@@ -6,31 +6,33 @@
 import {
   Contract,
   Networks,
-  Operation,
   TransactionBuilder,
   BASE_FEE,
-  Memo,
   xdr,
   Address,
   nativeToScVal,
   scValToNative,
   rpc,
 } from '@stellar/stellar-sdk';
+import { SecurityError } from './error-handler';
 import {
   bigintToDisplayAmount,
   parsePoolsFromNative,
   parseUserPositionFromNative,
 } from './soroban-parsers';
+import type {
+  AssetInfo,
+  PoolInfo,
+  UserPosition,
+} from './soroban-parsers';
 export type { AssetInfo, PoolInfo, UserPosition } from './soroban-parsers';
 
 // Soroban RPC Configuration
 const RPC_URL = process.env.NEXT_PUBLIC_SOROBAN_RPC_URL || 'https://soroban-testnet.stellar.org:443';
-const NETWORK = process.env.NEXT_PUBLIC_STELLAR_NETWORK || 'testnet';
 const NETWORK_PASSPHRASE = process.env.NEXT_PUBLIC_NETWORK_PASSPHRASE || Networks.TESTNET;
 
 // Contract Addresses (will be set via environment variables in production)
 const FACTORY_CONTRACT_ADDRESS = process.env.NEXT_PUBLIC_FACTORY_CONTRACT_ADDRESS || '';
-const DEFAULT_POOL_CONTRACT_ADDRESS = process.env.NEXT_PUBLIC_DEFAULT_POOL_CONTRACT_ADDRESS || '';
 
 // Initialize Soroban RPC Server
 const rpcServer = new rpc.Server(RPC_URL);
@@ -102,6 +104,231 @@ export function parseCreditsFromXdrResult(xdrResult: xdr.ScVal): string {
   } catch (err) {
     console.warn('[SmartDrop] parseCreditsFromXdr: failed to parse:', err);
     return '0';
+  }
+}
+
+
+
+type FreighterSignTransactionResult =
+  | string
+  | {
+      signedTxXdr?: string;
+      signerAddress?: string;
+      error?: unknown;
+    };
+
+interface FreighterWalletApi {
+  signTransaction: (
+    transactionXdr: string,
+    options: { networkPassphrase: string },
+  ) => Promise<FreighterSignTransactionResult>;
+}
+
+function getSignedTransactionXdr(
+  result: FreighterSignTransactionResult,
+): string {
+  if (typeof result === 'string') {
+    return result;
+  }
+
+  if (result.error) {
+    throw new Error(
+      typeof result.error === 'string'
+        ? result.error
+        : 'Freighter failed to sign the transaction',
+    );
+  }
+
+  if (result.signedTxXdr) {
+    return result.signedTxXdr;
+  }
+
+  throw new Error('Freighter did not return a signed transaction XDR');
+}
+
+// ── Transaction signing safety ───────────────────────────────────────────────
+
+export interface ExpectedSimulationAuth {
+  contractId: string;
+  functionName: string;
+}
+
+type SimulationAuthResult = {
+  result?: {
+    auth?: xdr.SorobanAuthorizationEntry[] | null;
+  } | null;
+};
+
+function normalizeExpectedAuthKey(auth: ExpectedSimulationAuth): string {
+  return `${auth.contractId.trim().toUpperCase()}:${auth.functionName.trim()}`;
+}
+
+function enumName(value: unknown): string {
+  if (typeof value === 'string') return value;
+
+  if (value && typeof value === 'object') {
+    const enumLike = value as { name?: unknown; toString?: () => string };
+
+    if (typeof enumLike.name === 'string') return enumLike.name;
+    if (typeof enumLike.name === 'function') {
+      const name = (enumLike.name as () => unknown)();
+      if (typeof name === 'string') return name;
+    }
+    if (typeof enumLike.toString === 'function') return enumLike.toString();
+  }
+
+  return String(value);
+}
+
+function scSymbolToString(value: unknown): string {
+  if (typeof value === 'string') return value;
+  if (value instanceof Uint8Array) return new TextDecoder().decode(value);
+  if (value && typeof value === 'object' && 'toString' in value) {
+    return String((value as { toString: () => string }).toString());
+  }
+  return String(value);
+}
+
+function decodeAuthEntryContractFunction(
+  entry: xdr.SorobanAuthorizationEntry,
+): ExpectedSimulationAuth {
+  try {
+    const authEntry = entry as unknown as {
+      credentials?: () => unknown;
+      rootInvocation?: () => unknown;
+    };
+
+    // Decode/access credentials as part of validating the full authorization entry shape.
+    // The target contract/function is carried by rootInvocation.contractFn.
+    if (typeof authEntry.credentials !== 'function') {
+      throw new Error('Authorization entry is missing credentials');
+    }
+    authEntry.credentials();
+
+    if (typeof authEntry.rootInvocation !== 'function') {
+      throw new Error('Authorization entry is missing root invocation');
+    }
+
+    const invocation = authEntry.rootInvocation() as {
+      function?: () => unknown;
+      subInvocations?: () => unknown;
+    };
+
+    if (!invocation || typeof invocation.function !== 'function') {
+      throw new Error('Authorization entry root invocation is malformed');
+    }
+
+    const authorizedFunction = invocation.function() as {
+      switch?: () => unknown;
+      contractFn?: () => unknown;
+    };
+
+    const functionType =
+      typeof authorizedFunction.switch === 'function'
+        ? enumName(authorizedFunction.switch())
+        : '';
+
+    if (!functionType.toLowerCase().includes('contract')) {
+      throw new Error(`Unexpected authorization function type: ${functionType}`);
+    }
+
+    if (typeof authorizedFunction.contractFn !== 'function') {
+      throw new Error('Authorization entry does not contain a contract function');
+    }
+
+    const contractFn = authorizedFunction.contractFn() as {
+      contractAddress?: () => xdr.ScAddress;
+      functionName?: () => unknown;
+    };
+
+    if (
+      !contractFn ||
+      typeof contractFn.contractAddress !== 'function' ||
+      typeof contractFn.functionName !== 'function'
+    ) {
+      throw new Error('Authorization contract function is malformed');
+    }
+
+    const decoded = {
+      contractId: Address.fromScAddress(contractFn.contractAddress()).toString(),
+      functionName: scSymbolToString(contractFn.functionName()),
+    };
+    assertNoUnexpectedSubInvocations(invocation);
+
+    return decoded;
+  } catch (error) {
+    if (error instanceof SecurityError) {
+      throw error;
+    }
+
+    throw new SecurityError(
+      'Transaction signing was blocked because SmartDrop could not verify the simulated authorization request.',
+      error instanceof Error ? error : undefined,
+    );
+  }
+}
+
+function assertNoUnexpectedSubInvocations(invocation: {
+  subInvocations?: () => unknown;
+}): void {
+  if (typeof invocation.subInvocations !== 'function') {
+    throw new SecurityError(
+      'Transaction signing was blocked because SmartDrop could not verify nested authorization requests.',
+    );
+  }
+
+  const subInvocations = invocation.subInvocations();
+  if (!Array.isArray(subInvocations)) {
+    throw new SecurityError(
+      'Transaction signing was blocked because SmartDrop could not verify nested authorization requests.',
+    );
+  }
+
+  if (subInvocations.length > 0) {
+    throw new SecurityError(
+      'Transaction signing was blocked because the simulation returned nested authorization requests that SmartDrop did not expect.',
+    );
+  }
+}
+
+export function validateSimulationAuth(
+  simResult: SimulationAuthResult,
+  expected: ExpectedSimulationAuth[],
+): void {
+  const authEntries = simResult.result?.auth;
+
+  if (!Array.isArray(authEntries)) {
+    throw new SecurityError(
+      'Transaction signing was blocked because the simulation did not return authorization entries.',
+    );
+  }
+
+  if (authEntries.length !== expected.length) {
+    throw new SecurityError(
+      `Transaction signing was blocked because the simulation returned ${authEntries.length} authorization entr${authEntries.length === 1 ? 'y' : 'ies'}, but SmartDrop expected ${expected.length}.`,
+    );
+  }
+
+  const remainingExpected = expected.map((entry) => normalizeExpectedAuthKey(entry));
+
+  for (const entry of authEntries) {
+    const actual = decodeAuthEntryContractFunction(entry);
+    const actualKey = normalizeExpectedAuthKey(actual);
+    const matchIndex = remainingExpected.indexOf(actualKey);
+
+    if (matchIndex === -1) {
+      throw new SecurityError(
+        `Transaction signing was blocked because the simulated authorization targets ${actual.contractId}.${actual.functionName}, which is not expected for this SmartDrop action.`,
+      );
+    }
+
+    remainingExpected.splice(matchIndex, 1);
+  }
+
+  if (remainingExpected.length > 0) {
+    throw new SecurityError(
+      'Transaction signing was blocked because the simulation is missing an expected SmartDrop authorization entry.',
+    );
   }
 }
 
@@ -288,16 +515,50 @@ export class SorobanService {
   /**
    * Lock assets in a pool
    */
-  async lockAssets(
-    poolId: string, 
-    userAddress: string, 
-    amount: string,
-    walletApi: any // Freighter API instance
-  ): Promise<TransactionResult> {
-    const poolContract = this.poolContracts.get(poolId);
-    if (!poolContract) {
-      throw new Error(`Pool contract not found for ID: ${poolId}`);
+  /**
+   * Resolve a pool contract from the cache or directly from a contract address.
+   * Falls back to constructing a Contract on the fly when the pool was discovered
+   * outside the factory (e.g. via the NEXT_PUBLIC_POOL_CONTRACT_ID env var).
+   */
+  private resolvePoolContract(poolId: string): Contract {
+    const cached = this.poolContracts.get(poolId);
+    if (cached) return cached;
+    // Stellar contract IDs start with 'C' and are 56 characters long.
+    if (poolId.startsWith('C') && poolId.length >= 56) {
+      const contract = new Contract(poolId);
+      this.poolContracts.set(poolId, contract);
+      return contract;
     }
+    throw new Error(`Pool contract not found for ID: ${poolId}`);
+  }
+
+  /**
+   * Poll getTransaction until the tx is no longer PENDING or NOT_FOUND.
+   * Throws if the tx fails or the poll limit is exceeded.
+   */
+  async waitForConfirmation(
+    hash: string,
+    maxAttempts = 30,
+    intervalMs = 2000,
+  ): Promise<void> {
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      const tx = await this.rpcServer.getTransaction(hash);
+      if (tx.status === rpc.Api.GetTransactionStatus.SUCCESS) return;
+      if (tx.status === rpc.Api.GetTransactionStatus.FAILED) {
+        throw new Error(`Transaction ${hash} failed on-chain`);
+      }
+      await new Promise((resolve) => setTimeout(resolve, intervalMs));
+    }
+    throw new Error(`Transaction ${hash} not confirmed after ${maxAttempts} attempts`);
+  }
+
+  async lockAssets(
+    poolId: string,
+    userAddress: string,
+    amount: string,
+    walletApi: FreighterWalletApi // Freighter API instance
+  ): Promise<TransactionResult> {
+    const poolContract = this.resolvePoolContract(poolId);
 
     try {
       // Build the lock_assets call
@@ -328,20 +589,26 @@ export class SorobanService {
         };
       }
 
+      validateSimulationAuth(simulation, [
+        {
+          contractId: poolContract.contractId(),
+          functionName: 'lock_assets',
+        },
+      ]);
+
       // Prepare transaction for signing
       const preparedTransaction = rpc.assembleTransaction(transaction, simulation).build();
 
       // Request signature from Freighter
-      const signedTransaction = await walletApi.signTransaction(
-        preparedTransaction.toXDR(),
-        {
+      const signedTransaction = getSignedTransactionXdr(
+        await walletApi.signTransaction(preparedTransaction.toXDR(), {
           networkPassphrase: NETWORK_PASSPHRASE,
-        }
+        }),
       );
 
       // Submit transaction
       const submissionResult = await this.rpcServer.sendTransaction(
-        TransactionBuilder.fromXDR(signedTransaction, NETWORK_PASSPHRASE)
+        TransactionBuilder.fromXDR(signedTransaction, NETWORK_PASSPHRASE),
       );
 
       if (submissionResult.status === 'ERROR') {
@@ -351,16 +618,24 @@ export class SorobanService {
         };
       }
 
+      // Poll until the transaction is confirmed (status leaves PENDING)
+      await this.waitForConfirmation(submissionResult.hash);
+
       return {
         success: true,
         transactionHash: submissionResult.hash,
         hash: submissionResult.hash,
         gasUsed: simulation.minResourceFee || '0',
       };
+
     } catch (error) {
       console.error('Error locking assets:', error);
+      if (error instanceof SecurityError) {
+        throw error;
+      }
       return {
         success: false,
+        error: error instanceof Error ? error.message : 'Unknown error locking assets',
         error: error instanceof Error ? error.message : 'Unknown error',
       };
     }
@@ -373,12 +648,9 @@ export class SorobanService {
     poolId: string,
     userAddress: string,
     amount: string,
-    walletApi: any
+    walletApi: FreighterWalletApi
   ): Promise<TransactionResult> {
-    const poolContract = this.poolContracts.get(poolId);
-    if (!poolContract) {
-      throw new Error(`Pool contract not found for ID: ${poolId}`);
-    }
+    const poolContract = this.resolvePoolContract(poolId);
 
     try {
       const call = poolContract.call(
@@ -406,17 +678,23 @@ export class SorobanService {
         };
       }
 
+      validateSimulationAuth(simulation, [
+        {
+          contractId: poolContract.contractId(),
+          functionName: 'unlock_assets',
+        },
+      ]);
+
       const preparedTransaction = rpc.assembleTransaction(transaction, simulation).build();
 
-      const signedTransaction = await walletApi.signTransaction(
-        preparedTransaction.toXDR(),
-        {
+      const signedTransaction = getSignedTransactionXdr(
+        await walletApi.signTransaction(preparedTransaction.toXDR(), {
           networkPassphrase: NETWORK_PASSPHRASE,
-        }
+        }),
       );
 
       const submissionResult = await this.rpcServer.sendTransaction(
-        TransactionBuilder.fromXDR(signedTransaction, NETWORK_PASSPHRASE)
+        TransactionBuilder.fromXDR(signedTransaction, NETWORK_PASSPHRASE),
       );
 
       if (submissionResult.status === 'ERROR') {
@@ -426,15 +704,20 @@ export class SorobanService {
         };
       }
 
+      await this.waitForConfirmation(submissionResult.hash);
+
       return {
         success: true,
         transactionHash: submissionResult.hash,
         hash: submissionResult.hash,
         gasUsed: simulation.minResourceFee || '0',
       };
-      
+
     } catch (error) {
       console.error('Error unlocking assets:', error);
+      if (error instanceof SecurityError) {
+        throw error;
+      }
       return {
         success: false,
         error: error instanceof Error ? error.message : 'Unknown error',
@@ -449,12 +732,9 @@ export class SorobanService {
     poolId: string,
     userAddress: string,
     allocationPercentage: number,
-    walletApi: any
+    walletApi: FreighterWalletApi
   ): Promise<TransactionResult> {
-    const poolContract = this.poolContracts.get(poolId);
-    if (!poolContract) {
-      throw new Error(`Pool contract not found for ID: ${poolId}`);
-    }
+    const poolContract = this.resolvePoolContract(poolId);
 
     if (allocationPercentage < 0 || allocationPercentage > 100) {
       return {
@@ -489,17 +769,23 @@ export class SorobanService {
         };
       }
 
+      validateSimulationAuth(simulation, [
+        {
+          contractId: poolContract.contractId(),
+          functionName: 'set_boost',
+        },
+      ]);
+
       const preparedTransaction = rpc.assembleTransaction(transaction, simulation).build();
 
-      const signedTransaction = await walletApi.signTransaction(
-        preparedTransaction.toXDR(),
-        {
+      const signedTransaction = getSignedTransactionXdr(
+        await walletApi.signTransaction(preparedTransaction.toXDR(), {
           networkPassphrase: NETWORK_PASSPHRASE,
-        }
+        }),
       );
 
       const submissionResult = await this.rpcServer.sendTransaction(
-        TransactionBuilder.fromXDR(signedTransaction, NETWORK_PASSPHRASE)
+        TransactionBuilder.fromXDR(signedTransaction, NETWORK_PASSPHRASE),
       );
 
       if (submissionResult.status === 'ERROR') {
@@ -518,6 +804,9 @@ export class SorobanService {
       
     } catch (error) {
       console.error('Error setting boost:', error);
+      if (error instanceof SecurityError) {
+        throw error;
+      }
       return {
         success: false,
         error: error instanceof Error ? error.message : 'Unknown error',
@@ -564,6 +853,186 @@ export class SorobanService {
         onlineUsers: 0,
         totalPools: 0,
       };
+    }
+  }
+
+  /**
+   * Resolve a pool contract either from the cached map or directly from a
+   * contract ID string.  Allows the deposit flow to work even when the factory
+   * is not configured and pools were discovered another way.
+   */
+  private resolvePoolContract(poolId: string): Contract {
+    const cached = this.poolContracts.get(poolId);
+    if (cached) return cached;
+
+    // If the poolId itself looks like a Stellar contract address (C…) treat it
+    // as a contract ID and create a Contract on the fly.
+    if (poolId.startsWith('C') && poolId.length >= 56) {
+      const contract = new Contract(poolId);
+      this.poolContracts.set(poolId, contract);
+      return contract;
+    }
+
+    throw new Error(`Pool contract not found for ID: ${poolId}`);
+  }
+
+  /**
+   * Poll until a submitted transaction leaves the PENDING state.
+   * Returns true when the transaction is confirmed (SUCCESS), throws on failure.
+   */
+  async waitForConfirmation(
+    hash: string,
+    maxAttempts = 30,
+    intervalMs = 2000,
+  ): Promise<void> {
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      const tx = await this.rpcServer.getTransaction(hash);
+
+      if (tx.status === rpc.Api.GetTransactionStatus.SUCCESS) {
+        return;
+      }
+      if (tx.status === rpc.Api.GetTransactionStatus.FAILED) {
+        throw new Error(`Transaction ${hash} failed on-chain`);
+      }
+      // NOT_FOUND or PENDING — keep polling
+      await new Promise((resolve) => setTimeout(resolve, intervalMs));
+    }
+    throw new Error(`Transaction ${hash} not confirmed after ${maxAttempts} attempts`);
+  }
+
+
+  /**
+   * Get 7-day TVL history for a pool by scanning lock/unlock events.
+   * Returns synthetic daily snapshots derived from on-chain events.
+   * Falls back to empty array if the RPC is unreachable.
+   */
+  async getPoolHistory(
+    poolId: string,
+    days: number = 7,
+  ): Promise<{ date: string; tvl: string }[]> {
+    try {
+      const latest = await this.rpcServer.getLatestLedger();
+      // ~5 s per ledger; days * 86400 / 5
+      const ledgersPerDay = Math.floor(86400 / 5);
+      const startLedger = Math.max(1, latest.sequence - days * ledgersPerDay);
+
+      const { xdr, scValToNative } = await import('@stellar/stellar-sdk');
+      const lockSym = xdr.ScVal.scvSymbol('lock_assets').toXDR('base64');
+      const unlockSym = xdr.ScVal.scvSymbol('unlock_assets').toXDR('base64');
+
+      const response = await this.rpcServer.getEvents({
+        startLedger,
+        filters: [
+          {
+            type: 'contract',
+            contractIds: [poolId],
+            topics: [[lockSym, '*'], [unlockSym, '*']],
+          },
+        ],
+        pagination: { limit: 500 },
+      });
+
+      // Build a running TVL map keyed by ISO date string
+      const dailyMap = new Map<string, number>();
+      let runningTvl = 0;
+
+      // Seed today and past N days so chart always has points
+      for (let i = days - 1; i >= 0; i--) {
+        const d = new Date();
+        d.setDate(d.getDate() - i);
+        dailyMap.set(d.toISOString().slice(0, 10), 0);
+      }
+
+      for (const evt of response.events) {
+        if (!evt.inSuccessfulContractCall) continue;
+        const topics = (evt.topic as import('@stellar/stellar-sdk').xdr.ScVal[]).map(scValToNative);
+        const action = topics[0] as string;
+        const valueNative = scValToNative(evt.value as import('@stellar/stellar-sdk').xdr.ScVal);
+        let amount = 0;
+        if (Array.isArray(valueNative)) amount = Number(valueNative[0] ?? 0);
+        else if (valueNative && typeof valueNative === 'object') {
+          amount = Number((valueNative as Record<string, unknown>)['amount'] ?? 0);
+        }
+        const amountDisplay = amount / 10_000_000;
+        if (action === 'lock_assets') runningTvl += amountDisplay;
+        else if (action === 'unlock_assets') runningTvl = Math.max(0, runningTvl - amountDisplay);
+
+        const dateKey = (evt.ledgerClosedAt as string).slice(0, 10);
+        if (dailyMap.has(dateKey)) dailyMap.set(dateKey, runningTvl);
+      }
+
+      return Array.from(dailyMap.entries())
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([date, tvl]) => ({ date, tvl: String(tvl) }));
+    } catch (err) {
+      console.warn('[SmartDrop] getPoolHistory failed:', err);
+      return [];
+    }
+  }
+
+  /**
+   * Get top N depositors for a pool by scanning lock events.
+   * Returns depositors sorted by amount descending.
+   * Falls back to empty array if the RPC is unreachable.
+   */
+  async getPoolDepositors(
+    poolId: string,
+    limit: number = 20,
+  ): Promise<{ address: string; amount: string; credits: string }[]> {
+    try {
+      const latest = await this.rpcServer.getLatestLedger();
+      const startLedger = Math.max(1, latest.sequence - 120960); // ~7 days
+
+      const { xdr, scValToNative } = await import('@stellar/stellar-sdk');
+      const lockSym = xdr.ScVal.scvSymbol('lock_assets').toXDR('base64');
+      const unlockSym = xdr.ScVal.scvSymbol('unlock_assets').toXDR('base64');
+
+      const response = await this.rpcServer.getEvents({
+        startLedger,
+        filters: [
+          {
+            type: 'contract',
+            contractIds: [poolId],
+            topics: [[lockSym, '*'], [unlockSym, '*']],
+          },
+        ],
+        pagination: { limit: 500 },
+      });
+
+      const balances = new Map<string, number>();
+
+      for (const evt of response.events) {
+        if (!evt.inSuccessfulContractCall) continue;
+        const topics = (evt.topic as import('@stellar/stellar-sdk').xdr.ScVal[]).map(scValToNative);
+        const action = topics[0] as string;
+        const address = String(topics[1] ?? '');
+        if (!address) continue;
+
+        const valueNative = scValToNative(evt.value as import('@stellar/stellar-sdk').xdr.ScVal);
+        let amount = 0;
+        if (Array.isArray(valueNative)) amount = Number(valueNative[0] ?? 0);
+        else if (valueNative && typeof valueNative === 'object') {
+          amount = Number((valueNative as Record<string, unknown>)['amount'] ?? 0);
+        }
+        const amountDisplay = amount / 10_000_000;
+
+        const current = balances.get(address) ?? 0;
+        if (action === 'lock_assets') balances.set(address, current + amountDisplay);
+        else if (action === 'unlock_assets') balances.set(address, Math.max(0, current - amountDisplay));
+      }
+
+      return Array.from(balances.entries())
+        .filter(([, amt]) => amt > 0)
+        .sort(([, a], [, b]) => b - a)
+        .slice(0, limit)
+        .map(([address, amount]) => ({
+          address,
+          amount: amount.toLocaleString(undefined, { maximumFractionDigits: 7 }),
+          credits: '—',
+        }));
+    } catch (err) {
+      console.warn('[SmartDrop] getPoolDepositors failed:', err);
+      return [];
     }
   }
 
@@ -637,7 +1106,8 @@ export const formatAssetAmount = (amount: string, asset: AssetInfo): string => {
   return `${num.toLocaleString()} ${asset.code}`;
 };
 
-export const unlockAssets = async ({
+/** Convenience wrapper — call lock_assets on a pool and await on-chain confirmation. */
+export const lockAssets = async ({
   poolContractId,
   publicKey,
   amount,
@@ -647,6 +1117,18 @@ export const unlockAssets = async ({
   publicKey: string;
   amount: string;
   walletApi: any;
+}) => sorobanService.lockAssets(poolContractId, publicKey, amount, walletApi);
+
+export const unlockAssets = async ({
+  poolContractId,
+  publicKey,
+  amount,
+  walletApi,
+}: {
+  poolContractId: string;
+  publicKey: string;
+  amount: string;
+  walletApi: FreighterWalletApi;
 }) => {
   // Convert display-unit amount to integer stroops before passing as i128.
   // 1 display unit = 10,000,000 stroops (Stellar's fixed-point precision).
@@ -692,9 +1174,17 @@ interface SorobanRpcServer {
   getEvents(request: Parameters<rpc.Server['getEvents']>[0]): ReturnType<rpc.Server['getEvents']>;
 }
 
+type SorobanEventLike = {
+  inSuccessfulContractCall?: boolean;
+  topic: xdr.ScVal[];
+  value: xdr.ScVal;
+  ledgerClosedAt: string;
+  contractId?: string | Contract;
+  txHash: string;
+};
+
 function parseTxHistoryEvent(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  evt: any,
+  evt: SorobanEventLike,
   publicKey: string,
 ): TxHistoryEntry | null {
   try {
@@ -709,6 +1199,11 @@ function parseTxHistoryEvent(
     if (userAddr !== publicKey) return null;
 
     const action: 'lock' | 'unlock' = actionRaw === 'lock_assets' ? 'lock' : 'unlock';
+    const poolId =
+      typeof evt.contractId === 'string'
+        ? evt.contractId
+        : evt.contractId?.contractId();
+    if (!poolId) return null;
 
     const valueNative = scValToNative(evt.value as xdr.ScVal);
     let amount = '0';
@@ -735,7 +1230,7 @@ function parseTxHistoryEvent(
       action,
       amount,
       symbol,
-      poolId: evt.contractId as string,
+      poolId,
       creditsEarned,
       txHash: evt.txHash as string,
     };
@@ -778,12 +1273,12 @@ export async function getUserTransactionHistory(
           ],
         },
       ],
-      pagination: { limit: 200 },
+      limit: 200,
     });
 
     const entries: TxHistoryEntry[] = [];
     for (const evt of response.events) {
-      const entry = parseTxHistoryEvent(evt, publicKey);
+      const entry = parseTxHistoryEvent(evt as SorobanEventLike, publicKey);
       if (entry) entries.push(entry);
     }
 
