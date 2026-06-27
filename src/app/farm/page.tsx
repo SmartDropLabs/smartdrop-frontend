@@ -1,3 +1,5 @@
+"use client";
+import { PlatformStats } from "@/components/PlatformStats/PlatformStats";
 bash apply_changes.sh"use client";
 import NextLink from "next/link";
 import { memo, useEffect, useMemo, useState, type ReactNode } from "react";
@@ -577,6 +579,7 @@ export default function Farm() {
 
   return (
     <Flex direction="column" align="center" gap={6} px={{ base: 4, md: 8 }} py={6}>
+      <PlatformStats />
       <Text fontSize="xs" color="app.muted" textAlign="center" overflowWrap="anywhere">
         Network: {stellarNetwork}
         {publicKey ? ` · ${publicKey.slice(0, 6)}…` : ""}

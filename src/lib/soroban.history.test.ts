@@ -1,12 +1,10 @@
 import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { xdr, nativeToScVal, StrKey, Address } from '@stellar/stellar-sdk';
 import { getUserTransactionHistory } from './soroban';
-
 // Generate valid-format Stellar G-addresses from fixed 32-byte seeds.
-// StrKey only does base32 encoding — no @noble/ed25519 Uint8Array realm issue.
 const USER_KEY = StrKey.encodeEd25519PublicKey(new Uint8Array(32));
 const OTHER_KEY = StrKey.encodeEd25519PublicKey(new Uint8Array(32).fill(1));
-
 const POOL_ID = 'CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4';
 const TX_HASH_1 = 'abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890';
 const TX_HASH_2 = 'fedcba0987654321fedcba0987654321fedcba0987654321fedcba0987654321';

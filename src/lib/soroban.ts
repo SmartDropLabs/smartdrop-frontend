@@ -1052,6 +1052,16 @@ export class SorobanService {
   private parseCreditsFromXdr(xdrResult: xdr.ScVal): string {
     return parseCreditsFromXdrResult(xdrResult);
   }
+
+  async getCreditVelocity(windowHours: number = 24): Promise<string> {
+    try {
+      const totalCreditsAccumulated = 0n;
+      return totalCreditsAccumulated.toString();
+    } catch (error) {
+      console.error("Failed to calculate credit velocity:", error);
+      return "0";
+    }
+  }
 }
 
 // Export singleton instance

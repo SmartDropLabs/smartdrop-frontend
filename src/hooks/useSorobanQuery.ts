@@ -66,15 +66,6 @@ export const useUserCredits = (poolId: string, enabled: boolean = true) => {
 /**
  * Hook to fetch platform statistics
  */
-export const usePlatformStats = () => {
-  return useQuery({
-    queryKey: [QUERY_KEYS.PLATFORM_STATS],
-    queryFn: () => sorobanService.getPlatformStats(),
-    staleTime: 60000, // 1 minute
-    refetchInterval: 120000, // 2 minutes
-    retry: 3,
-  });
-};
 
 /**
  * Hook to lock assets in a pool.
@@ -361,7 +352,9 @@ export const useOptimisticUpdate = () => {
     );
   };
 
-  const updatePlatformStats = (updateFn: (old: unknown) => unknown) => {
+  const updatePlatformStats = (
+    updateFn: (old: UIPlatformStats | undefined) => UIPlatformStats
+  ) => {
     queryClient.setQueryData([QUERY_KEYS.PLATFORM_STATS], updateFn);
   };
 
@@ -411,3 +404,33 @@ export const useTransactionStates = () => {
     setBoost: boostMutation.mutate,
   };
 };
+
+
+export interface UIPlatformStats {
+  tvl: string;
+  activePools: number;
+  totalFarmers: number;
+  creditVelocity: string;
+}
+
+export function usePlatformStats(initialData?: UIPlatformStats) {
+  return useQuery<UIPlatformStats>({
+    queryKey: ['platformStats'],
+    queryFn: async () => {
+      const [stats, velocity] = await Promise.all([
+        sorobanService.getPlatformStats(),
+        sorobanService.getCreditVelocity(24)
+      ]);
+
+      return {
+        tvl: stats?.tvl || "0",
+        activePools: stats?.activePools || 0,
+        totalFarmers: stats?.totalFarmers || 0,
+        creditVelocity: velocity
+      };
+    },
+    staleTime: 60000,        // Keeps data fresh for 1 minute
+    refetchInterval: 120000, // Re-checks the blockchain automatically every 2 minutes
+    initialData: initialData
+  });
+}
