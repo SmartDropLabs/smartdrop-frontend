@@ -5,7 +5,6 @@
 
 import {
   Contract,
-  Networks,
   TransactionBuilder,
   BASE_FEE,
   xdr,
@@ -14,6 +13,12 @@ import {
   scValToNative,
   rpc,
 } from '@stellar/stellar-sdk';
+import {
+  factoryContractId,
+  horizonUrl,
+  networkPassphrase,
+  sorobanRpcUrl,
+} from '@/config';
 import { SecurityError } from './error-handler';
 import {
   bigintToDisplayAmount,
@@ -27,15 +32,8 @@ import type {
 } from './soroban-parsers';
 export type { AssetInfo, PoolInfo, UserPosition } from './soroban-parsers';
 
-// Soroban RPC Configuration
-const RPC_URL = process.env.NEXT_PUBLIC_SOROBAN_RPC_URL || 'https://soroban-testnet.stellar.org:443';
-const NETWORK_PASSPHRASE = process.env.NEXT_PUBLIC_NETWORK_PASSPHRASE || Networks.TESTNET;
-
-// Contract Addresses (will be set via environment variables in production)
-const FACTORY_CONTRACT_ADDRESS = process.env.NEXT_PUBLIC_FACTORY_CONTRACT_ADDRESS || '';
-
 // Initialize Soroban RPC Server
-const rpcServer = new rpc.Server(RPC_URL);
+export const rpcServer = new rpc.Server(sorobanRpcUrl);
 
 export interface BoostConfig {
   multiplier: number;
@@ -47,6 +45,7 @@ export interface TransactionResult {
   success: boolean;
   transactionHash?: string;
   hash?: string;
+  status?: string;
   error?: string;
   gasUsed?: string;
 }
@@ -117,11 +116,125 @@ type FreighterSignTransactionResult =
       error?: unknown;
     };
 
-interface FreighterWalletApi {
+export interface FreighterWalletApi {
   signTransaction: (
     transactionXdr: string,
     options: { networkPassphrase: string },
   ) => Promise<FreighterSignTransactionResult>;
+}
+
+type LockAssetsStep = 'simulating' | 'signing' | 'submitting';
+
+export interface LockAssetsCallbacks {
+  onHash?: (hash: string) => void;
+  onStep?: (step: LockAssetsStep) => void;
+}
+
+export interface BuildLockAssetsTransactionArgs {
+  poolContractId: string;
+  publicKey: string;
+  amount: string;
+}
+
+export type LockAssetsRpc = Pick<
+  rpc.Server,
+  'getAccount' | 'simulateTransaction'
+>;
+
+export function amountToStroops(amount: string, decimals = 7): bigint {
+  const normalized = amount.trim();
+  if (!Number.isInteger(decimals) || decimals < 0) {
+    throw new Error('Decimal precision must be a non-negative integer.');
+  }
+
+  if (!/^\d+(?:\.\d+)?$/.test(normalized)) {
+    throw new Error('Enter a valid positive decimal amount.');
+  }
+
+  const [whole, fraction = ''] = normalized.split('.');
+  if (fraction.length > decimals) {
+    throw new Error(`Amount supports at most ${decimals} decimal places.`);
+  }
+
+  const scale = 10n ** BigInt(decimals);
+  const stroops =
+    BigInt(whole) * scale +
+    BigInt((fraction || '0').padEnd(decimals, '0'));
+
+  if (stroops <= 0n) {
+    throw new Error('Amount must be greater than 0.');
+  }
+
+  return stroops;
+}
+
+export async function getStellarBalance(publicKey: string): Promise<number> {
+  const response = await fetch(
+    `${horizonUrl.replace(/\/$/, '')}/accounts/${publicKey}`,
+  );
+
+  if (!response.ok) {
+    throw new Error(
+      `Unable to fetch Stellar balance from Horizon (${response.status}).`,
+    );
+  }
+
+  const account = (await response.json()) as {
+    balances?: Array<{
+      asset_type?: string;
+      balance?: string;
+    }>;
+  };
+  const nativeBalance = account.balances?.find(
+    (balance) => balance.asset_type === 'native',
+  );
+
+  if (!nativeBalance?.balance) {
+    throw new Error('Horizon account response did not include a native XLM balance.');
+  }
+
+  return Number(nativeBalance.balance);
+}
+
+export async function buildLockAssetsTransaction(
+  args: BuildLockAssetsTransactionArgs,
+  rpcOverride?: LockAssetsRpc,
+) {
+  const server = rpcOverride ?? rpcServer;
+  const account = await server.getAccount(args.publicKey);
+  const contract = new Contract(args.poolContractId);
+  const operation = contract.call(
+    'lock_assets',
+    Address.fromString(args.publicKey).toScVal(),
+    nativeToScVal(amountToStroops(args.amount), { type: 'i128' }),
+  );
+
+  return new TransactionBuilder(account, {
+    fee: BASE_FEE,
+    networkPassphrase,
+  })
+    .addOperation(operation)
+    .setTimeout(300)
+    .build();
+}
+
+export async function simulateLockAssets(
+  args: BuildLockAssetsTransactionArgs,
+  rpcOverride?: LockAssetsRpc,
+) {
+  const server = rpcOverride ?? rpcServer;
+  const transaction = await buildLockAssetsTransaction(args, server);
+  const simulation = await server.simulateTransaction(transaction);
+
+  if ('error' in simulation) {
+    throw new Error(`Simulation failed: ${simulation.error}`);
+  }
+
+  return {
+    transaction,
+    simulation,
+    feePreview: String(simulation.minResourceFee ?? '0'),
+  };
 }
 
 function getSignedTransactionXdr(
@@ -344,8 +457,8 @@ export class SorobanService {
 
   constructor() {
     this.rpcServer = rpcServer;
-    if (FACTORY_CONTRACT_ADDRESS) {
-      this.factoryContract = new Contract(FACTORY_CONTRACT_ADDRESS);
+    if (factoryContractId) {
+      this.factoryContract = new Contract(factoryContractId);
     }
   }
 
@@ -368,7 +481,9 @@ export class SorobanService {
     try {
       const pools = await this.getFactoryPools();
       pools.forEach(pool => {
-        this.poolContracts.set(pool.id, new Contract(pool.contractAddress));
+        const contract = new Contract(pool.contractAddress);
+        this.poolContracts.set(pool.id, contract);
+        this.poolContracts.set(pool.contractAddress, contract);
       });
     } catch (error) {
       console.warn('Failed to load pool contracts:', error);
@@ -392,7 +507,7 @@ export class SorobanService {
       );
       const transaction = new TransactionBuilder(account, {
         fee: BASE_FEE,
-        networkPassphrase: NETWORK_PASSPHRASE,
+        networkPassphrase,
       })
         .addOperation(call)
         .setTimeout(30)
@@ -440,7 +555,7 @@ export class SorobanService {
       );
       const transaction = new TransactionBuilder(account, {
         fee: BASE_FEE,
-        networkPassphrase: NETWORK_PASSPHRASE,
+        networkPassphrase,
       })
         .addOperation(call)
         .setTimeout(30)
@@ -488,7 +603,7 @@ export class SorobanService {
       );
       const transaction = new TransactionBuilder(account, {
         fee: BASE_FEE,
-        networkPassphrase: NETWORK_PASSPHRASE,
+        networkPassphrase,
       })
         .addOperation(call)
         .setTimeout(30)
@@ -512,9 +627,6 @@ export class SorobanService {
     }
   }
 
-  /**
-   * Lock assets in a pool
-   */
   /**
    * Resolve a pool contract from the cache or directly from a contract address.
    * Falls back to constructing a Contract on the fly when the pool was discovered
@@ -540,10 +652,12 @@ export class SorobanService {
     hash: string,
     maxAttempts = 30,
     intervalMs = 2000,
-  ): Promise<void> {
+  ): Promise<{ status: string }> {
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       const tx = await this.rpcServer.getTransaction(hash);
-      if (tx.status === rpc.Api.GetTransactionStatus.SUCCESS) return;
+      if (tx.status === rpc.Api.GetTransactionStatus.SUCCESS) {
+        return { status: String(tx.status) };
+      }
       if (tx.status === rpc.Api.GetTransactionStatus.FAILED) {
         throw new Error(`Transaction ${hash} failed on-chain`);
       }
@@ -556,38 +670,20 @@ export class SorobanService {
     poolId: string,
     userAddress: string,
     amount: string,
-    walletApi: FreighterWalletApi // Freighter API instance
+    walletApi: FreighterWalletApi,
+    callbacks?: LockAssetsCallbacks,
   ): Promise<TransactionResult> {
-    const poolContract = this.resolvePoolContract(poolId);
-
     try {
-      // Build the lock_assets call
-      const call = poolContract.call(
-        "lock_assets",
-        Address.fromString(userAddress).toScVal(),
-        nativeToScVal(BigInt(amount), { type: "i128" }),
+      callbacks?.onStep?.('simulating');
+      const poolContract = this.resolvePoolContract(poolId);
+      const { transaction, simulation, feePreview } = await simulateLockAssets(
+        {
+          poolContractId: poolContract.contractId(),
+          publicKey: userAddress,
+          amount,
+        },
+        this.rpcServer,
       );
-
-      // Get user account for transaction building
-      const account = await this.rpcServer.getAccount(userAddress);
-      
-      const transaction = new TransactionBuilder(account, {
-        fee: BASE_FEE,
-        networkPassphrase: NETWORK_PASSPHRASE,
-      })
-        .addOperation(call)
-        .setTimeout(300) // 5 minutes
-        .build();
-
-      // Simulate first to get fee estimation
-      const simulation = await this.rpcServer.simulateTransaction(transaction);
-      
-      if ("error" in simulation) {
-        return {
-          success: false,
-          error: `Simulation failed: ${simulation.error}`,
-        };
-      }
 
       validateSimulationAuth(simulation, [
         {
@@ -596,36 +692,37 @@ export class SorobanService {
         },
       ]);
 
-      // Prepare transaction for signing
       const preparedTransaction = rpc.assembleTransaction(transaction, simulation).build();
 
-      // Request signature from Freighter
+      callbacks?.onStep?.('signing');
       const signedTransaction = getSignedTransactionXdr(
         await walletApi.signTransaction(preparedTransaction.toXDR(), {
-          networkPassphrase: NETWORK_PASSPHRASE,
+          networkPassphrase,
         }),
       );
 
-      // Submit transaction
+      callbacks?.onStep?.('submitting');
       const submissionResult = await this.rpcServer.sendTransaction(
-        TransactionBuilder.fromXDR(signedTransaction, NETWORK_PASSPHRASE),
+        TransactionBuilder.fromXDR(signedTransaction, networkPassphrase),
       );
 
       if (submissionResult.status === 'ERROR') {
         return {
           success: false,
+          status: submissionResult.status,
           error: `Transaction failed: ${submissionResult.errorResult}`,
         };
       }
 
-      // Poll until the transaction is confirmed (status leaves PENDING)
-      await this.waitForConfirmation(submissionResult.hash);
+      callbacks?.onHash?.(submissionResult.hash);
+      const confirmation = await this.waitForConfirmation(submissionResult.hash);
 
       return {
         success: true,
         transactionHash: submissionResult.hash,
         hash: submissionResult.hash,
-        gasUsed: simulation.minResourceFee || '0',
+        status: confirmation.status,
+        gasUsed: feePreview,
       };
 
     } catch (error) {
@@ -635,8 +732,8 @@ export class SorobanService {
       }
       return {
         success: false,
+        status: 'FAILED',
         error: error instanceof Error ? error.message : 'Unknown error locking assets',
-        error: error instanceof Error ? error.message : 'Unknown error',
       };
     }
   }
@@ -663,7 +760,7 @@ export class SorobanService {
       
       const transaction = new TransactionBuilder(account, {
         fee: BASE_FEE,
-        networkPassphrase: NETWORK_PASSPHRASE,
+        networkPassphrase,
       })
         .addOperation(call)
         .setTimeout(300)
@@ -689,12 +786,12 @@ export class SorobanService {
 
       const signedTransaction = getSignedTransactionXdr(
         await walletApi.signTransaction(preparedTransaction.toXDR(), {
-          networkPassphrase: NETWORK_PASSPHRASE,
+          networkPassphrase,
         }),
       );
 
       const submissionResult = await this.rpcServer.sendTransaction(
-        TransactionBuilder.fromXDR(signedTransaction, NETWORK_PASSPHRASE),
+        TransactionBuilder.fromXDR(signedTransaction, networkPassphrase),
       );
 
       if (submissionResult.status === 'ERROR') {
@@ -754,7 +851,7 @@ export class SorobanService {
       
       const transaction = new TransactionBuilder(account, {
         fee: BASE_FEE,
-        networkPassphrase: NETWORK_PASSPHRASE,
+        networkPassphrase,
       })
         .addOperation(call)
         .setTimeout(300)
@@ -780,12 +877,12 @@ export class SorobanService {
 
       const signedTransaction = getSignedTransactionXdr(
         await walletApi.signTransaction(preparedTransaction.toXDR(), {
-          networkPassphrase: NETWORK_PASSPHRASE,
+          networkPassphrase,
         }),
       );
 
       const submissionResult = await this.rpcServer.sendTransaction(
-        TransactionBuilder.fromXDR(signedTransaction, NETWORK_PASSPHRASE),
+        TransactionBuilder.fromXDR(signedTransaction, networkPassphrase),
       );
 
       if (submissionResult.status === 'ERROR') {
@@ -857,51 +954,6 @@ export class SorobanService {
   }
 
   /**
-   * Resolve a pool contract either from the cached map or directly from a
-   * contract ID string.  Allows the deposit flow to work even when the factory
-   * is not configured and pools were discovered another way.
-   */
-  private resolvePoolContract(poolId: string): Contract {
-    const cached = this.poolContracts.get(poolId);
-    if (cached) return cached;
-
-    // If the poolId itself looks like a Stellar contract address (C…) treat it
-    // as a contract ID and create a Contract on the fly.
-    if (poolId.startsWith('C') && poolId.length >= 56) {
-      const contract = new Contract(poolId);
-      this.poolContracts.set(poolId, contract);
-      return contract;
-    }
-
-    throw new Error(`Pool contract not found for ID: ${poolId}`);
-  }
-
-  /**
-   * Poll until a submitted transaction leaves the PENDING state.
-   * Returns true when the transaction is confirmed (SUCCESS), throws on failure.
-   */
-  async waitForConfirmation(
-    hash: string,
-    maxAttempts = 30,
-    intervalMs = 2000,
-  ): Promise<void> {
-    for (let attempt = 0; attempt < maxAttempts; attempt++) {
-      const tx = await this.rpcServer.getTransaction(hash);
-
-      if (tx.status === rpc.Api.GetTransactionStatus.SUCCESS) {
-        return;
-      }
-      if (tx.status === rpc.Api.GetTransactionStatus.FAILED) {
-        throw new Error(`Transaction ${hash} failed on-chain`);
-      }
-      // NOT_FOUND or PENDING — keep polling
-      await new Promise((resolve) => setTimeout(resolve, intervalMs));
-    }
-    throw new Error(`Transaction ${hash} not confirmed after ${maxAttempts} attempts`);
-  }
-
-
-  /**
    * Get 7-day TVL history for a pool by scanning lock/unlock events.
    * Returns synthetic daily snapshots derived from on-chain events.
    * Falls back to empty array if the RPC is unreachable.
@@ -929,7 +981,7 @@ export class SorobanService {
             topics: [[lockSym, '*'], [unlockSym, '*']],
           },
         ],
-        pagination: { limit: 500 },
+        limit: 500,
       });
 
       // Build a running TVL map keyed by ISO date string
@@ -996,7 +1048,7 @@ export class SorobanService {
             topics: [[lockSym, '*'], [unlockSym, '*']],
           },
         ],
-        pagination: { limit: 500 },
+        limit: 500,
       });
 
       const balances = new Map<string, number>();
@@ -1053,8 +1105,9 @@ export class SorobanService {
     return parseCreditsFromXdrResult(xdrResult);
   }
 
-  async getCreditVelocity(windowHours: number = 24): Promise<string> {
+  async getCreditVelocity(_windowHours: number = 24): Promise<string> {
     try {
+      void _windowHours;
       const totalCreditsAccumulated = 0n;
       return totalCreditsAccumulated.toString();
     } catch (error) {
@@ -1112,12 +1165,18 @@ export const lockAssets = async ({
   publicKey,
   amount,
   walletApi,
+  onHash,
+  onStep,
 }: {
   poolContractId: string;
   publicKey: string;
   amount: string;
-  walletApi: any;
-}) => sorobanService.lockAssets(poolContractId, publicKey, amount, walletApi);
+  walletApi: FreighterWalletApi;
+} & LockAssetsCallbacks) =>
+  sorobanService.lockAssets(poolContractId, publicKey, amount, walletApi, {
+    onHash,
+    onStep,
+  });
 
 export const unlockAssets = async ({
   poolContractId,

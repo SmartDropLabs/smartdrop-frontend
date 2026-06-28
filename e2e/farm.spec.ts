@@ -1,4 +1,5 @@
 import { type Page } from '@playwright/test';
+import { Networks, TransactionBuilder } from '@stellar/stellar-sdk';
 import { test, expect, TEST_PUBLIC_KEY, TEST_ADDRESS_DISPLAY } from './mocks/freighter';
 
 // Pre-computed XDR constants (generated with @stellar/stellar-sdk)
@@ -8,23 +9,64 @@ const POOLS_XDR =
 
 // Account LedgerEntry XDR for getLedgerEntries mock response
 const ACCOUNT_XDR =
-  'AAAAZAAAAAAAAAAANiHp+LugK9v5rC22OBtJciJwvEG0UfvI72cASeJqsYIAAAAXSHboAAAAAABJlgLSAAAAAAAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAA=';
+  'AAAAAAAAAAA2Ien4u6Ar2/msLbY4G0lyInC8QbRR+8jvZwBJ4mqxggAAABdIdugAAAAAAEmWAtIAAAAAAAAAAAAAAAAAAAAAAQAAAAAAAAAAAAAA';
 const ACCOUNT_KEY_XDR =
   'AAAAAAAAAAA2Ien4u6Ar2/msLbY4G0lyInC8QbRR+8jvZwBJ4mqxgg==';
 
 // SorobanTransactionData XDR for simulateTransaction response
 const SOROBAN_DATA_XDR = 'AAAAAAAAAAAAAAAAAA9CQAAAA+gAAAPoAAAAAAAAAGQ=';
+const LOCK_ASSETS_AUTH_XDR =
+  'AAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAEAAAALbG9ja19hc3NldHMAAAAAAAAAAAA=';
+const UNLOCK_ASSETS_AUTH_XDR =
+  'AAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAEAAAANdW5sb2NrX2Fzc2V0cwAAAAAAAAAAAAAA';
+const SUCCESS_RESULT_XDR =
+  'AAAAAAAAAGQAAAAAAAAAAQAAAAAAAAAYAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==';
+const SUCCESS_META_XDR = 'AAAAAAAAAAA=';
 
 // Fixed "now" that matches the position's lockedAt offset (must stay in sync)
 const FIXED_NOW_MS = 1_750_000_000_000;
+const CONNECT_WALLET_BUTTON_NAME = /connect (freighter|wallet)/i;
+
+function getSimulatedFunctionName(transactionXdr?: string): string | null {
+  if (!transactionXdr) return null;
+
+  try {
+    const transaction = TransactionBuilder.fromXDR(transactionXdr, Networks.TESTNET);
+    const operation = transaction.operations[0] as {
+      type?: string;
+      func?: {
+        invokeContract?: () => {
+          functionName: () => { toString: () => string };
+        };
+      };
+    };
+
+    if (operation.type !== 'invokeHostFunction') return null;
+    return operation.func?.invokeContract?.().functionName().toString() ?? null;
+  } catch {
+    return null;
+  }
+}
 
 // ── RPC fetch mock ──────────────────────────────────────────────────────────
 
 async function mockSorobanRpc(page: Page): Promise<void> {
+  let submittedTransactionXdr = '';
+
+  await page.route('**/horizon-testnet.stellar.org/accounts/**', async (route) => {
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({
+        balances: [{ asset_type: 'native', balance: '100.0000000' }],
+      }),
+    });
+  });
+
   await page.route('**/soroban-testnet.stellar.org**', async (route) => {
     const body = JSON.parse(route.request().postData() ?? '{}') as {
       id: number;
       method: string;
+      params?: { transaction?: string };
     };
 
     let result: unknown;
@@ -44,19 +86,29 @@ async function mockSorobanRpc(page: Page): Promise<void> {
         break;
 
       case 'simulateTransaction':
+        const functionName = getSimulatedFunctionName(body.params?.transaction);
+        const auth =
+          functionName === 'lock_assets'
+            ? [LOCK_ASSETS_AUTH_XDR]
+            : functionName === 'unlock_assets'
+              ? [UNLOCK_ASSETS_AUTH_XDR]
+              : [];
         // Works for get_pools, get_user_position, and unlock_assets alike.
         // get_user_position parsing ignores a Vec retval and returns null (no position),
         // so positions come exclusively from the QueryClient seed in tests.
         result = {
+          id: String(body.id),
           transactionData: SOROBAN_DATA_XDR,
-          results: [{ xdr: 'AAAAAQ==', auth: [] }], // scvVoid
+          results: [{ xdr: 'AAAAAQ==', auth }], // scvVoid
           minResourceFee: '100',
+          events: [],
           cost: { cpuInsns: '1000', memBytes: '1000' },
           latestLedger: 100,
         };
         break;
 
       case 'sendTransaction':
+        submittedTransactionXdr = body.params?.transaction ?? '';
         result = {
           hash: 'a'.repeat(64),
           status: 'PENDING',
@@ -67,7 +119,14 @@ async function mockSorobanRpc(page: Page): Promise<void> {
 
       case 'getTransaction':
         result = {
+          applicationOrder: 0,
+          createdAt: 0,
+          envelopeXdr: submittedTransactionXdr,
+          feeBump: false,
+          resultMetaXdr: SUCCESS_META_XDR,
+          resultXdr: SUCCESS_RESULT_XDR,
           status: 'SUCCESS',
+          txHash: 'a'.repeat(64),
           latestLedger: 101,
           latestLedgerCloseTime: '0',
           ledger: 101,
@@ -133,7 +192,7 @@ async function seedPosition(page: Page, lockedAtMs: number): Promise<void> {
 }
 
 async function connectWallet(page: Page): Promise<void> {
-  await page.getByRole('button', { name: /connect freighter/i }).click();
+  await page.getByRole('button', { name: CONNECT_WALLET_BUTTON_NAME }).first().click();
   await page.waitForFunction(
     (addr) => document.body.textContent?.includes(addr),
     TEST_ADDRESS_DISPLAY,
@@ -151,7 +210,7 @@ test.describe('Farm E2E', () => {
 
     // Connect button is visible before connection
     await expect(
-      page.getByRole('button', { name: /connect freighter/i }),
+      page.getByRole('button', { name: CONNECT_WALLET_BUTTON_NAME }).first(),
     ).toBeVisible();
 
     await connectWallet(page);
@@ -170,7 +229,7 @@ test.describe('Farm E2E', () => {
     await seedPools(page);
 
     // Wait for pool row with Deposit button
-    const depositBtn = page.getByRole('button', { name: /^deposit$/i }).first();
+    const depositBtn = page.getByRole('button', { name: /^\+ deposit$/i }).first();
     await expect(depositBtn).toBeVisible({ timeout: 8_000 });
     await depositBtn.click();
 
@@ -180,7 +239,7 @@ test.describe('Farm E2E', () => {
     await expect(amountInput).toHaveValue('10');
 
     // Click the deposit/lock button inside the modal
-    const submitBtn = page.getByRole('button', { name: /deposit 10/i });
+    const submitBtn = page.getByRole('button', { name: /deposit with freighter/i });
     await expect(submitBtn).toBeVisible();
     await submitBtn.click();
 
@@ -194,7 +253,7 @@ test.describe('Farm E2E', () => {
     await seedPosition(page, FIXED_NOW_MS - 60_000);
 
     // My earnings row now shows the staked amount
-    await expect(page.getByText('10.0000000')).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByText('10.0000000').last()).toBeVisible({ timeout: 5_000 });
   });
 
   test('3 · countdown visible — Unlock button is disabled before lock period', async ({ page }) => {
@@ -282,7 +341,7 @@ test.describe('Farm E2E', () => {
 
     // Modal shows unlock confirmed badge or closes
     await expect(
-      page.getByText(/unlock (confirmed|submitted)/i).or(page.getByText(/unlock submitted/i)),
+      page.getByText(/unlock (confirmed|submitted)/i).first(),
     ).toBeVisible({ timeout: 15_000 });
 
     // After success, update cache to show 0 stake
@@ -305,6 +364,6 @@ test.describe('Farm E2E', () => {
     );
 
     // "My earnings" now shows 0.0000000
-    await expect(page.getByText('0.0000000')).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByText('0.0000000').last()).toBeVisible({ timeout: 5_000 });
   });
 });

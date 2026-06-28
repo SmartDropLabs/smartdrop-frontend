@@ -42,6 +42,7 @@ export default function UnlockModal() {
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [txHash, setTxHash] = useState<string | null>(null);
+  const selectedPoolContractId = position?.contractAddress || poolContractId;
 
   const unlockAt = position ? unlockAvailableAt(position) : 0;
   const countdown = useCountdown(unlockAt);
@@ -100,6 +101,10 @@ export default function UnlockModal() {
       setError("Connect your Freighter wallet to unlock.");
       return;
     }
+    if (!selectedPoolContractId) {
+      setError("Pool contract is not configured.");
+      return;
+    }
     if (!canUnlock) {
       setError("Lock period has not elapsed yet.");
       return;
@@ -130,7 +135,7 @@ export default function UnlockModal() {
 
     try {
       const result = await unlockAssets({
-        poolContractId,
+        poolContractId: selectedPoolContractId,
         publicKey,
         amount,
         walletApi,
@@ -307,7 +312,7 @@ export default function UnlockModal() {
                     </Text>
                     <Text
                       fontSize="xs"
-                      color={ACCENT}
+                      color="app.accent"
                       cursor={canUnlock ? "pointer" : "not-allowed"}
                       onClick={canUnlock ? setMax : undefined}
                       _hover={canUnlock ? { opacity: 0.8 } : {}}

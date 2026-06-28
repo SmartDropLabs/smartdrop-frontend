@@ -1,37 +1,25 @@
 "use client";
+
 import { useErrorHandler } from "@/context/ErrorContext";
 import { useStellarWallet } from "@/context/StellarWalletContext";
-import { Button, Flex, Text, Tooltip } from "@chakra-ui/react";
+import { Button, Flex, Text, Tooltip, type ButtonProps } from "@chakra-ui/react";
 import { useState } from "react";
 
 const ACCENT = "#4AE292";
-
-/** Truncate a Stellar public key to "GABC…WXYZ" format. */
-function truncateKey(key: string): string {
-  return `${key.slice(0, 4)}…${key.slice(-4)}`;
-}
-
-/**
- * ConnectWalletButton
- *
- * - Unconnected: shows "Connect Freighter" CTA.
- * - Connected: shows a condensed address badge with a "Disconnect" action.
- * Clicking the address badge copies the full key to the clipboard.
- */
-export default function ConnectWalletButton() {
-  const { connect, disconnect, publicKey, isConnected } = useStellarWallet();
-import { Button, type ButtonProps } from "@chakra-ui/react";
-import { useState } from "react";
 
 type ConnectWalletButtonProps = ButtonProps & {
   label?: string;
 };
 
+function truncateKey(key: string): string {
+  return `${key.slice(0, 4)}...${key.slice(-4)}`;
+}
+
 export default function ConnectWalletButton({
   label = "Connect Freighter",
   ...buttonProps
 }: ConnectWalletButtonProps) {
-  const { connect } = useStellarWallet();
+  const { connect, disconnect, publicKey, isConnected } = useStellarWallet();
   const toast = useErrorHandler();
   const [isConnecting, setIsConnecting] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -55,7 +43,7 @@ export default function ConnectWalletButton({
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch {
-      /* clipboard not available — silent fail */
+      // Clipboard may be unavailable in hardened browser contexts.
     }
   };
 
@@ -65,8 +53,11 @@ export default function ConnectWalletButton({
         align="center"
         gap={2}
         position="fixed"
-        bottom="20px"
-        right="20px"
+        bottom={{ base: "16px", md: "20px" }}
+        right={{ base: "16px", md: "20px" }}
+        left={{ base: "16px", md: "auto" }}
+        w={{ base: "calc(100% - 32px)", md: "auto" }}
+        justify={{ base: "center", md: "flex-start" }}
         bg="#1a1a1a"
         border="1px solid #333"
         borderRadius="3xl"
@@ -92,7 +83,9 @@ export default function ConnectWalletButton({
             {truncateKey(publicKey)}
           </Text>
         </Tooltip>
-        <Text color="#555" fontSize="xs">|</Text>
+        <Text color="#555" fontSize="xs">
+          |
+        </Text>
         <Text
           fontSize="xs"
           color="#A2A2A2"
@@ -113,24 +106,18 @@ export default function ConnectWalletButton({
       color="#000"
       borderRadius="3xl"
       position="fixed"
-      bottom="20px"
-      right="20px"
-      px={6}
-      py={4}
-      fontWeight="bold"
-      onClick={() => void handleConnect()}
-      isLoading={isConnecting}
-      loadingText="Connecting…"
-      _hover={{ opacity: 0.9 }}
       bottom={{ base: "16px", md: "20px" }}
       right={{ base: "16px", md: "20px" }}
       left={{ base: "16px", md: "auto" }}
       w={{ base: "calc(100% - 32px)", md: "auto" }}
-      p={4}
-      onClick={handleConnect}
-      isLoading={isLoading}
-      loadingText="Connecting..."
+      px={6}
+      py={4}
+      fontWeight="bold"
+      _hover={{ opacity: 0.9 }}
       {...buttonProps}
+      onClick={() => void handleConnect()}
+      isLoading={isConnecting || Boolean(buttonProps.isLoading)}
+      loadingText={buttonProps.loadingText ?? "Connecting..."}
     >
       {label}
     </Button>

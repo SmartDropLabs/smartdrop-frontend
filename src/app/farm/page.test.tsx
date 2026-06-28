@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { useCountdown } from "@/hooks/useCountdown";
 import { unlockAvailableAt, type FarmPosition } from "@/types/farm";
-import { EarningRow } from "./page";
+import { EarningRow } from "./EarningRow";
 
 vi.mock("@/hooks/useCountdown", () => ({
   useCountdown: vi.fn(() => ({

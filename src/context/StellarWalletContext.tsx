@@ -1,6 +1,7 @@
 "use client";
 
 import { FreighterError } from "@/lib/error-handler";
+import type { FreighterWalletApi } from "@/lib/soroban";
 import {
     createContext,
     useCallback,
@@ -12,7 +13,7 @@ import {
 
 type StellarWalletContextValue = {
   publicKey: string | null;
-  walletApi: any | null;
+  walletApi: FreighterWalletApi | null;
   isConnected: boolean;
   connect: () => Promise<void>;
   disconnect: () => void;
@@ -24,10 +25,11 @@ const StellarWalletContext = createContext<StellarWalletContextValue | null>(
 
 export function StellarWalletProvider({ children }: { children: ReactNode }) {
   const [publicKey, setPublicKey] = useState<string | null>(null);
-  const [walletApi, setWalletApi] = useState<any | null>(null);
+  const [walletApi, setWalletApi] = useState<FreighterWalletApi | null>(null);
 
   const connect = useCallback(async () => {
     const freighter = await import("@stellar/freighter-api");
+    const signingApi = freighter as unknown as FreighterWalletApi;
     
     try {
       const connected = await freighter.isConnected();
@@ -54,7 +56,7 @@ export function StellarWalletProvider({ children }: { children: ReactNode }) {
           );
         }
         setPublicKey(access.address);
-        setWalletApi(freighter);
+        setWalletApi(signingApi);
         return;
       }
 
@@ -80,10 +82,10 @@ export function StellarWalletProvider({ children }: { children: ReactNode }) {
           );
         }
         setPublicKey(access.address);
-        setWalletApi(freighter);
+        setWalletApi(signingApi);
       } else {
         setPublicKey(addr.address);
-        setWalletApi(freighter);
+        setWalletApi(signingApi);
       }
     } catch (error) {
       // Re-throw FreighterErrors as-is
