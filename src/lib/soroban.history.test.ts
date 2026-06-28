@@ -1,5 +1,4 @@
 import { describe, it, expect, vi } from 'vitest';
-import { describe, it, expect, vi } from 'vitest';
 import { xdr, nativeToScVal, StrKey, Address } from '@stellar/stellar-sdk';
 import { getUserTransactionHistory } from './soroban';
 // Generate valid-format Stellar G-addresses from fixed 32-byte seeds.
@@ -139,6 +138,6 @@ describe('getUserTransactionHistory', () => {
     expect(callArg.filters[0].type).toBe('contract');
     expect(callArg.filters[0].contractIds).toEqual([POOL_ID]);
     expect(callArg.filters[0].topics).toHaveLength(2);
-    expect(callArg.pagination.limit).toBe(200);
+    expect(callArg.limit).toBe(200);
   });
 });

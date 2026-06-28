@@ -1,13 +1,13 @@
 ﻿import type { NextConfig } from "next";
 
 const raw = process.env.BASE_PATH?.trim() ?? "";
-const basePath = raw.startsWith("/") ? raw : raw ? / : "";
+const basePath = raw.startsWith("/") ? raw : raw ? `/${raw}` : "";
 
 const CSP_POLICY = [
   "default-src 'self'",
-  "script-src 'self' 'unsafe-eval'",
+  "script-src 'self' 'unsafe-eval' 'unsafe-inline'",
   "style-src 'self' 'unsafe-inline'",
-  "connect-src 'self' https://horizon.stellar.org https://soroban-testnet.stellar.org https://soroban.stellar.org https://stellar.expert",
+  "connect-src 'self' https://horizon.stellar.org https://horizon-testnet.stellar.org https://soroban-testnet.stellar.org https://soroban.stellar.org https://stellar.expert",
   "img-src 'self' data: https:",
   "font-src 'self'",
   "frame-src 'none'",

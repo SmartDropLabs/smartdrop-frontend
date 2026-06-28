@@ -2,6 +2,8 @@
 export type FarmPosition = {
   /** Stable identifier so UI updates survive re-renders. */
   id: string;
+  /** Soroban contract id for this pool. */
+  contractAddress?: string;
   name: string;
   img: string;
   earned: string;

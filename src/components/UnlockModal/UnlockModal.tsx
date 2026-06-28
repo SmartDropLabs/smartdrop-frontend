@@ -36,12 +36,13 @@ export default function UnlockModal() {
   const isUnlock = useFarmStore((s) => s.activeModal === "unlock");
   const close = useFarmStore((s) => s.close);
   const position = selectedPosition;
-  const { publicKey, walletApi } = useStellarWallet();
+  const { publicKey, walletApi, isNetworkMismatch } = useStellarWallet();
   const toast = useErrorHandler();
   const [amount, setAmount] = useState("");
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [txHash, setTxHash] = useState<string | null>(null);
+  const selectedPoolContractId = position?.contractAddress || poolContractId;
 
   const unlockAt = position ? unlockAvailableAt(position) : 0;
   const countdown = useCountdown(unlockAt);
@@ -100,6 +101,14 @@ export default function UnlockModal() {
       setError("Connect your Freighter wallet to unlock.");
       return;
     }
+    if (isNetworkMismatch) {
+      setError(`Switch Freighter to ${stellarNetwork} to unlock.`);
+      return;
+    }
+    if (!selectedPoolContractId) {
+      setError("Pool contract is not configured.");
+      return;
+    }
     if (!canUnlock) {
       setError("Lock period has not elapsed yet.");
       return;
@@ -130,7 +139,7 @@ export default function UnlockModal() {
 
     try {
       const result = await unlockAssets({
-        poolContractId,
+        poolContractId: selectedPoolContractId,
         publicKey,
         amount,
         walletApi,
@@ -307,7 +316,7 @@ export default function UnlockModal() {
                     </Text>
                     <Text
                       fontSize="xs"
-                      color={ACCENT}
+                      color="app.accent"
                       cursor={canUnlock ? "pointer" : "not-allowed"}
                       onClick={canUnlock ? setMax : undefined}
                       _hover={canUnlock ? { opacity: 0.8 } : {}}
@@ -366,7 +375,7 @@ export default function UnlockModal() {
                 bg="app.accent"
                 color="app.onAccent"
                 _hover={{ opacity: 0.9 }}
-                isDisabled={!canUnlock || !amountValid || pending}
+                isDisabled={!canUnlock || !amountValid || pending || isNetworkMismatch}
                 onClick={() => void handleUnlock()}
                 w="full"
               >

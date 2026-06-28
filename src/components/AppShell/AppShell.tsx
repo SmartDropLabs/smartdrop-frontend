@@ -3,6 +3,7 @@
 import ConnectWalletButton from "@/components/ConnectWalletButton/ConnectWalletButton";
 import Footer from "@/components/Footer/Footer";
 import Navbar from "@/components/Navbar/Navbar";
+import NetworkMismatchBanner from "@/components/NetworkMismatchBanner/NetworkMismatchBanner";
 import ContextProvider from "@/context";
 import { useStellarWallet } from "@/context/StellarWalletContext";
 import { Box } from "@chakra-ui/react";
@@ -19,6 +20,7 @@ function LayoutWrapper({ children }: { children: React.ReactNode }) {
       color="app.text"
     >
       <Navbar />
+      <NetworkMismatchBanner />
       {isConnected ? (
         <>
           <Box as="main" flex={1}>{children}</Box>

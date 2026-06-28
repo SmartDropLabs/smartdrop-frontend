@@ -4,7 +4,13 @@
  */
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { sorobanService, type UserPosition, type TransactionResult } from '@/lib/soroban';
+import {
+  getStellarBalance,
+  simulateLockAssets,
+  sorobanService,
+  type UserPosition,
+  type TransactionResult,
+} from '@/lib/soroban';
 import { useStellarWallet } from '@/context/StellarWalletContext';
 import { useToast } from '@chakra-ui/react';
 
@@ -63,9 +69,42 @@ export const useUserCredits = (poolId: string, enabled: boolean = true) => {
   });
 };
 
-/**
- * Hook to fetch platform statistics
- */
+export const useStellarBalance = (publicKey?: string) => {
+  return useQuery({
+    queryKey: ['stellarBalance', publicKey],
+    queryFn: () => getStellarBalance(publicKey!),
+    enabled: !!publicKey,
+    staleTime: 15000,
+    retry: 2,
+  });
+};
+
+export const useLockAssetsFeePreview = (args: {
+  publicKey?: string | null;
+  poolContractId?: string | null;
+  amount?: string;
+}) => {
+  const amount = args.amount?.trim() ?? '';
+  const numericAmount = Number(amount);
+
+  return useQuery({
+    queryKey: ['lockAssetsFeePreview', args.publicKey, args.poolContractId, amount],
+    queryFn: () =>
+      simulateLockAssets({
+        publicKey: args.publicKey!,
+        poolContractId: args.poolContractId!,
+        amount,
+      }),
+    enabled:
+      !!args.publicKey &&
+      !!args.poolContractId &&
+      !!amount &&
+      Number.isFinite(numericAmount) &&
+      numericAmount > 0,
+    staleTime: 10000,
+    retry: 1,
+  });
+};
 
 /**
  * Hook to lock assets in a pool.
@@ -74,6 +113,7 @@ export const useUserCredits = (poolId: string, enabled: boolean = true) => {
  * without coupling the mutation to internal implementation details.
  */
 export const useLockAssets = (options?: {
+  onHash?: (hash: string) => void;
   onStep?: (step: "simulating" | "signing" | "submitting") => void;
 }) => {
   const { walletApi, publicKey } = useStellarWallet();
@@ -91,11 +131,16 @@ export const useLockAssets = (options?: {
       if (!walletApi || !publicKey) {
         throw new Error('Wallet not connected. Please connect Freighter before depositing.');
       }
-      options?.onStep?.("simulating");
-      const result = await sorobanService.lockAssets(poolId, publicKey, amount, walletApi);
-      // lockAssets internally signs then submits — surface the submitting step
-      // once the call returns (Freighter popup closed).
-      if (result.success) options?.onStep?.("submitting");
+      const result = await sorobanService.lockAssets(
+        poolId,
+        publicKey,
+        amount,
+        walletApi,
+        {
+          onHash: options?.onHash,
+          onStep: options?.onStep,
+        },
+      );
       return result;
     },
     onSuccess: (result: TransactionResult, variables) => {
@@ -109,10 +154,13 @@ export const useLockAssets = (options?: {
           isClosable: true,
         });
 
+        queryClient.invalidateQueries({ queryKey: [QUERY_KEYS.POOLS] });
+        queryClient.invalidateQueries({ queryKey: [QUERY_KEYS.USER_POSITION] });
         queryClient.invalidateQueries({ queryKey: [QUERY_KEYS.USER_POSITION, variables.poolId] });
+        queryClient.invalidateQueries({ queryKey: [QUERY_KEYS.USER_POSITION, 'all', publicKey] });
         queryClient.invalidateQueries({ queryKey: [QUERY_KEYS.USER_CREDITS, variables.poolId] });
         queryClient.invalidateQueries({ queryKey: [QUERY_KEYS.PLATFORM_STATS] });
-        queryClient.invalidateQueries({ queryKey: [QUERY_KEYS.POOLS] });
+        queryClient.invalidateQueries({ queryKey: ['stellarBalance', publicKey] });
       } else {
         toast({
           title: 'Deposit failed',
@@ -411,11 +459,15 @@ export interface UIPlatformStats {
   activePools: number;
   totalFarmers: number;
   creditVelocity: string;
+  totalValueLocked?: string;
+  totalPools?: number;
+  totalUsers?: number;
+  onlineUsers?: number;
 }
 
 export function usePlatformStats(initialData?: UIPlatformStats) {
   return useQuery<UIPlatformStats>({
-    queryKey: ['platformStats'],
+    queryKey: [QUERY_KEYS.PLATFORM_STATS],
     queryFn: async () => {
       const [stats, velocity] = await Promise.all([
         sorobanService.getPlatformStats(),
@@ -423,10 +475,14 @@ export function usePlatformStats(initialData?: UIPlatformStats) {
       ]);
 
       return {
-        tvl: stats?.tvl || "0",
-        activePools: stats?.activePools || 0,
-        totalFarmers: stats?.totalFarmers || 0,
-        creditVelocity: velocity
+        tvl: stats.totalValueLocked || "0",
+        activePools: stats.totalPools || 0,
+        totalFarmers: stats.totalUsers || 0,
+        creditVelocity: velocity,
+        totalValueLocked: stats.totalValueLocked,
+        totalPools: stats.totalPools,
+        totalUsers: stats.totalUsers,
+        onlineUsers: stats.onlineUsers,
       };
     },
     staleTime: 60000,        // Keeps data fresh for 1 minute
