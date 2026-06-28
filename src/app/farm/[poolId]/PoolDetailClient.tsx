@@ -89,7 +89,8 @@ export default function PoolDetailClient({ poolId }: { poolId: string }) {
   const [rawAmount, setRawAmount] = useState("0");
 
   const { isOpen, onOpen, onClose } = useDisclosure();
-  const { publicKey, walletApi, isConnected } = useStellarWallet();
+  const { publicKey, walletApi, isConnected, isNetworkMismatch } =
+    useStellarWallet();
 
   const flow = useLockFlow({
     poolId,
@@ -208,7 +209,7 @@ export default function PoolDetailClient({ poolId }: { poolId: string }) {
           _hover={{ opacity: 0.9 }}
           onClick={onOpen}
           size="lg"
-          isDisabled={poolLoading}
+          isDisabled={poolLoading || isNetworkMismatch}
         >
           Deposit
         </Button>
@@ -369,7 +370,9 @@ export default function PoolDetailClient({ poolId }: { poolId: string }) {
                 bg={ACCENT}
                 color="#000"
                 _hover={{ opacity: isPending ? 1 : 0.9 }}
-                isDisabled={!amountValid || !isConnected || isPending}
+                isDisabled={
+                  !amountValid || !isConnected || isPending || isNetworkMismatch
+                }
                 onClick={() => void flow.execute(displayAmount)}
                 w="full"
               >

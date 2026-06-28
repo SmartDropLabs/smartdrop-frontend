@@ -1,5 +1,7 @@
 "use client";
 
+import { stellarNetwork } from "@/config";
+import { useStellarWallet } from "@/context/StellarWalletContext";
 import { useCountdown } from "@/hooks/useCountdown";
 import { useFarmStore } from "@/store/farmStore";
 import {
@@ -73,9 +75,17 @@ export const EarningRow = memo(function EarningRow({
   position,
 }: EarningRowProps) {
   const openUnlock = useFarmStore((s) => s.openUnlock);
+  const { isNetworkMismatch } = useStellarWallet();
   const countdown = useCountdown(unlockAvailableAt(position));
   const hasStake = position.lockedAmount > 0;
   const canUnlock = hasStake && countdown.isElapsed;
+  const boostUnavailable = true;
+  const unlockDisabled = !canUnlock || isNetworkMismatch;
+  const unlockTooltipLabel = isNetworkMismatch
+    ? `Switch Freighter to ${stellarNetwork} to unlock.`
+    : !hasStake
+      ? "No locked assets in this position"
+      : `Locked for another ${countdown.label}`;
 
   return (
     <Flex
@@ -134,7 +144,7 @@ export const EarningRow = memo(function EarningRow({
       >
         <Button
           borderRadius="3xl"
-          isDisabled
+          isDisabled={isNetworkMismatch || boostUnavailable}
           opacity={0.6}
           cursor="not-allowed"
           _hover={{ opacity: 0.6 }}
@@ -143,12 +153,8 @@ export const EarningRow = memo(function EarningRow({
           Boost
         </Button>
         <Tooltip
-          label={
-            !hasStake
-              ? "No locked assets in this position"
-              : `Locked for another ${countdown.label}`
-          }
-          isDisabled={canUnlock}
+          label={unlockTooltipLabel}
+          isDisabled={!unlockDisabled}
           hasArrow
           bg="app.tooltipBg"
           color="app.tooltipFg"
@@ -157,7 +163,7 @@ export const EarningRow = memo(function EarningRow({
             <Button
               borderRadius="3xl"
               onClick={() => openUnlock(position)}
-              isDisabled={!canUnlock}
+              isDisabled={unlockDisabled}
               w={{ base: "full", md: "auto" }}
             >
               Unlock
