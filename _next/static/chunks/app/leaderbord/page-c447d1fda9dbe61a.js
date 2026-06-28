@@ -1,0 +1,1 @@
+(self.webpackChunk_N_E=self.webpackChunk_N_E||[]).push([[335],{52588:(e,r,u)=>{Promise.resolve().then(u.bind(u,54901))},54901:(e,r,u)=>{"use strict";u.r(r),u.d(r,{default:()=>t});var s=u(47260),l=u(12115);function t(){let e=(0,s.useRouter)();return(0,l.useEffect)(()=>{e.replace("/leaderboard")},[e]),null}}},e=>{e.O(0,[441,255,358],()=>e(e.s=52588)),_N_E=e.O()}]);
