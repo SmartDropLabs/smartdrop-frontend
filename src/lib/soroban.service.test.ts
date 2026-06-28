@@ -1,8 +1,14 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-const { assembleTransactionMock } = vi.hoisted(() => ({
-  assembleTransactionMock: vi.fn(),
-}));
+const { assembleTransactionMock } = vi.hoisted(() => {
+  (globalThis as typeof globalThis & { Networks: { TESTNET: string } }).Networks = {
+    TESTNET: 'Test SDF Network ; September 2015',
+  };
+
+  return {
+    assembleTransactionMock: vi.fn(),
+  };
+});
 
 vi.mock('@stellar/stellar-sdk', async importOriginal => {
   const actual = await importOriginal<typeof import('@stellar/stellar-sdk')>();
@@ -18,6 +24,7 @@ vi.mock('@stellar/stellar-sdk', async importOriginal => {
 
 import {
   Account,
+  Address,
   Contract,
   type FeeBumpTransaction,
   StrKey,
@@ -70,6 +77,22 @@ function invokeContractFromOperation(op: xdr.Operation) {
     .invokeHostFunctionOp()
     .hostFunction()
     .invokeContract();
+}
+
+function makeAuthEntry(functionName: string, contractId = POOL_CONTRACT_ID) {
+  const contractFn = new xdr.InvokeContractArgs({
+    contractAddress: Address.fromString(contractId).toScAddress(),
+    functionName,
+    args: [],
+  });
+
+  return new xdr.SorobanAuthorizationEntry({
+    credentials: xdr.SorobanCredentials.sorobanCredentialsSourceAccount(),
+    rootInvocation: new xdr.SorobanAuthorizedInvocation({
+      function: xdr.SorobanAuthorizedFunction.sorobanAuthorizedFunctionTypeContractFn(contractFn),
+      subInvocations: [],
+    }),
+  });
 }
 
 function makeMockRpcServer(overrides: Partial<MockRpcServer> = {}): MockRpcServer {
@@ -211,6 +234,7 @@ describe('soroban transaction builders', () => {
 
     expect(result).toEqual({
       success: false,
+      status: 'FAILED',
       error: 'Simulation failed: stop before signing',
     });
     expect(callSpy).toHaveBeenCalledWith(
@@ -228,7 +252,7 @@ describe('soroban transaction builders', () => {
     expect(addressArg.address().switch()).toBe(xdr.ScAddressType.scAddressTypeAccount());
     expect(scValToNative(addressArg)).toBe(USER_PUBLIC_KEY);
     expect(amountArg.switch()).toBe(xdr.ScValType.scvI128());
-    expect(scValToNative(amountArg)).toBe(BigInt(123_456_789));
+    expect(scValToNative(amountArg)).toBe(BigInt(123_456_789) * BigInt(10_000_000));
   });
 
   it('converts unlock display units to stroops before delegating', async () => {
@@ -251,6 +275,7 @@ describe('soroban transaction builders', () => {
       USER_PUBLIC_KEY,
       '12345678',
       walletApi,
+      { onHash: undefined, onStep: undefined },
     );
   });
 });
@@ -377,7 +402,10 @@ describe('SorobanService RPC writes', () => {
   it('lockAssets signs and submits an assembled transaction on success', async () => {
     const { service, rpcServer } = makeService();
     const assembleSpy = mockAssembleTransactionPassthrough();
-    rpcServer.simulateTransaction.mockResolvedValue({ result: {}, minResourceFee: '321' });
+    rpcServer.simulateTransaction.mockResolvedValue({
+      result: { auth: [makeAuthEntry('lock_assets')] },
+      minResourceFee: '321',
+    });
     rpcServer.sendTransaction.mockResolvedValue({ status: 'PENDING', hash: 'lock-hash' });
     const walletApi = { signTransaction: vi.fn(async (xdrEnvelope: string) => xdrEnvelope) };
 
@@ -387,6 +415,8 @@ describe('SorobanService RPC writes', () => {
       success: true,
       transactionHash: 'lock-hash',
       hash: 'lock-hash',
+      status: 'SUCCESS',
+      resultXdr: undefined,
       gasUsed: '321',
     });
     expect(assembleSpy).toHaveBeenCalledWith(
@@ -402,7 +432,10 @@ describe('SorobanService RPC writes', () => {
   it('unlockAssets signs and submits an assembled transaction on success', async () => {
     const { service, rpcServer } = makeService();
     mockAssembleTransactionPassthrough();
-    rpcServer.simulateTransaction.mockResolvedValue({ result: {}, minResourceFee: '654' });
+    rpcServer.simulateTransaction.mockResolvedValue({
+      result: { auth: [makeAuthEntry('unlock_assets')] },
+      minResourceFee: '654',
+    });
     rpcServer.sendTransaction.mockResolvedValue({ status: 'PENDING', hash: 'unlock-hash' });
     const walletApi = { signTransaction: vi.fn(async (xdrEnvelope: string) => xdrEnvelope) };
 
@@ -412,6 +445,8 @@ describe('SorobanService RPC writes', () => {
       success: true,
       transactionHash: 'unlock-hash',
       hash: 'unlock-hash',
+      status: 'SUCCESS',
+      resultXdr: undefined,
       gasUsed: '654',
     });
     expect(walletApi.signTransaction).toHaveBeenCalledTimes(1);
@@ -432,7 +467,10 @@ describe('SorobanService RPC writes', () => {
   it('setBoost signs and submits an assembled transaction on success', async () => {
     const { service, rpcServer } = makeService();
     mockAssembleTransactionPassthrough();
-    rpcServer.simulateTransaction.mockResolvedValue({ result: {}, minResourceFee: '777' });
+    rpcServer.simulateTransaction.mockResolvedValue({
+      result: { auth: [makeAuthEntry('set_boost')] },
+      minResourceFee: '777',
+    });
     rpcServer.sendTransaction.mockResolvedValue({ status: 'PENDING', hash: 'boost-hash' });
     const walletApi = { signTransaction: vi.fn(async (xdrEnvelope: string) => xdrEnvelope) };
 
