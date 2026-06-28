@@ -33,6 +33,7 @@ import { sorobanService } from "@/lib/soroban";
 import type { PoolInfo } from "@/lib/soroban";
 import TvlChart from "@/components/TvlChart/TvlChart";
 import { useLockFlow } from "@/hooks/useLockFlow";
+import { useStellarBalance } from "@/hooks/useSorobanQuery";
 import { useStellarWallet } from "@/context/StellarWalletContext";
 import ConnectWalletButton from "@/components/ConnectWalletButton/ConnectWalletButton";
 import { isDepositPending, DEPOSIT_STEP_LABEL } from "@/types/farm";
@@ -91,6 +92,15 @@ export default function PoolDetailClient({ poolId }: { poolId: string }) {
   const { isOpen, onOpen, onClose } = useDisclosure();
   const { publicKey, walletApi, isConnected, isNetworkMismatch } =
     useStellarWallet();
+
+  const balanceQuery = useStellarBalance(publicKey ?? undefined);
+  const availableBalance = balanceQuery.data;
+
+  const isFeeSponsored =
+    isConnected &&
+    typeof availableBalance === "number" &&
+    availableBalance < 1.0 &&
+    !!process.env.NEXT_PUBLIC_FEE_SPONSOR_PUBLIC_KEY;
 
   const flow = useLockFlow({
     poolId,
@@ -351,6 +361,13 @@ export default function PoolDetailClient({ poolId }: { poolId: string }) {
                 <Alert status="error" borderRadius="2xl" bg="#2a1414" color="#ff8080" fontSize="sm">
                   <AlertIcon color="#ff8080" />
                   {flow.error}
+                </Alert>
+              )}
+
+              {isFeeSponsored && (
+                <Alert status="warning" borderRadius="2xl" bg="#2d2216" color="#ffb86c" fontSize="sm" border="1px solid #7c5c24">
+                  <AlertIcon color="#ffb86c" />
+                  Your fees are sponsored for this transaction
                 </Alert>
               )}
 

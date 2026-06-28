@@ -128,6 +128,12 @@ function DepositModal({
     onStep: (nextStep) => setStep(nextStep),
   });
 
+  const isFeeSponsored =
+    isConnected &&
+    typeof availableBalance === "number" &&
+    availableBalance < 1.0 &&
+    !!process.env.NEXT_PUBLIC_FEE_SPONSOR_PUBLIC_KEY;
+
   const isPending = lockMutation.isPending || isDepositPending(step);
   const canSubmit =
     isConnected &&
@@ -363,6 +369,13 @@ function DepositModal({
               <Alert status="error" borderRadius="2xl" bg="#2a1414" color="#ff8080">
                 <AlertIcon color="#ff8080" />
                 {localError}
+              </Alert>
+            )}
+
+            {isFeeSponsored && (
+              <Alert status="warning" borderRadius="2xl" bg="#2d2216" color="#ffb86c" fontSize="sm" border="1px solid #7c5c24">
+                <AlertIcon color="#ffb86c" />
+                Your fees are sponsored for this transaction
               </Alert>
             )}
 

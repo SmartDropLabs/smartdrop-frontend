@@ -457,8 +457,7 @@ export default function UnlockModal() {
                 bg="app.accent"
                 color="app.onAccent"
                 _hover={{ opacity: 0.9 }}
-                isDisabled={!canUnlock || !amountValid || isProcessing}
-                isDisabled={!canUnlock || !amountValid || pending || isNetworkMismatch}
+                isDisabled={!canUnlock || !amountValid || isProcessing || isNetworkMismatch}
                 onClick={() => void handleUnlock()}
                 w="full"
               >
