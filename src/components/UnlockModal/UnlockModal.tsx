@@ -8,7 +8,12 @@ import { useErrorHandler } from "@/context/ErrorContext";
 import { useStellarWallet } from "@/context/StellarWalletContext";
 import { useCountdown } from "@/hooks/useCountdown";
 import { trackEvent } from "@/lib/analytics";
-import { stellarExpertTxUrl, unlockAssets, computePartialUnlockPreview } from "@/lib/soroban";
+import {
+    stellarExpertTxUrl,
+    unlockAssets,
+    computePartialUnlockPreview,
+    getContractErrorMessage,
+} from "@/lib/soroban";
 import { useFarmStore } from "@/store/farmStore";
 import { unlockAvailableAt } from "@/types/farm";
 import {
@@ -31,6 +36,25 @@ import {
 } from "@chakra-ui/react";
 import { useEffect, useMemo, useState } from "react";
 
+type UnlockStep =
+  | "idle"
+  | "signing"
+  | "submitting"
+  | "confirming"
+  | "success"
+  | "timeout"
+  | "error";
+
+const UNLOCK_STEP_LABEL: Record<UnlockStep, string> = {
+  idle: "",
+  signing: "Waiting for Freighter signature...",
+  submitting: "Submitting transaction to Stellar...",
+  confirming: "Confirming transaction on Stellar...",
+  success: "Unlock confirmed",
+  timeout: "Confirmation is taking longer than expected.",
+  error: "Unlock failed",
+};
+
 export default function UnlockModal() {
   const selectedPosition = useFarmStore((s) => s.selectedPosition);
   const isUnlock = useFarmStore((s) => s.activeModal === "unlock");
@@ -39,7 +63,7 @@ export default function UnlockModal() {
   const { publicKey, walletApi, isNetworkMismatch } = useStellarWallet();
   const toast = useErrorHandler();
   const [amount, setAmount] = useState("");
-  const [pending, setPending] = useState(false);
+  const [step, setStep] = useState<UnlockStep>("idle");
   const [error, setError] = useState<string | null>(null);
   const [txHash, setTxHash] = useState<string | null>(null);
   const selectedPoolContractId = position?.contractAddress || poolContractId;
@@ -47,6 +71,8 @@ export default function UnlockModal() {
   const unlockAt = position ? unlockAvailableAt(position) : 0;
   const countdown = useCountdown(unlockAt);
   const canUnlock = Boolean(position) && countdown.isElapsed;
+  const isProcessing =
+    step === "signing" || step === "submitting" || step === "confirming";
 
   const numericAmount = Number(amount);
   const amountValid =
@@ -59,7 +85,7 @@ export default function UnlockModal() {
   useEffect(() => {
     if (isUnlock && position) {
       setAmount(String(position.lockedAmount));
-      setPending(false);
+      setStep("idle");
       setError(null);
       setTxHash(null);
 
@@ -75,14 +101,14 @@ export default function UnlockModal() {
   }, [isUnlock, position]);
 
   const explorerUrl = useMemo(
-    () => (txHash ? stellarExpertTxUrl(txHash, stellarNetwork) : null),
+    () => (txHash ? stellarExpertTxUrl(txHash, stellarNetwork.toLowerCase()) : null),
     [txHash]
   );
 
   if (!position) return null;
 
   const handleClose = () => {
-    if (pending) return;
+    if (isProcessing) return;
     close();
   };
 
@@ -99,6 +125,7 @@ export default function UnlockModal() {
   const handleUnlock = async () => {
     if (!publicKey || !walletApi) {
       setError("Connect your Freighter wallet to unlock.");
+      setStep("error");
       return;
     }
     if (isNetworkMismatch) {
@@ -107,25 +134,30 @@ export default function UnlockModal() {
     }
     if (!selectedPoolContractId) {
       setError("Pool contract is not configured.");
+      setStep("error");
       return;
     }
     if (!canUnlock) {
       setError("Lock period has not elapsed yet.");
+      setStep("error");
       return;
     }
     if (!amountValid) {
       setError(`Enter an amount between 0.01 and ${position.lockedAmount}.`);
+      setStep("error");
       return;
     }
 
     // Additional validation for minimum unlock amount
     if (numericAmount < 0.01) {
       setError("Minimum unlock amount is 0.01.");
+      setStep("error");
       return;
     }
 
     setError(null);
-    setPending(true);
+    setTxHash(null);
+    setStep("signing");
     const trackingStartTime = Date.now();
     trackEvent("unlock_initiated", {
       farm: position.name,
@@ -143,9 +175,33 @@ export default function UnlockModal() {
         publicKey,
         amount,
         walletApi,
+        onHash: (hash) => setTxHash(hash),
+        onStep: (nextStep) => setStep(nextStep),
       });
       const hash = result.hash || result.transactionHash;
       setTxHash(hash || null);
+
+      if (!result.success) {
+        const userMessage =
+          result.status === "TIMEOUT"
+            ? "Confirmation is taking longer than expected. You can check the transaction manually on Stellar Expert."
+            : getContractErrorMessage(result.errorCode) ??
+              result.error ??
+              "Unlock transaction failed.";
+
+        setError(userMessage);
+        setStep(result.status === "TIMEOUT" ? "timeout" : "error");
+        trackEvent("unlock_failed", {
+          farm: position.name,
+          symbol: position.symbol,
+          amount: numericAmount,
+          reason: result.status ?? result.errorCode ?? "FAILED",
+          errorMessage: userMessage,
+        });
+        return;
+      }
+
+      setStep("success");
       toast.success(
         "Unlock Submitted",
         `${numericAmount} ${position.symbol} unlock transaction submitted successfully`
@@ -160,14 +216,10 @@ export default function UnlockModal() {
       });
       // TODO(#28): optimistic queryClient.getQueryData update attaches here pending
       //            maintainer confirmation — see issue discussion
-      toast.success(
-        "Unlock submitted",
-        `${numericAmount} ${position.symbol} unlock request sent.`
-      );
-      close();
     } catch (err) {
       const normalizedError = toast.handleError(err, "Unlock Transaction");
       setError(normalizedError.userMessage);
+      setStep("error");
       trackEvent("unlock_failed", {
         farm: position.name,
         symbol: position.symbol,
@@ -175,8 +227,6 @@ export default function UnlockModal() {
         reason: normalizedError.code,
         errorMessage: normalizedError.message,
       });
-    } finally {
-      setPending(false);
     }
   };
 
@@ -197,9 +247,9 @@ export default function UnlockModal() {
         mx={{ base: 4, md: "auto" }}
       >
         <ModalHeader mx="auto">Unlock {position.symbol}</ModalHeader>
-        <ModalCloseButton isDisabled={pending} />
+        <ModalCloseButton isDisabled={isProcessing} />
         <ModalBody p={{ base: 4, md: 8 }}>
-          {txHash ? (
+          {step === "success" ? (
             <Flex direction="column" gap={4} align="center" textAlign="center">
               <Badge colorScheme="green" borderRadius="full" px={3} py={1}>
                 Unlock confirmed
@@ -287,7 +337,7 @@ export default function UnlockModal() {
                     pr="120px"
                     value={amount}
                     onChange={(e) => setAmount(e.target.value)}
-                    isDisabled={!canUnlock || pending}
+                    isDisabled={!canUnlock || isProcessing}
                     borderColor="app.border"
                     bg="app.inputBg"
                     color="app.text"
@@ -341,6 +391,38 @@ export default function UnlockModal() {
                 </Box>
               )}
 
+              {isProcessing && (
+                <Alert status="info" borderRadius="2xl" bg="app.inputBg" color="app.text">
+                  <Flex align="center" gap={3} w="full">
+                    <Spinner size="sm" color="app.accent" />
+                    <Box>
+                      <Text fontSize="sm" fontWeight="semibold">
+                        {UNLOCK_STEP_LABEL[step]}
+                      </Text>
+                      {step === "confirming" && txHash && explorerUrl && (
+                        <Link href={explorerUrl} isExternal color="app.accent" fontSize="sm">
+                          View transaction on Stellar Expert
+                        </Link>
+                      )}
+                    </Box>
+                  </Flex>
+                </Alert>
+              )}
+
+              {step === "timeout" && (
+                <Alert status="warning" borderRadius="2xl" bg="#2a2412" color="#f6c453">
+                  <AlertIcon color="#f6c453" />
+                  <Flex direction="column" gap={1}>
+                    <Text>Confirmation is taking longer than expected.</Text>
+                    {explorerUrl && (
+                      <Link href={explorerUrl} isExternal color="app.accent">
+                        Check the transaction on Stellar Expert
+                      </Link>
+                    )}
+                  </Flex>
+                </Alert>
+              )}
+
               {amountValid &&
                 !!position.minDepositAmount &&
                 remainingStake > 0 &&
@@ -357,7 +439,7 @@ export default function UnlockModal() {
                   </Alert>
                 )}
 
-              {error && (
+              {error && step !== "timeout" && (
                 <Alert
                   status="error"
                   borderRadius="2xl"
@@ -375,11 +457,19 @@ export default function UnlockModal() {
                 bg="app.accent"
                 color="app.onAccent"
                 _hover={{ opacity: 0.9 }}
+                isDisabled={!canUnlock || !amountValid || isProcessing}
                 isDisabled={!canUnlock || !amountValid || pending || isNetworkMismatch}
                 onClick={() => void handleUnlock()}
                 w="full"
               >
-                {pending ? <Spinner size="sm" /> : "Unlock with Freighter"}
+                {isProcessing ? (
+                  <Flex align="center" gap={2}>
+                    <Spinner size="sm" />
+                    <Text>{UNLOCK_STEP_LABEL[step]}</Text>
+                  </Flex>
+                ) : (
+                  "Unlock with Freighter"
+                )}
               </Button>
             </Flex>
           )}

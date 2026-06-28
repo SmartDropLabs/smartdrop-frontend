@@ -47,6 +47,8 @@ export interface TransactionResult {
   hash?: string;
   status?: string;
   error?: string;
+  errorCode?: string;
+  resultXdr?: string;
   gasUsed?: string;
 }
 
@@ -124,10 +126,16 @@ export interface FreighterWalletApi {
 }
 
 type LockAssetsStep = 'simulating' | 'signing' | 'submitting';
+type UnlockAssetsStep = 'signing' | 'submitting' | 'confirming';
 
 export interface LockAssetsCallbacks {
   onHash?: (hash: string) => void;
   onStep?: (step: LockAssetsStep) => void;
+}
+
+export interface UnlockAssetsCallbacks {
+  onHash?: (hash: string) => void;
+  onStep?: (step: UnlockAssetsStep) => void;
 }
 
 export interface BuildLockAssetsTransactionArgs {
@@ -257,6 +265,155 @@ function getSignedTransactionXdr(
   }
 
   throw new Error('Freighter did not return a signed transaction XDR');
+}
+
+type PollTransactionResult = {
+  status: 'SUCCESS' | 'FAILED' | 'TIMEOUT';
+  resultXdr?: string;
+  errorCode?: string;
+};
+
+const CONTRACT_ERROR_MESSAGES: Record<string, string> = {
+  '1': 'Assets are still locked',
+};
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function normalizeResultXdr(resultXdr: unknown): string | undefined {
+  if (!resultXdr) return undefined;
+  if (typeof resultXdr === 'string') return resultXdr;
+  if (
+    typeof resultXdr === 'object' &&
+    resultXdr !== null &&
+    'toXDR' in resultXdr &&
+    typeof (resultXdr as { toXDR: (format: 'base64') => unknown }).toXDR === 'function'
+  ) {
+    const encoded = (resultXdr as { toXDR: (format: 'base64') => unknown }).toXDR('base64');
+    return typeof encoded === 'string' ? encoded : undefined;
+  }
+  return undefined;
+}
+
+function normalizeTransactionStatus(status: unknown): string {
+  return enumName(status).toUpperCase();
+}
+
+function normalizeContractErrorCode(value: unknown): string | undefined {
+  if (typeof value === 'bigint') return value.toString();
+  if (typeof value === 'number' && Number.isFinite(value)) return String(value);
+  if (typeof value !== 'string') return undefined;
+
+  const trimmed = value.trim();
+  if (/^\d+$/.test(trimmed)) return trimmed;
+  const hexMatch = trimmed.match(/0x([0-9a-f]+)/i);
+  if (hexMatch) return String(Number.parseInt(hexMatch[1], 16));
+  const decimalMatch = trimmed.match(/(?:contract[_\s-]?code|error[_\s-]?code|code)[^\d]*(\d+)/i);
+  return decimalMatch?.[1];
+}
+
+function findContractErrorCode(
+  value: unknown,
+  depth = 0,
+  seen = new WeakSet<object>(),
+): string | undefined {
+  if (depth > 8 || value == null) return undefined;
+
+  if (typeof value === 'object') {
+    if (seen.has(value)) return undefined;
+    seen.add(value);
+
+    const xdrLike = value as {
+      switch?: () => unknown;
+      value?: () => unknown;
+    };
+    if (typeof xdrLike.switch === 'function') {
+      const armName = enumName(xdrLike.switch());
+      if (armName === 'sceContract' && typeof xdrLike.value === 'function') {
+        return normalizeContractErrorCode(xdrLike.value());
+      }
+    }
+
+    for (const method of [
+      'contractCode',
+      'errorCode',
+      'code',
+      'value',
+      'result',
+      'results',
+      'tr',
+      'invokeHostFunction',
+    ]) {
+      const accessor = (value as Record<string, unknown>)[method];
+      if (typeof accessor !== 'function') continue;
+
+      try {
+        const raw = accessor.call(value);
+        const directCode = /^(contractCode|errorCode|code)$/.test(method)
+          ? normalizeContractErrorCode(raw)
+          : undefined;
+        if (directCode) return directCode;
+
+        const code = findContractErrorCode(raw, depth + 1, seen);
+        if (code) return code;
+      } catch {
+        // Ignore accessors that are not valid for this XDR union arm.
+      }
+    }
+
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        const code = findContractErrorCode(item, depth + 1, seen);
+        if (code) return code;
+      }
+      return undefined;
+    }
+
+    for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
+      if (!/(contract|error|code|result)/i.test(key)) continue;
+      const directCode = normalizeContractErrorCode(item);
+      if (directCode) return directCode;
+      const nestedCode = findContractErrorCode(item, depth + 1, seen);
+      if (nestedCode) return nestedCode;
+    }
+  }
+
+  return undefined;
+}
+
+function extractContractErrorCodeFromXdr(resultXdr?: string): string | undefined {
+  if (!resultXdr) return undefined;
+
+  for (const decoder of [xdr.TransactionResult, xdr.ScError]) {
+    try {
+      const decoded = decoder.fromXDR(resultXdr, 'base64');
+      const code = findContractErrorCode(decoded);
+      if (code) return code;
+    } catch {
+      // The result might not be this XDR type.
+    }
+  }
+
+  return normalizeContractErrorCode(resultXdr);
+}
+
+function extractContractErrorCode(tx: unknown, resultXdr?: string): string | undefined {
+  const directCode = findContractErrorCode(tx);
+  if (directCode) return directCode;
+
+  if (tx && typeof tx === 'object') {
+    const rawResultXdr = normalizeResultXdr((tx as { resultXdr?: unknown }).resultXdr);
+    const code = extractContractErrorCodeFromXdr(rawResultXdr);
+    if (code) return code;
+  }
+
+  return extractContractErrorCodeFromXdr(resultXdr);
+}
+
+export function getContractErrorMessage(errorCode?: string): string | undefined {
+  const normalized = normalizeContractErrorCode(errorCode);
+  return normalized ? CONTRACT_ERROR_MESSAGES[normalized] : undefined;
 }
 
 // ── Transaction signing safety ───────────────────────────────────────────────
@@ -644,26 +801,42 @@ export class SorobanService {
     throw new Error(`Pool contract not found for ID: ${poolId}`);
   }
 
-  /**
-   * Poll getTransaction until the tx is no longer PENDING or NOT_FOUND.
-   * Throws if the tx fails or the poll limit is exceeded.
-   */
-  async waitForConfirmation(
+  private async pollTransactionStatus(
     hash: string,
-    maxAttempts = 30,
-    intervalMs = 2000,
-  ): Promise<{ status: string }> {
-    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    timeoutMs = 30000,
+  ): Promise<PollTransactionResult> {
+    const startedAt = Date.now();
+    let delayMs = 1000;
+
+    while (Date.now() - startedAt < timeoutMs) {
       const tx = await this.rpcServer.getTransaction(hash);
-      if (tx.status === rpc.Api.GetTransactionStatus.SUCCESS) {
-        return { status: String(tx.status) };
+      const status = normalizeTransactionStatus(tx.status);
+      const resultXdr = normalizeResultXdr('resultXdr' in tx ? tx.resultXdr : undefined);
+
+      if (status === 'SUCCESS') {
+        return {
+          status: 'SUCCESS',
+          resultXdr,
+        };
       }
-      if (tx.status === rpc.Api.GetTransactionStatus.FAILED) {
-        throw new Error(`Transaction ${hash} failed on-chain`);
+
+      if (status === 'FAILED') {
+        return {
+          status: 'FAILED',
+          resultXdr,
+          errorCode: extractContractErrorCode(tx, resultXdr),
+        };
       }
-      await new Promise((resolve) => setTimeout(resolve, intervalMs));
+
+      const elapsedMs = Date.now() - startedAt;
+      const remainingMs = timeoutMs - elapsedMs;
+      if (remainingMs <= 0) break;
+
+      await sleep(Math.min(delayMs, remainingMs));
+      delayMs = Math.min(delayMs * 2, 5000);
     }
-    throw new Error(`Transaction ${hash} not confirmed after ${maxAttempts} attempts`);
+
+    return { status: 'TIMEOUT' };
   }
 
   async lockAssets(
@@ -715,13 +888,29 @@ export class SorobanService {
       }
 
       callbacks?.onHash?.(submissionResult.hash);
-      const confirmation = await this.waitForConfirmation(submissionResult.hash);
+      const confirmation = await this.pollTransactionStatus(submissionResult.hash);
+      if (confirmation.status !== 'SUCCESS') {
+        return {
+          success: false,
+          transactionHash: submissionResult.hash,
+          hash: submissionResult.hash,
+          status: confirmation.status,
+          resultXdr: confirmation.resultXdr,
+          errorCode: confirmation.errorCode,
+          error:
+            confirmation.status === 'TIMEOUT'
+              ? 'Transaction confirmation is taking longer than expected.'
+              : getContractErrorMessage(confirmation.errorCode) ??
+                `Transaction ${submissionResult.hash} failed on-chain`,
+        };
+      }
 
       return {
         success: true,
         transactionHash: submissionResult.hash,
         hash: submissionResult.hash,
         status: confirmation.status,
+        resultXdr: confirmation.resultXdr,
         gasUsed: feePreview,
       };
 
@@ -745,7 +934,8 @@ export class SorobanService {
     poolId: string,
     userAddress: string,
     amount: string,
-    walletApi: FreighterWalletApi
+    walletApi: FreighterWalletApi,
+    callbacks?: UnlockAssetsCallbacks,
   ): Promise<TransactionResult> {
     const poolContract = this.resolvePoolContract(poolId);
 
@@ -784,12 +974,14 @@ export class SorobanService {
 
       const preparedTransaction = rpc.assembleTransaction(transaction, simulation).build();
 
+      callbacks?.onStep?.('signing');
       const signedTransaction = getSignedTransactionXdr(
         await walletApi.signTransaction(preparedTransaction.toXDR(), {
           networkPassphrase,
         }),
       );
 
+      callbacks?.onStep?.('submitting');
       const submissionResult = await this.rpcServer.sendTransaction(
         TransactionBuilder.fromXDR(signedTransaction, networkPassphrase),
       );
@@ -801,12 +993,31 @@ export class SorobanService {
         };
       }
 
-      await this.waitForConfirmation(submissionResult.hash);
+      callbacks?.onHash?.(submissionResult.hash);
+      callbacks?.onStep?.('confirming');
+      const confirmation = await this.pollTransactionStatus(submissionResult.hash);
+      if (confirmation.status !== 'SUCCESS') {
+        return {
+          success: false,
+          transactionHash: submissionResult.hash,
+          hash: submissionResult.hash,
+          status: confirmation.status,
+          resultXdr: confirmation.resultXdr,
+          errorCode: confirmation.errorCode,
+          error:
+            confirmation.status === 'TIMEOUT'
+              ? 'Transaction confirmation is taking longer than expected.'
+              : getContractErrorMessage(confirmation.errorCode) ??
+                `Transaction ${submissionResult.hash} failed on-chain`,
+        };
+      }
 
       return {
         success: true,
         transactionHash: submissionResult.hash,
         hash: submissionResult.hash,
+        status: confirmation.status,
+        resultXdr: confirmation.resultXdr,
         gasUsed: simulation.minResourceFee || '0',
       };
 
@@ -1183,16 +1394,21 @@ export const unlockAssets = async ({
   publicKey,
   amount,
   walletApi,
+  onHash,
+  onStep,
 }: {
   poolContractId: string;
   publicKey: string;
   amount: string;
   walletApi: FreighterWalletApi;
-}) => {
+} & UnlockAssetsCallbacks) => {
   // Convert display-unit amount to integer stroops before passing as i128.
   // 1 display unit = 10,000,000 stroops (Stellar's fixed-point precision).
   const stroops = Math.round(parseFloat(amount) * 10_000_000).toString();
-  return sorobanService.unlockAssets(poolContractId, publicKey, stroops, walletApi);
+  return sorobanService.unlockAssets(poolContractId, publicKey, stroops, walletApi, {
+    onHash,
+    onStep,
+  });
 };
 
 export const stellarExpertTxUrl = (hash: string, network: string) =>

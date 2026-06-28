@@ -7,7 +7,7 @@ import {
   scValToNative,
   type xdr,
 } from '@stellar/stellar-sdk';
-import { amountToStroops, buildLockAssetsTransaction } from './soroban';
+import { amountToStroops, buildLockAssetsTransaction, SorobanService } from './soroban';
 
 vi.mock('@/config', () => ({
   factoryContractId: '',
@@ -63,5 +63,45 @@ describe('buildLockAssetsTransaction', () => {
     expect(scValToNative(args[0])).toBe(publicKey);
     expect(scValToNative(args[1])).toBe(12500000n);
     expect(amountToStroops('1.25')).toBe(12500000n);
+  });
+});
+
+describe('SorobanService transaction polling', () => {
+  it('polls NOT_FOUND responses until the transaction succeeds', async () => {
+    vi.useFakeTimers();
+
+    try {
+      const getTransaction = vi
+        .fn()
+        .mockResolvedValueOnce({ status: 'NOT_FOUND' })
+        .mockResolvedValueOnce({ status: 'NOT_FOUND' })
+        .mockResolvedValueOnce({ status: 'SUCCESS', resultXdr: 'success-xdr' });
+
+      const service = new SorobanService() as unknown as {
+        rpcServer: { getTransaction: typeof getTransaction };
+        pollTransactionStatus: (
+          hash: string,
+          timeoutMs?: number,
+        ) => Promise<{ status: 'SUCCESS' | 'FAILED' | 'TIMEOUT'; resultXdr?: string }>;
+      };
+      service.rpcServer = { getTransaction };
+
+      const resultPromise = service.pollTransactionStatus('tx-hash');
+
+      await Promise.resolve();
+      expect(getTransaction).toHaveBeenCalledTimes(1);
+
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(getTransaction).toHaveBeenCalledTimes(2);
+
+      await vi.advanceTimersByTimeAsync(2000);
+      const result = await resultPromise;
+
+      expect(result.status).toBe('SUCCESS');
+      expect(result.resultXdr).toBe('success-xdr');
+      expect(getTransaction).toHaveBeenCalledTimes(3);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
