@@ -27,10 +27,10 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Install Playwright browsers
-        run: pnpm playwright install chromium --with-deps
+        run: pnpm exec playwright install chromium --with-deps
 
       - name: Run Playwright E2E tests
-        run: pnpm playwright test
+        run: pnpm run playwright
         env:
           CI: true
           NEXT_PUBLIC_E2E: 'true'

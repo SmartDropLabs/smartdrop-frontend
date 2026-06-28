@@ -10,14 +10,13 @@
 
 import { useCallback, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { lockAssets } from "@/lib/soroban";
+import { lockAssets, type FreighterWalletApi } from "@/lib/soroban";
 import { normalizeError } from "@/lib/error-handler";
 import { trackEvent } from "@/lib/analytics";
 import {
   type DepositRecord,
   type DepositStep,
   isDepositPending,
-  toStroops,
 } from "@/types/farm";
 import { QUERY_KEYS } from "@/hooks/useSorobanQuery";
 
@@ -25,7 +24,7 @@ export interface LockFlowParams {
   poolId: string;
   symbol: string;
   publicKey: string;
-  walletApi: any;
+  walletApi: FreighterWalletApi | null;
 }
 
 export interface LockFlowState {
@@ -65,6 +64,10 @@ export function useLockFlow({
       trackEvent("deposit_initiated", { poolId, symbol, displayAmount });
 
       try {
+        if (!walletApi || !publicKey) {
+          throw new Error("Wallet not connected. Please connect Freighter before depositing.");
+        }
+
         setStep("simulating");
         // Freighter internally simulates then surfaces the popup
         setStep("signing");
@@ -72,8 +75,9 @@ export function useLockFlow({
         const result = await lockAssets({
           poolContractId: poolId,
           publicKey,
-          amount: toStroops(displayAmount),
+          amount: String(displayAmount),
           walletApi,
+          onStep: setStep,
         });
 
         if (!result.success) {

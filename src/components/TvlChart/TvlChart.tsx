@@ -109,14 +109,14 @@ export default function TvlChart({ poolId }: TvlChartProps) {
             borderRadius: "12px",
             fontSize: "12px",
           }}
-          labelFormatter={(label: string) =>
-            new Date(label).toLocaleDateString(undefined, {
+          labelFormatter={(label) =>
+            new Date(String(label)).toLocaleDateString(undefined, {
               weekday: "short",
               month: "short",
               day: "numeric",
             })
           }
-          formatter={(value: number) => [`$${Number(value).toLocaleString()}`, "TVL"]}
+          formatter={(value) => [`$${Number(value).toLocaleString()}`, "TVL"]}
         />
         <Area
           type="monotone"

@@ -1,9 +1,10 @@
-import { render } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { useStellarWallet } from "@/context/StellarWalletContext";
 import { useCountdown } from "@/hooks/useCountdown";
 import { unlockAvailableAt, type FarmPosition } from "@/types/farm";
-import { EarningRow } from "./page";
+import { EarningRow } from "./EarningRow";
 
 vi.mock("@/hooks/useCountdown", () => ({
   useCountdown: vi.fn(() => ({
@@ -11,6 +12,10 @@ vi.mock("@/hooks/useCountdown", () => ({
     isElapsed: false,
     label: "00h 01m 00s",
   })),
+}));
+
+vi.mock("@/context/StellarWalletContext", () => ({
+  useStellarWallet: vi.fn(),
 }));
 
 const positions: FarmPosition[] = [
@@ -55,6 +60,16 @@ const positions: FarmPosition[] = [
   },
 ];
 
+const defaultWallet = {
+  publicKey: "GA3CD2PYXOQCXW7ZVQW3MOA3JFZCE4F4IG2FD66I55TQASPCNKYYEFRN",
+  walletApi: null,
+  networkName: "TESTNET",
+  isNetworkMismatch: false,
+  isConnected: true,
+  connect: vi.fn(),
+  disconnect: vi.fn(),
+};
+
 function PositionList({ positions }: { positions: FarmPosition[] }) {
   return positions.map((position) => (
     <EarningRow key={position.id} position={position} />
@@ -62,6 +77,7 @@ function PositionList({ positions }: { positions: FarmPosition[] }) {
 }
 
 const useCountdownMock = vi.mocked(useCountdown);
+const useStellarWalletMock = vi.mocked(useStellarWallet);
 
 function renderCount(position: FarmPosition) {
   const unlockAt = unlockAvailableAt(position);
@@ -71,6 +87,7 @@ function renderCount(position: FarmPosition) {
 
 beforeEach(() => {
   useCountdownMock.mockClear();
+  useStellarWalletMock.mockReturnValue(defaultWallet);
 });
 
 describe("EarningRow render isolation", () => {
@@ -92,5 +109,29 @@ describe("EarningRow render isolation", () => {
     expect(renderCount(updatedPositions[0])).toBe(initialRenderCounts[0]);
     expect(renderCount(updatedPositions[1])).toBe(initialRenderCounts[1] + 1);
     expect(renderCount(updatedPositions[2])).toBe(initialRenderCounts[2]);
+  });
+
+  it("disables contract action buttons when Freighter is on the wrong network", () => {
+    useCountdownMock.mockReturnValue({
+      remainingMs: 0,
+      isElapsed: true,
+      label: "Unlocked",
+    });
+    useStellarWalletMock.mockReturnValue({
+      ...defaultWallet,
+      networkName: "PUBLIC",
+      isNetworkMismatch: true,
+    });
+
+    render(<EarningRow position={positions[0]} />);
+
+    expect(
+      (screen.getByRole("button", { name: /boost/i }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(true);
+    expect(
+      (screen.getByRole("button", { name: /unlock/i }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(true);
   });
 });

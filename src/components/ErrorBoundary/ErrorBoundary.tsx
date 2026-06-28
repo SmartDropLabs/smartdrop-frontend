@@ -5,7 +5,7 @@
 
 "use client";
 
-import { errorLogger } from "@/lib/error-handler";
+import { UnknownError, errorLogger } from "@/lib/error-handler";
 import { Box, Button, Heading, Text, VStack } from "@chakra-ui/react";
 import React, { Component, type ReactNode } from "react";
 
@@ -30,21 +30,12 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
   }
 
   componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
-    // Log the error
-    errorLogger.log(
-      {
-        code: "COMPONENT_ERROR",
-        userMessage: "A component encountered an error",
-        isTransient: false,
-        isCritical: true,
-        getLogContext: () => ({
-          componentStack: errorInfo.componentStack,
-          message: error.message,
-          stack: error.stack,
-        }),
-      } as any,
-      "React Error Boundary"
+    const boundaryError = new UnknownError(
+      "A component encountered an error",
+      error,
     );
+
+    errorLogger.log(boundaryError, `React Error Boundary: ${errorInfo.componentStack}`);
   }
 
   retry = () => {
