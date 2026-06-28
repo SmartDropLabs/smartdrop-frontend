@@ -12,6 +12,9 @@ import {
   nativeToScVal,
   scValToNative,
   rpc,
+  Networks,
+  Transaction,
+  FeeBumpTransaction,
 } from '@stellar/stellar-sdk';
 import {
   factoryContractId,
@@ -20,6 +23,7 @@ import {
   sorobanRpcUrl,
 } from '@/config';
 import { SecurityError } from './error-handler';
+import { fetchAccountBalances } from './stellar';
 import {
   bigintToDisplayAmount,
   parsePoolsFromNative,
@@ -226,6 +230,30 @@ export async function getStellarBalance(publicKey: string): Promise<number> {
   }
 
   return Number(nativeBalance.balance);
+}
+
+/**
+ * Wraps an inner transaction in a fee-bump transaction sponsored by a sponsor.
+ */
+export function buildFeeBumpTransaction(
+  innerTx: Transaction | string,
+  sponsorPublicKey: string,
+  networkPassphrase: string,
+): FeeBumpTransaction {
+  const txObj = typeof innerTx === 'string'
+    ? TransactionBuilder.fromXDR(innerTx, networkPassphrase) as Transaction
+    : innerTx;
+
+  const innerOps = txObj.operations.length || 1;
+  const innerFee = typeof txObj.fee === 'string' ? parseInt(txObj.fee, 10) : Number(txObj.fee);
+  const baseFee = Math.max(100, Math.ceil(innerFee / innerOps));
+
+  return TransactionBuilder.buildFeeBumpTransaction(
+    sponsorPublicKey,
+    String(baseFee),
+    txObj,
+    networkPassphrase,
+  );
 }
 
 export async function buildLockAssetsTransaction(
@@ -871,6 +899,22 @@ export class SorobanService {
     callbacks?: LockAssetsCallbacks,
   ): Promise<TransactionResult> {
     try {
+      // Check if sponsored fee-bump is needed
+      let isFeeSponsored = false;
+      const sponsorPublicKey = process.env.NEXT_PUBLIC_FEE_SPONSOR_PUBLIC_KEY;
+      if (sponsorPublicKey) {
+        try {
+          const balances = await fetchAccountBalances(userAddress);
+          const nativeBal = balances.find((b) => b.asset_type === 'native');
+          const xlmAmount = nativeBal ? parseFloat(nativeBal.balance) : 0;
+          if (xlmAmount < 1.0) {
+            isFeeSponsored = true;
+          }
+        } catch (err) {
+          console.warn('[SmartDrop] Failed to check XLM balance, defaulting to normal flow:', err);
+        }
+      }
+
       callbacks?.onStep?.('simulating');
       const poolContract = this.resolvePoolContract(poolId);
       const { transaction, simulation, feePreview } = await simulateLockAssets(
@@ -898,9 +942,27 @@ export class SorobanService {
         }),
       );
 
+      let finalTxXdr = signedTransaction;
+      if (isFeeSponsored) {
+        const response = await fetch('/api/sign-fee-bump', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ innerTxXdr: signedTransaction }),
+        });
+        if (!response.ok) {
+          const errText = await response.text();
+          throw new Error(`Fee sponsor failed: ${errText}`);
+        }
+        const resData = await response.json();
+        if (!resData.feeBumpTxXdr) {
+          throw new Error('Sponsor API returned invalid response');
+        }
+        finalTxXdr = resData.feeBumpTxXdr;
+      }
+
       callbacks?.onStep?.('submitting');
       const submissionResult = await this.rpcServer.sendTransaction(
-        TransactionBuilder.fromXDR(signedTransaction, networkPassphrase),
+        TransactionBuilder.fromXDR(finalTxXdr, networkPassphrase),
       );
 
       if (submissionResult.status === 'ERROR') {
@@ -964,6 +1026,22 @@ export class SorobanService {
     const poolContract = this.resolvePoolContract(poolId);
 
     try {
+      // Check if sponsored fee-bump is needed
+      let isFeeSponsored = false;
+      const sponsorPublicKey = process.env.NEXT_PUBLIC_FEE_SPONSOR_PUBLIC_KEY;
+      if (sponsorPublicKey) {
+        try {
+          const balances = await fetchAccountBalances(userAddress);
+          const nativeBal = balances.find((b) => b.asset_type === 'native');
+          const xlmAmount = nativeBal ? parseFloat(nativeBal.balance) : 0;
+          if (xlmAmount < 1.0) {
+            isFeeSponsored = true;
+          }
+        } catch (err) {
+          console.warn('[SmartDrop] Failed to check XLM balance, defaulting to normal flow:', err);
+        }
+      }
+
       const call = poolContract.call(
         "unlock_assets",
         Address.fromString(userAddress).toScVal(),
@@ -1005,9 +1083,27 @@ export class SorobanService {
         }),
       );
 
+      let finalTxXdr = signedTransaction;
+      if (isFeeSponsored) {
+        const response = await fetch('/api/sign-fee-bump', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ innerTxXdr: signedTransaction }),
+        });
+        if (!response.ok) {
+          const errText = await response.text();
+          throw new Error(`Fee sponsor failed: ${errText}`);
+        }
+        const resData = await response.json();
+        if (!resData.feeBumpTxXdr) {
+          throw new Error('Sponsor API returned invalid response');
+        }
+        finalTxXdr = resData.feeBumpTxXdr;
+      }
+
       callbacks?.onStep?.('submitting');
       const submissionResult = await this.rpcServer.sendTransaction(
-        TransactionBuilder.fromXDR(signedTransaction, networkPassphrase),
+        TransactionBuilder.fromXDR(finalTxXdr, networkPassphrase),
       );
 
       if (submissionResult.status === 'ERROR') {
@@ -1393,7 +1489,7 @@ export class SorobanService {
             topics: [[lockSym, '*'], [unlockSym, '*'], [creditSym, '*']],
           },
         ],
-        pagination: { limit: 1000 },
+        limit: 1000,
       });
 
       const agg = new Map<string, { stake: number; credits: number }>();
