@@ -36,7 +36,7 @@ export default function UnlockModal() {
   const isUnlock = useFarmStore((s) => s.activeModal === "unlock");
   const close = useFarmStore((s) => s.close);
   const position = selectedPosition;
-  const { publicKey, walletApi } = useStellarWallet();
+  const { publicKey, walletApi, isNetworkMismatch } = useStellarWallet();
   const toast = useErrorHandler();
   const [amount, setAmount] = useState("");
   const [pending, setPending] = useState(false);
@@ -99,6 +99,10 @@ export default function UnlockModal() {
   const handleUnlock = async () => {
     if (!publicKey || !walletApi) {
       setError("Connect your Freighter wallet to unlock.");
+      return;
+    }
+    if (isNetworkMismatch) {
+      setError(`Switch Freighter to ${stellarNetwork} to unlock.`);
       return;
     }
     if (!selectedPoolContractId) {
@@ -371,7 +375,7 @@ export default function UnlockModal() {
                 bg="app.accent"
                 color="app.onAccent"
                 _hover={{ opacity: 0.9 }}
-                isDisabled={!canUnlock || !amountValid || pending}
+                isDisabled={!canUnlock || !amountValid || pending || isNetworkMismatch}
                 onClick={() => void handleUnlock()}
                 w="full"
               >

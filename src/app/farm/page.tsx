@@ -92,7 +92,7 @@ function DepositModal({
   isOpen: boolean;
   onClose: () => void;
 }) {
-  const { publicKey, isConnected } = useStellarWallet();
+  const { publicKey, isConnected, isNetworkMismatch } = useStellarWallet();
   const [amount, setAmount] = useState("");
   const [txHash, setTxHash] = useState<string | null>(null);
   const [step, setStep] = useState<DepositStep>("idle");
@@ -141,6 +141,7 @@ function DepositModal({
     !feePreview.isFetching &&
     !feePreview.isError &&
     !!feePreview.data &&
+    !isNetworkMismatch &&
     !isPending;
 
   useEffect(() => {
@@ -172,6 +173,10 @@ function DepositModal({
   const handleSubmit = async () => {
     if (!farm || !publicKey) {
       setLocalError("Connect your Freighter wallet to deposit.");
+      return;
+    }
+    if (isNetworkMismatch) {
+      setLocalError(`Switch Freighter to ${stellarNetwork} to deposit.`);
       return;
     }
     if (!canSubmit) {
@@ -411,7 +416,7 @@ function DepositModal({
 }
 
 export default function Farm() {
-  const { publicKey, isConnected } = useStellarWallet();
+  const { publicKey, isConnected, isNetworkMismatch } = useStellarWallet();
   const toast = useToast();
 
   const {
@@ -593,6 +598,7 @@ export default function Farm() {
               <Button
                 borderRadius="3xl"
                 onClick={() => handleDepositClick(farm)}
+                isDisabled={isNetworkMismatch}
                 w={{ base: "full", md: "auto" }}
               >
                 + Deposit
