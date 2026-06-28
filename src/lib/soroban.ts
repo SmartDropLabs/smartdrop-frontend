@@ -34,6 +34,23 @@ const NETWORK_PASSPHRASE = process.env.NEXT_PUBLIC_NETWORK_PASSPHRASE || Network
 // Contract Addresses (will be set via environment variables in production)
 const FACTORY_CONTRACT_ADDRESS = process.env.NEXT_PUBLIC_FACTORY_CONTRACT_ADDRESS || '';
 
+const LEADERBOARD_API_URL = process.env.NEXT_PUBLIC_LEADERBOARD_API_URL || '';
+const LEADERBOARD_LOOKBACK_LEDGERS = 120960; // ~7 days at ~5s per ledger
+
+export type LeaderboardSortKey = 'credits' | 'stake';
+
+export interface LeaderboardRow {
+  address: string;
+  totalCredits: number;
+  totalStake: number;
+  boostUtilization: number;
+}
+
+export interface LeaderboardPage {
+  entries: LeaderboardRow[];
+  total: number;
+}
+
 // Initialize Soroban RPC Server
 const rpcServer = new rpc.Server(RPC_URL);
 
@@ -1034,6 +1051,153 @@ export class SorobanService {
       console.warn('[SmartDrop] getPoolDepositors failed:', err);
       return [];
     }
+  }
+
+  /**
+   * Fetch one page of the leaderboard. Prefers the backend indexer
+   * (NEXT_PUBLIC_LEADERBOARD_API_URL); otherwise derives it from on-chain events.
+   */
+  async getLeaderboard(
+    offset: number,
+    limit: number,
+    sortKey: LeaderboardSortKey = 'credits',
+  ): Promise<LeaderboardPage> {
+    if (LEADERBOARD_API_URL) {
+      try {
+        return await this.fetchLeaderboardFromApi(offset, limit, sortKey);
+      } catch (err) {
+        console.warn('[SmartDrop] leaderboard API failed, falling back to event scan:', err);
+      }
+    }
+    return this.fetchLeaderboardFromEvents(offset, limit, sortKey);
+  }
+
+  private async fetchLeaderboardFromApi(
+    offset: number,
+    limit: number,
+    sortKey: LeaderboardSortKey,
+  ): Promise<LeaderboardPage> {
+    const url = new URL(LEADERBOARD_API_URL);
+    url.searchParams.set('offset', String(offset));
+    url.searchParams.set('limit', String(limit));
+    url.searchParams.set('sort', sortKey);
+
+    const res = await fetch(url.toString(), { headers: { accept: 'application/json' } });
+    if (!res.ok) throw new Error(`Leaderboard API responded ${res.status}`);
+
+    const data = (await res.json()) as {
+      entries?: Array<Partial<LeaderboardRow>>;
+      total?: number;
+    };
+    const entries: LeaderboardRow[] = (data.entries ?? []).map((e) => ({
+      address: String(e.address ?? ''),
+      totalCredits: Number(e.totalCredits ?? 0),
+      totalStake: Number(e.totalStake ?? 0),
+      boostUtilization: Number(e.boostUtilization ?? 0),
+    }));
+    return { entries, total: Number(data.total ?? entries.length) };
+  }
+
+  private async fetchLeaderboardFromEvents(
+    offset: number,
+    limit: number,
+    sortKey: LeaderboardSortKey,
+  ): Promise<LeaderboardPage> {
+    const poolIds = await this.getLeaderboardPoolIds();
+    if (poolIds.length === 0) return { entries: [], total: 0 };
+
+    try {
+      const latest = await this.rpcServer.getLatestLedger();
+      const startLedger = Math.max(1, latest.sequence - LEADERBOARD_LOOKBACK_LEDGERS);
+
+      const lockSym = xdr.ScVal.scvSymbol('lock_assets').toXDR('base64');
+      const unlockSym = xdr.ScVal.scvSymbol('unlock_assets').toXDR('base64');
+      const creditSym = xdr.ScVal.scvSymbol('update_credits').toXDR('base64');
+
+      const response = await this.rpcServer.getEvents({
+        startLedger,
+        filters: [
+          {
+            type: 'contract',
+            contractIds: poolIds,
+            topics: [[lockSym, '*'], [unlockSym, '*'], [creditSym, '*']],
+          },
+        ],
+        pagination: { limit: 1000 },
+      });
+
+      const agg = new Map<string, { stake: number; credits: number }>();
+      const rowFor = (addr: string) => {
+        let row = agg.get(addr);
+        if (!row) {
+          row = { stake: 0, credits: 0 };
+          agg.set(addr, row);
+        }
+        return row;
+      };
+
+      for (const evt of response.events) {
+        if (!evt.inSuccessfulContractCall) continue;
+        const topics = (evt.topic as xdr.ScVal[]).map(scValToNative);
+        const action = topics[0] as string;
+        const address = String(topics[1] ?? '');
+        if (!address) continue;
+
+        const valueNative = scValToNative(evt.value as xdr.ScVal);
+        const amount = this.extractEventAmount(valueNative);
+        const row = rowFor(address);
+
+        if (action === 'lock_assets') row.stake += amount / 10_000_000;
+        else if (action === 'unlock_assets') row.stake = Math.max(0, row.stake - amount / 10_000_000);
+        else if (action === 'update_credits') row.credits = amount;
+      }
+
+      const all: LeaderboardRow[] = Array.from(agg.entries())
+        .map(([address, { stake, credits }]) => ({
+          address,
+          totalCredits: Math.round(credits),
+          totalStake: Math.round(stake),
+          boostUtilization: 0,
+        }))
+        .filter((e) => e.totalStake > 0 || e.totalCredits > 0);
+
+      all.sort((a, b) =>
+        sortKey === 'credits'
+          ? b.totalCredits - a.totalCredits
+          : b.totalStake - a.totalStake,
+      );
+
+      return { entries: all.slice(offset, offset + limit), total: all.length };
+    } catch (err) {
+      console.warn('[SmartDrop] event-derived leaderboard failed:', err);
+      return { entries: [], total: 0 };
+    }
+  }
+
+  private async getLeaderboardPoolIds(): Promise<string[]> {
+    const ids = new Set<string>();
+    const envPool = process.env.NEXT_PUBLIC_POOL_CONTRACT_ID;
+    if (envPool) ids.add(envPool);
+    try {
+      const pools = await this.getFactoryPools();
+      pools.forEach((p) => {
+        if (p.contractAddress) ids.add(p.contractAddress);
+      });
+    } catch {
+      // factory not configured; env pool is enough
+    }
+    return Array.from(ids);
+  }
+
+  private extractEventAmount(valueNative: unknown): number {
+    if (typeof valueNative === 'bigint') return Number(valueNative);
+    if (typeof valueNative === 'number') return valueNative;
+    if (Array.isArray(valueNative)) return Number(valueNative[0] ?? 0);
+    if (valueNative && typeof valueNative === 'object') {
+      const v = valueNative as Record<string, unknown>;
+      return Number(v['amount'] ?? v['credits'] ?? v['credits_earned'] ?? 0);
+    }
+    return Number(valueNative ?? 0);
   }
 
   // Helper methods for parsing XDR data
