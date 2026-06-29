@@ -1,14 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-const { assembleTransactionMock } = vi.hoisted(() => {
-  (globalThis as typeof globalThis & { Networks: { TESTNET: string } }).Networks = {
-    TESTNET: 'Test SDF Network ; September 2015',
-  };
-
-  return {
-    assembleTransactionMock: vi.fn(),
-  };
-});
+const { assembleTransactionMock } = vi.hoisted(() => ({
+  assembleTransactionMock: vi.fn(),
+}));
 
 vi.mock('@stellar/stellar-sdk', async importOriginal => {
   const actual = await importOriginal<typeof import('@stellar/stellar-sdk')>();
