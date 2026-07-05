@@ -170,11 +170,9 @@ This codebase is **not** presented as audited production infrastructure. Pool ec
 
 ---
 
-## Community acknowledgments
+## Contributors
 
-SmartDrop sits alongside other **Stellar / Soroban** projects such as [**lernza/lernza**](https://github.com/lernza/lernza). **[`CONTRIBUTORS.md`](./CONTRIBUTORS.md)** and **[`src/data/lernza-contributors.json`](./src/data/lernza-contributors.json)** list everyone GitHub counts as a contributor there.
-
-**GitHub Insights → Contributors (this repo):** the default branch also includes transparent **empty attribution commits** that carry `Co-authored-by` trailers for those upstream accounts, so they appear on SmartDrop’s contributor graph the same way GitHub documents for multi-author commits. Refresh that set after Lernza gains new contributors by running `npm run contributors:sync` (updates data files) and `npm run contributors:github-insights` (creates new empty commits; maintainers only).
+SmartDrop is built by the SmartDropLabs org across three repos: this frontend, [`smartdrop-backend`](https://github.com/SmartDropLabs/smartdrop-backend), and [`smartdrop-contracts`](https://github.com/SmartDropLabs/smartdrop-contracts). See **[`CONTRIBUTORS.md`](./CONTRIBUTORS.md)** or the in-app [`/contributors`](https://smartdroplabs.github.io/smartdrop-frontend/contributors) page for the full list, sourced directly from each repo's GitHub contributors API.
 
 ---
 

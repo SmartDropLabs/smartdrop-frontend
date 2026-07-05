@@ -1,8 +1,10 @@
 "use client";
 
 import {
+  Box,
   Button,
   Flex,
+  HStack,
   Input,
   Select,
   Spinner,
@@ -42,20 +44,34 @@ export default function LeaderboardPage() {
   } = useLeaderboard(publicKey);
 
   return (
-    <Flex direction="column" align="center" mt={8} px={{ base: 4, md: 16 }}>
-      <Text fontSize={{ base: "3xl", md: "4xl" }} fontWeight="bold">
-        LEADERBOARD
-      </Text>
-
-      {connectedRank > 0 ? (
-        <Text color="app.accent" mt={2} fontSize="sm">
-          You are rank {connectedRank} of {filteredCount} farmers.
+    <Flex direction="column" align="center" px={{ base: 6, md: 16 }} py={10}>
+      <Box w="100%" maxW="900px">
+        <HStack spacing={2} mb={5}>
+          <Box w="6px" h="6px" borderRadius="full" bg="app.accent" boxShadow="0 0 8px var(--chakra-colors-app-accent)" />
+          <Text fontSize="xs" fontWeight="semibold" letterSpacing="wide" color="app.muted" textTransform="uppercase">
+            Rankings
+          </Text>
+        </HStack>
+        <Text
+          fontSize={{ base: "4xl", md: "5xl" }}
+          fontWeight="extrabold"
+          letterSpacing="tight"
+          mb={3}
+          bgGradient="linear(to-r, app.text, app.accent)"
+          bgClip="text"
+        >
+          Leaderboard
         </Text>
-      ) : (
-        <Text color="app.muted" mt={2} fontSize="sm">
-          {filteredCount.toLocaleString()} farmers ranked.
-        </Text>
-      )}
+        {connectedRank > 0 ? (
+          <Text color="app.accent" fontSize="lg" fontWeight="semibold">
+            You are rank {connectedRank} of {filteredCount} farmers.
+          </Text>
+        ) : (
+          <Text color="app.muted" fontSize="lg">
+            {filteredCount.toLocaleString()} farmers ranked.
+          </Text>
+        )}
+      </Box>
 
       <Flex
         direction={{ base: "column", md: "row" }}
@@ -112,43 +128,68 @@ export default function LeaderboardPage() {
       </Flex>
 
       {isLoading && paged.length === 0 ? (
-        <Spinner color="app.accent" size="xl" mt={16} />
+        <Flex w="100%" justify="center" py={16}>
+          <Spinner color="app.accent" size="xl" thickness="3px" />
+        </Flex>
       ) : filteredCount === 0 ? (
-        <Text color="app.muted" mt={16}>
-          No results found.
-        </Text>
+        <Flex
+          w="100%"
+          maxW="900px"
+          justify="center"
+          py={16}
+          border="1px dashed"
+          borderColor="app.border"
+          borderRadius="card"
+          bg="app.surface"
+        >
+          <Text color="app.muted">No results found.</Text>
+        </Flex>
       ) : (
         <>
-          <TableContainer w="100%" maxW="900px" overflowX="auto">
+          <TableContainer
+            w="100%"
+            maxW="900px"
+            overflowX="auto"
+            border="1px solid"
+            borderColor="app.border"
+            borderRadius="card"
+            bg="app.surface"
+            boxShadow="card"
+          >
             <Table variant="unstyled" size="sm">
               <Thead>
                 <Tr borderBottom="1px solid" borderColor="app.border">
-                  <Th color="app.muted" fontWeight="normal" pb={3}>#</Th>
-                  <Th color="app.muted" fontWeight="normal" pb={3}>Address</Th>
-                  <Th color="app.muted" fontWeight="normal" pb={3} isNumeric>Credits</Th>
-                  <Th color="app.muted" fontWeight="normal" pb={3} isNumeric>Stake</Th>
-                  <Th color="app.muted" fontWeight="normal" pb={3} isNumeric>Boost %</Th>
+                  <Th color="app.muted" fontWeight="medium" py={4} pl={5}>#</Th>
+                  <Th color="app.muted" fontWeight="medium" py={4}>Address</Th>
+                  <Th color="app.muted" fontWeight="medium" py={4} isNumeric>Credits</Th>
+                  <Th color="app.muted" fontWeight="medium" py={4} isNumeric>Stake</Th>
+                  <Th color="app.muted" fontWeight="medium" py={4} pr={5} isNumeric>Boost %</Th>
                 </Tr>
               </Thead>
               <Tbody>
                 {paged.map((entry, i) => {
                   const rank = (currentPage - 1) * PAGE_SIZE + i + 1;
                   const isMe = Boolean(publicKey && entry.address === publicKey);
+                  const medal = rank === 1 ? "🥇" : rank === 2 ? "🥈" : rank === 3 ? "🥉" : null;
                   return (
                     <Tr
                       key={entry.address}
                       borderTop="1px solid"
-                      borderBottom="1px solid"
                       borderColor="app.border"
                       bg={isMe ? "rgba(74,226,146,0.08)" : undefined}
-                      _hover={{ bg: "rgba(128,128,128,0.08)" }}
+                      _hover={{ bg: "app.surfaceHover" }}
+                      transition="background 0.15s ease"
                     >
                       <Td
                         py={4}
+                        pl={5}
                         color={rank <= 3 ? "app.accent" : "app.text"}
                         fontWeight={rank <= 3 ? "bold" : "normal"}
                       >
-                        {rank}
+                        <HStack spacing={1.5}>
+                          {medal && <Text as="span">{medal}</Text>}
+                          <Text as="span">{rank}</Text>
+                        </HStack>
                       </Td>
                       <Td py={4}>
                         <Flex align="center" gap={2}>
@@ -156,17 +197,27 @@ export default function LeaderboardPage() {
                             {truncate(entry.address)}
                           </Text>
                           {isMe && (
-                            <Text fontSize="xs" color="app.accent">(you)</Text>
+                            <Text
+                              fontSize="xs"
+                              fontWeight="bold"
+                              color="app.onAccent"
+                              bg="app.accent"
+                              borderRadius="full"
+                              px={2}
+                              py={0.5}
+                            >
+                              YOU
+                            </Text>
                           )}
                         </Flex>
                       </Td>
-                      <Td py={4} isNumeric color="app.text">
+                      <Td py={4} isNumeric color="app.text" fontWeight="semibold">
                         {entry.totalCredits.toLocaleString()}
                       </Td>
                       <Td py={4} isNumeric color="app.text">
                         {entry.totalStake.toLocaleString()}
                       </Td>
-                      <Td py={4} isNumeric color="app.text">
+                      <Td py={4} pr={5} isNumeric color="app.text">
                         {entry.boostUtilization}%
                       </Td>
                     </Tr>

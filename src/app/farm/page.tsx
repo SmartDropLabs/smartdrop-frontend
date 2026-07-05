@@ -556,8 +556,8 @@ export default function Farm() {
         {sorobanRpcUrl.replace(/^https?:\/\//, "")}
       </Text>
 
-      <Text fontSize="4xl" fontWeight="bold" textTransform="uppercase">
-        Farm pools
+      <Text fontSize={{ base: "2xl", md: "3xl" }} fontWeight="extrabold" letterSpacing="tight" w="full" maxW="1200px">
+        Farm Pools
       </Text>
 
       {poolsLoading ? (
@@ -570,59 +570,65 @@ export default function Farm() {
           No farm pools are currently available. Ensure your factory contract is deployed and configured.
         </Alert>
       ) : (
-        availablePools.map((farm) => (
-          <Flex
-            key={farm.id}
-            display={{ base: "flex", md: "flex" }}
-            flexDirection={{ base: "column", md: "row" }}
-            w={{ base: "full", md: "95%" }}
-            h={{ base: "auto", md: 20 }}
-            mx="auto"
-            align={{ base: "stretch", md: "center" }}
-            justify={{ base: "flex-start", md: "space-between" }}
-            gap={{ base: 4, md: 0 }}
-            borderTop="1px solid"
-            borderBottom="1px solid"
-            borderX={{ base: "1px solid", md: "0" }}
-            borderColor="app.border"
-            borderRadius={{ base: "2xl", md: "none" }}
-            px={4}
-            py={{ base: 4, md: 0 }}
-          >
-            <NextLink href={`/farm/${farm.id}`} style={{ textDecoration: "none" }}>
-              <Text
-                fontWeight={{ base: "bold", md: "normal" }}
-                w={{ base: "full", md: "auto" }}
-                _hover={{ color: "app.accent", textDecoration: "underline" }}
-                cursor="pointer"
-              >
-                {farm.name}
-              </Text>
-            </NextLink>
-            <MetricColumn label="Earned" value={farm.earned} />
-            <MetricColumn label="My Stake" value={farm.stake} />
-            <MetricColumn label="Daily Rate" value={farm.dailyRate} />
-            <MetricColumn
-              label="Total Staked Liquidity"
-              value={farm.totalStakedLiquidity}
-              minW="180px"
-            />
-            {isConnected && (
-              <Button
-                borderRadius="3xl"
-                onClick={() => handleDepositClick(farm)}
-                isDisabled={isNetworkMismatch}
-                w={{ base: "full", md: "auto" }}
-              >
-                + Deposit
-              </Button>
-            )}
-          </Flex>
-        ))
+        <Flex direction="column" gap={3} w="full" maxW="1200px">
+          {availablePools.map((farm) => (
+            <Flex
+              key={farm.id}
+              display={{ base: "flex", md: "flex" }}
+              flexDirection={{ base: "column", md: "row" }}
+              w="full"
+              minH={20}
+              align={{ base: "stretch", md: "center" }}
+              justify={{ base: "flex-start", md: "space-between" }}
+              gap={{ base: 4, md: 0 }}
+              border="1px solid"
+              borderColor="app.border"
+              borderRadius="card"
+              bg="app.surface"
+              boxShadow="card"
+              transition="all 0.2s ease"
+              _hover={{ borderColor: "app.borderHover", boxShadow: "cardHover" }}
+              px={5}
+              py={{ base: 4, md: 0 }}
+            >
+              <NextLink href={`/farm/${farm.id}`} style={{ textDecoration: "none" }}>
+                <Text
+                  fontWeight="bold"
+                  w={{ base: "full", md: "auto" }}
+                  _hover={{ color: "app.accent" }}
+                  cursor="pointer"
+                >
+                  {farm.name}
+                </Text>
+              </NextLink>
+              <MetricColumn label="Earned" value={farm.earned} />
+              <MetricColumn label="My Stake" value={farm.stake} />
+              <MetricColumn label="Daily Rate" value={farm.dailyRate} />
+              <MetricColumn
+                label="Total Staked Liquidity"
+                value={farm.totalStakedLiquidity}
+                minW="180px"
+              />
+              {isConnected && (
+                <Button
+                  borderRadius="3xl"
+                  bg="app.accent"
+                  color="app.onAccent"
+                  _hover={{ opacity: 0.9 }}
+                  onClick={() => handleDepositClick(farm)}
+                  isDisabled={isNetworkMismatch}
+                  w={{ base: "full", md: "auto" }}
+                >
+                  + Deposit
+                </Button>
+              )}
+            </Flex>
+          ))}
+        </Flex>
       )}
 
-      <Text fontSize="4xl" fontWeight="bold" textTransform="uppercase" mt={10}>
-        My earnings
+      <Text fontSize={{ base: "2xl", md: "3xl" }} fontWeight="extrabold" letterSpacing="tight" mt={10} w="full" maxW="1200px">
+        My Earnings
       </Text>
 
       {positionsLoading ? (
@@ -666,9 +672,11 @@ export default function Farm() {
           No active positions found for the connected wallet.
         </Alert>
       ) : (
-        myPositions.map((position) => (
-          <EarningRow key={position.id} position={position} />
-        ))
+        <Flex direction="column" gap={3} w="full" maxW="1200px">
+          {myPositions.map((position) => (
+            <EarningRow key={position.id} position={position} />
+          ))}
+        </Flex>
       )}
 
       <DepositModal

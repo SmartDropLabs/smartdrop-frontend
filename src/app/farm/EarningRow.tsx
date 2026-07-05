@@ -91,21 +91,22 @@ export const EarningRow = memo(function EarningRow({
     <Flex
       display={{ base: "flex", md: "flex" }}
       flexDirection={{ base: "column", md: "row" }}
-      w={{ base: "full", md: "95%" }}
-      h={{ base: "auto", md: 20 }}
-      mx="auto"
+      w="full"
+      minH={20}
       align={{ base: "stretch", md: "center" }}
       justify={{ base: "flex-start", md: "space-between" }}
       gap={{ base: 4, md: 0 }}
-      borderTop="1px solid"
-      borderBottom="1px solid"
-      borderX={{ base: "1px solid", md: "0" }}
+      border="1px solid"
       borderColor="app.border"
-      borderRadius={{ base: "2xl", md: "none" }}
-      px={4}
+      borderRadius="card"
+      bg="app.surface"
+      boxShadow="card"
+      transition="all 0.2s ease"
+      _hover={{ borderColor: "app.borderHover", boxShadow: "cardHover" }}
+      px={5}
       py={{ base: 4, md: 0 }}
     >
-      <Text fontWeight={{ base: "bold", md: "normal" }} w={{ base: "full", md: "auto" }}>
+      <Text fontWeight="bold" w={{ base: "full", md: "auto" }}>
         {position.name}
       </Text>
       <MetricColumn label="Earned" value={position.earned} />
@@ -144,6 +145,9 @@ export const EarningRow = memo(function EarningRow({
       >
         <Button
           borderRadius="3xl"
+          variant="outline"
+          borderColor="app.border"
+          color="app.muted"
           isDisabled={isNetworkMismatch || boostUnavailable}
           opacity={0.6}
           cursor="not-allowed"
@@ -162,6 +166,9 @@ export const EarningRow = memo(function EarningRow({
           <Box w={{ base: "full", md: "auto" }}>
             <Button
               borderRadius="3xl"
+              bg="app.accent"
+              color="app.onAccent"
+              _hover={{ opacity: 0.9 }}
               onClick={() => openUnlock(position)}
               isDisabled={unlockDisabled}
               w={{ base: "full", md: "auto" }}

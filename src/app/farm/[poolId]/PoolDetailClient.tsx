@@ -63,17 +63,21 @@ function StatCard({
       p={4}
       border="1px solid"
       borderColor="app.border"
-      borderRadius="2xl"
+      borderRadius="card"
+      bg="app.surface"
+      boxShadow="card"
       minW="140px"
       flex="1"
+      transition="all 0.2s ease"
+      _hover={{ borderColor: "app.borderHover", transform: "translateY(-2px)" }}
     >
-      <Text fontSize="2xs" color="app.muted" textTransform="uppercase">
+      <Text fontSize="xs" color="app.muted" fontWeight="medium">
         {label}
       </Text>
       {loading ? (
-        <Skeleton height="24px" w="80%" borderRadius="md" />
+        <Skeleton height="24px" w="80%" borderRadius="md" startColor="app.border" endColor="app.surfaceHover" />
       ) : (
-        <Text fontWeight="semibold" fontSize="lg">
+        <Text fontWeight="bold" fontSize="lg" color="app.text">
           {value}
         </Text>
       )}
@@ -206,16 +210,22 @@ export default function PoolDetailClient({ poolId }: { poolId: string }) {
       {/* Header */}
       <Flex w="full" justify="space-between" align="center" flexWrap="wrap" gap={4}>
         {poolLoading ? (
-          <Skeleton height="40px" w="200px" borderRadius="xl" />
+          <Skeleton height="40px" w="200px" borderRadius="xl" startColor="app.border" endColor="app.surfaceHover" />
         ) : (
-          <Text fontSize="3xl" fontWeight="bold" textTransform="uppercase">
+          <Text
+            fontSize={{ base: "2xl", md: "3xl" }}
+            fontWeight="extrabold"
+            letterSpacing="tight"
+            bgGradient="linear(to-r, app.text, app.accent)"
+            bgClip="text"
+          >
             {pool?.asset.code ?? "Pool"} Pool
           </Text>
         )}
         <Button
           borderRadius="3xl"
-          bg={ACCENT}
-          color="#000"
+          bg="app.accent"
+          color="app.onAccent"
           _hover={{ opacity: 0.9 }}
           onClick={onOpen}
           size="lg"
@@ -261,17 +271,19 @@ export default function PoolDetailClient({ poolId }: { poolId: string }) {
         p={5}
         border="1px solid"
         borderColor="app.border"
-        borderRadius="2xl"
+        borderRadius="card"
+        bg="app.surface"
+        boxShadow="card"
       >
-        <Text fontSize="sm" fontWeight="semibold" mb={4} color="app.muted" textTransform="uppercase">
+        <Text fontSize="sm" fontWeight="semibold" mb={4} color="app.muted" letterSpacing="wide" textTransform="uppercase">
           7-Day TVL
         </Text>
         <TvlChart poolId={poolId} />
       </Box>
 
       {/* Top Depositors */}
-      <Box w="full" p={5} border="1px solid" borderColor="app.border" borderRadius="2xl">
-        <Text fontSize="sm" fontWeight="semibold" mb={4} color="app.muted" textTransform="uppercase">
+      <Box w="full" p={5} border="1px solid" borderColor="app.border" borderRadius="card" bg="app.surface" boxShadow="card">
+        <Text fontSize="sm" fontWeight="semibold" mb={4} color="app.muted" letterSpacing="wide" textTransform="uppercase">
           Top 20 Depositors
         </Text>
         {depositorsLoading ? (
@@ -315,12 +327,12 @@ export default function PoolDetailClient({ poolId }: { poolId: string }) {
       {/* Deposit Modal */}
       <Modal isOpen={isOpen} onClose={handleModalClose}>
         <ModalOverlay backdropFilter="blur(3px)" />
-        <ModalContent bgColor="#171717" color="#fff" borderRadius="3xl">
+        <ModalContent bg="app.surface" color="app.text" borderRadius="3xl">
           <ModalHeader mx="auto">{pool?.asset.code ?? "Pool"}</ModalHeader>
           <ModalCloseButton isDisabled={isPending} />
           <ModalBody p={8}>
             <Flex direction="column" gap={6}>
-              <Text color="#A2A2A2" fontSize="sm">
+              <Text color="app.muted" fontSize="sm">
                 Lock {pool?.asset.code} to earn credits from this pool.
               </Text>
 
@@ -336,10 +348,11 @@ export default function PoolDetailClient({ poolId }: { poolId: string }) {
                   isDisabled={isPending}
                   borderRadius="2xl"
                   h="50px"
-                  borderColor="#454545"
-                  _placeholder={{ color: "#A2A2A2" }}
-                  _hover={{ borderColor: ACCENT }}
-                  _focus={{ boxShadow: "none", borderColor: ACCENT }}
+                  borderColor="app.border"
+                  bg="app.inputBg"
+                  _placeholder={{ color: "app.muted" }}
+                  _hover={{ borderColor: "app.accent" }}
+                  _focus={{ boxShadow: "none", borderColor: "app.accent" }}
                 />
                 {rawAmount !== "0" && rawAmount !== "" && !amountValid && (
                   <Text fontSize="xs" color="#ff8080">
@@ -349,9 +362,9 @@ export default function PoolDetailClient({ poolId }: { poolId: string }) {
               </Flex>
 
               {isPending && (
-                <Flex align="center" gap={3} bg="#1e1e1e" borderRadius="2xl" p={4} border="1px solid #333">
-                  <Spinner size="sm" color={ACCENT} />
-                  <Text fontSize="sm" color="#A2A2A2">
+                <Flex align="center" gap={3} bg="app.inputBg" borderRadius="2xl" p={4} border="1px solid" borderColor="app.border">
+                  <Spinner size="sm" color="app.accent" />
+                  <Text fontSize="sm" color="app.muted">
                     {DEPOSIT_STEP_LABEL[flow.step]}
                   </Text>
                 </Flex>
@@ -384,8 +397,8 @@ export default function PoolDetailClient({ poolId }: { poolId: string }) {
 
               <Button
                 borderRadius="2xl"
-                bg={ACCENT}
-                color="#000"
+                bg="app.accent"
+                color="app.onAccent"
                 _hover={{ opacity: isPending ? 1 : 0.9 }}
                 isDisabled={
                   !amountValid || !isConnected || isPending || isNetworkMismatch
@@ -406,7 +419,7 @@ export default function PoolDetailClient({ poolId }: { poolId: string }) {
               </Button>
 
               {flow.step === "error" && (
-                <Button variant="ghost" size="sm" color="#A2A2A2" onClick={flow.reset}>
+                <Button variant="ghost" size="sm" color="app.muted" onClick={flow.reset}>
                   Try again
                 </Button>
               )}

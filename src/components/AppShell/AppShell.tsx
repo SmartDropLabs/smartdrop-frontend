@@ -28,7 +28,7 @@ function LayoutWrapper({ children }: { children: React.ReactNode }) {
         </>
       ) : (
         <>
-          <Box as="main" flex={1}>{children}</Box>
+          <Box as="main" flex={1} pb={{ base: "88px", md: 0 }}>{children}</Box>
           <ConnectWalletButton />
         </>
       )}
