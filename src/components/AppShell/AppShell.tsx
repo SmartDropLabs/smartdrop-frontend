@@ -7,9 +7,16 @@ import NetworkMismatchBanner from "@/components/NetworkMismatchBanner/NetworkMis
 import ContextProvider from "@/context";
 import { useStellarWallet } from "@/context/StellarWalletContext";
 import { Box } from "@chakra-ui/react";
+import { usePathname } from "next/navigation";
+
+// These routes already render their own inline ConnectWalletButton in an
+// empty/disconnected state, so the floating global one would be a duplicate.
+const ROUTES_WITH_OWN_CONNECT_BUTTON = ["/history"];
 
 function LayoutWrapper({ children }: { children: React.ReactNode }) {
   const { isConnected } = useStellarWallet();
+  const pathname = usePathname();
+  const hasOwnConnectButton = ROUTES_WITH_OWN_CONNECT_BUTTON.includes(pathname);
 
   return (
     <Box
@@ -28,8 +35,8 @@ function LayoutWrapper({ children }: { children: React.ReactNode }) {
         </>
       ) : (
         <>
-          <Box as="main" flex={1} pb={{ base: "88px", md: 0 }}>{children}</Box>
-          <ConnectWalletButton />
+          <Box as="main" flex={1} pb={{ base: hasOwnConnectButton ? 0 : "88px", md: 0 }}>{children}</Box>
+          {!hasOwnConnectButton && <ConnectWalletButton />}
         </>
       )}
     </Box>
