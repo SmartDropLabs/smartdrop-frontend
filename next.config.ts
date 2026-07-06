@@ -31,6 +31,7 @@ const nextConfig: NextConfig = {
   poweredByHeader: false,
   output: "export",
   images: { unoptimized: true },
+  devIndicators: false,
   ...(basePath ? { basePath, assetPrefix: basePath } : {}),
 };
 
