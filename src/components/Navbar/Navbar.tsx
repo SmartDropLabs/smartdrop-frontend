@@ -1,9 +1,23 @@
 "use client";
 
+import {
+  Menu,
+  MenuButton,
+  MenuItem,
+  MenuList,
+} from "@chakra-ui/react";
+import { ChevronDownIcon } from "@chakra-ui/icons";
 import { useStellarWallet } from "@/context/StellarWalletContext";
 import NextLink from "next/link";
 import { usePathname } from "next/navigation";
 import ThemeToggle from "@/components/ThemeToggle/ThemeToggle";
+
+const MORE_LINKS = [
+  { href: "/prices", label: "Prices" },
+  { href: "/airdrops", label: "Airdrops" },
+  { href: "/webhooks", label: "Webhooks" },
+  { href: "/alerts", label: "Alerts" },
+];
 
 function shortenStellarAddress(address: string) {
   if (!address || address.length < 12) {
@@ -42,6 +56,38 @@ function NavLink({ href, children }: { href: string; children: React.ReactNode }
   );
 }
 
+function MoreMenu() {
+  const pathname = usePathname();
+  const isActive = MORE_LINKS.some((link) => link.href === pathname);
+  return (
+    <Menu>
+      <MenuButton
+        fontSize="sm"
+        fontWeight={isActive ? "semibold" : "medium"}
+        color={isActive ? "app.accent" : "app.text"}
+        _hover={{ color: "app.accent" }}
+        transition="color 0.15s ease"
+      >
+        More <ChevronDownIcon />
+      </MenuButton>
+      <MenuList bg="app.surface" borderColor="app.border">
+        {MORE_LINKS.map((link) => (
+          <MenuItem
+            key={link.href}
+            as={NextLink}
+            href={link.href}
+            bg="app.surface"
+            color={pathname === link.href ? "app.accent" : "app.text"}
+            _hover={{ bg: "app.surfaceHover" }}
+          >
+            {link.label}
+          </MenuItem>
+        ))}
+      </MenuList>
+    </Menu>
+  );
+}
+
 function StatPill({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex items-center gap-1.5 rounded-full border border-[color:var(--chakra-colors-app-border)] bg-[color:var(--chakra-colors-app-surface)] px-3 py-1 text-xs whitespace-nowrap">
@@ -76,6 +122,7 @@ export default function Navbar() {
           <NavLink href="/history">History</NavLink>
           {isConnected && <NavLink href="/leaderboard">Leaderboard</NavLink>}
           <NavLink href="/contributors">Contributors</NavLink>
+          <MoreMenu />
         </div>
 
         <div className="flex flex-wrap items-center gap-3">

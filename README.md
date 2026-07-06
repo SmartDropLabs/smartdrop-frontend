@@ -15,7 +15,21 @@ At a high level, SmartDrop has two layers:
    - Each pool accepts a configurable **staking asset** (classic asset + trustline and/or Soroban token contract, depending on your design). Participants **lock** balances, **earn credits** from elapsed time × amount × rate multipliers, can opt into **boost** rules, and **unlock** when policy allows.
 
 2. **Web app (this repo)**
-   A Chakra UI + Tailwind CSS front end with **Freighter** for wallet connection and Stellar network settings in `src/config/`. The **Farm** flow is wired to **Soroban RPC** (`invoke`, simulation, transaction submission); dashboard numbers reflect live contract state where a factory is configured, and fall back to clear "not available" states otherwise.
+   A Chakra UI + Tailwind CSS front end with **Freighter** for wallet connection and Stellar network settings in `src/config/`. The **Farm** flow is wired to **Soroban RPC** (`invoke`, simulation, transaction submission); dashboard numbers reflect live contract state where a factory is configured, and fall back to clear "not available" states otherwise. Off-chain pages (**Prices**, **Airdrops**, **Webhooks**, **Alerts**) call [**smartdrop-backend**](https://github.com/SmartDropLabs/smartdrop-backend) directly over REST — see `src/lib/backend.ts` and `NEXT_PUBLIC_BACKEND_API_URL` below.
+
+### Pages
+
+| Route | Talks to | Auth |
+|---|---|---|
+| `/` | Soroban RPC | — |
+| `/farm`, `/farm/[poolId]` | Soroban RPC + Freighter | Wallet |
+| `/history` | Soroban RPC (Horizon) + Freighter | Wallet |
+| `/leaderboard` | Soroban RPC | — |
+| `/contributors` | Static, GitHub API–sourced at build time | — |
+| `/prices` | smartdrop-backend `/prices` | — |
+| `/airdrops` | smartdrop-backend `/airdrops` | — |
+| `/webhooks` | smartdrop-backend `/webhooks` | — |
+| `/alerts` | smartdrop-backend `/alerts` | Backend API key (entered client-side, kept in memory only) |
 
 ### 🔓 Asset Unlock & Withdrawal System
 
@@ -132,7 +146,10 @@ NEXT_PUBLIC_STELLAR_NETWORK=TESTNET
 # NEXT_PUBLIC_FACTORY_CONTRACT_ID=C...
 # NEXT_PUBLIC_POOL_CONTRACT_ID=C...            # pool that custodies locked positions
 # NEXT_PUBLIC_MIN_LOCK_PERIOD_SECONDS=604800   # min lock before unlock (default 7 days)
+# NEXT_PUBLIC_BACKEND_API_URL=http://localhost:4000/api/v1   # smartdrop-backend, for /prices /airdrops /webhooks /alerts
 ```
+
+Running the backend pages locally requires [`smartdrop-backend`](https://github.com/SmartDropLabs/smartdrop-backend) running (`npm run dev` there, default port 4000) with Redis available — see that repo's README for the Docker Compose stack.
 
 Then:
 
