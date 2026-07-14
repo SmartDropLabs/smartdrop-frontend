@@ -88,9 +88,12 @@ function MoreMenu() {
   );
 }
 
-function StatPill({ label, value }: { label: string; value: string }) {
+function StatPill({ label, value, pulse = false }: { label: string; value: string; pulse?: boolean }) {
   return (
     <div className="flex items-center gap-1.5 rounded-full border border-[color:var(--chakra-colors-app-border)] bg-[color:var(--chakra-colors-app-surface)] px-3 py-1 text-xs whitespace-nowrap">
+      {pulse && (
+        <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-[color:var(--chakra-colors-app-accent)]" />
+      )}
       <span className="text-[color:var(--chakra-colors-app-muted)]">{label}</span>
       <span className="font-bold text-[color:var(--chakra-colors-app-text)]">{value}</span>
     </div>
@@ -130,7 +133,7 @@ export default function Navbar() {
             <StatPill label="Wallet" value={shortenStellarAddress(publicKey)} />
           ) : (
             <>
-              <StatPill label="Online" value="213" />
+              <StatPill label="Online" value="213" pulse />
               <StatPill label="Users" value="30,738" />
               <StatPill label="TVL" value="$302M" />
             </>

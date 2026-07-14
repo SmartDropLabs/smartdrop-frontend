@@ -10,6 +10,7 @@ import {
   Alert,
   AlertIcon,
 } from "@chakra-ui/react";
+import { motion } from "framer-motion";
 import { useStellarWallet } from "@/context/StellarWalletContext";
 import {
   usePlatformStats,
@@ -17,17 +18,34 @@ import {
 } from "@/hooks/useSorobanQuery";
 import { sorobanRpcUrl, stellarNetwork } from "@/config";
 
+const MotionBox = motion.create(Box);
+
+const fadeInUp = {
+  hidden: { opacity: 0, y: 16 },
+  visible: (delay = 0) => ({
+    opacity: 1,
+    y: 0,
+    transition: { duration: 0.5, ease: "easeOut", delay },
+  }),
+};
+
 function StatCard({
   label,
   value,
   accent = "app.accent",
+  delay = 0,
 }: {
   label: string;
   value: string | number;
   accent?: string;
+  delay?: number;
 }) {
   return (
-    <Box
+    <MotionBox
+      variants={fadeInUp}
+      initial="hidden"
+      animate="visible"
+      custom={delay}
       w={["100%", "48%", "23%"]}
       position="relative"
       overflow="hidden"
@@ -37,7 +55,7 @@ function StatCard({
       p={6}
       bg="app.surface"
       boxShadow="card"
-      transition="all 0.2s ease"
+      sx={{ transition: "border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease" }}
       _hover={{
         borderColor: "app.borderHover",
         boxShadow: "cardHover",
@@ -58,7 +76,7 @@ function StatCard({
       <Text fontSize="3xl" fontWeight="extrabold" color={accent}>
         {value}
       </Text>
-    </Box>
+    </MotionBox>
   );
 }
 
@@ -114,9 +132,27 @@ export default function Home() {
 
   return (
     <Flex direction="column" px={{ base: 6, md: 16 }} py={10} align="center" gap={10}>
-      <Box w="100%" maxW="1200px">
-        <HStack spacing={2} mb={5}>
-          <Box w="6px" h="6px" borderRadius="full" bg="app.accent" boxShadow="0 0 8px var(--chakra-colors-app-accent)" />
+      <MotionBox variants={fadeInUp} initial="hidden" animate="visible" w="100%" maxW="1200px">
+        <HStack
+          spacing={2}
+          mb={5}
+          display="inline-flex"
+          borderRadius="full"
+          border="1px solid"
+          borderColor="app.border"
+          bg="app.surface"
+          backdropFilter="blur(12px)"
+          px={3}
+          py={1.5}
+        >
+          <Box
+            w="6px"
+            h="6px"
+            borderRadius="full"
+            bg="app.accent"
+            boxShadow="0 0 8px var(--chakra-colors-app-accent)"
+            className="animate-pulse"
+          />
           <Text fontSize="xs" fontWeight="semibold" letterSpacing="wide" color="app.muted" textTransform="uppercase">
             Live on {stellarNetwork}
           </Text>
@@ -139,7 +175,7 @@ export default function Home() {
           RPC: {sorobanRpcUrl.replace(/^https?:\/\//, "")}
           {publicKey ? ` · Wallet ${publicKey.slice(0, 6)}…` : ""}
         </Text>
-      </Box>
+      </MotionBox>
 
       <Flex direction="row" w="100%" maxW="1200px" flexWrap="wrap" gap={4}>
         {statsLoading ? (
@@ -151,26 +187,34 @@ export default function Home() {
             <StatCard
               label="Total Value Locked"
               value={stats?.totalValueLocked ?? "Not available"}
+              delay={0.05}
             />
             <StatCard
               label="Active Pools"
               value={stats?.totalPools ?? "No pools found"}
               accent="app.accent2"
+              delay={0.1}
             />
             <StatCard
               label="Total Users"
               value={formatNumber(stats?.totalUsers)}
+              delay={0.15}
             />
             <StatCard
               label="Users Online"
               value={formatNumber(stats?.onlineUsers)}
               accent="app.accent2"
+              delay={0.2}
             />
           </>
         )}
       </Flex>
 
-      <Box
+      <MotionBox
+        variants={fadeInUp}
+        initial="hidden"
+        animate="visible"
+        custom={0.25}
         w="100%"
         maxW="1200px"
         border="1px solid"
@@ -200,7 +244,7 @@ export default function Home() {
             <AlertIcon /> Connect your Freighter wallet to fetch your user credits and positions.
           </Alert>
         )}
-      </Box>
+      </MotionBox>
     </Flex>
   );
 }
