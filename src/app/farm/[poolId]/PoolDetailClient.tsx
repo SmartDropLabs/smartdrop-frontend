@@ -29,7 +29,7 @@ import {
   Tr,
   useDisclosure,
 } from "@chakra-ui/react";
-import { sorobanService } from "@/lib/soroban";
+import { formatCredits, sorobanService } from "@/lib/soroban";
 import type { PoolInfo } from "@/lib/soroban";
 import TvlChart from "@/components/TvlChart/TvlChart";
 import { useLockFlow } from "@/hooks/useLockFlow";
@@ -315,7 +315,7 @@ export default function PoolDetailClient({ poolId }: { poolId: string }) {
                       {d.address.slice(0, 6)}…{d.address.slice(-4)}
                     </Td>
                     <Td borderColor="app.border" isNumeric>{d.amount}</Td>
-                    <Td borderColor="app.border" isNumeric color={ACCENT}>{d.credits}</Td>
+                    <Td borderColor="app.border" isNumeric color={ACCENT}>{formatCredits(d.credits)}</Td>
                   </Tr>
                 ))}
               </Tbody>
