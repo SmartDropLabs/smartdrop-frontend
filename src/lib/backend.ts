@@ -12,6 +12,39 @@ export class BackendApiError extends Error {
   }
 }
 
+/**
+ * Whether a failed backend-API query is worth an automatic retry (#96).
+ *
+ * A `BackendApiError` with a 4xx status is a deterministic rejection of
+ * *this* request — e.g. an invalid Alerts API key (401/403) or a malformed
+ * request (400) — retrying it can't succeed and just delays the user
+ * seeing the real problem. A 5xx status, or any error that isn't a
+ * `BackendApiError` at all (network failure, CORS preflight hiccup, DNS
+ * blip — request()'s fetch() call has no try/catch around it, so these
+ * surface as whatever error fetch() itself throws), is exactly the
+ * transient case worth retrying.
+ */
+export function isRetryableBackendError(error: unknown): boolean {
+  if (error instanceof BackendApiError) {
+    return error.status >= 500;
+  }
+  return true;
+}
+
+/**
+ * Shared TanStack Query retry policy for the backend-API pages (Prices,
+ * Airdrops, Webhooks, Alerts) — bounded retries with exponential backoff
+ * for transient failures only, matching the pattern already used for
+ * Soroban queries in useSorobanQuery.ts (retry: 2/3 with backoff), gated
+ * by isRetryableBackendError so a deterministic 4xx never auto-retries.
+ * Spread into a useQuery(...) call: `useQuery({ ...backendQueryRetry, ... })`.
+ */
+export const backendQueryRetry = {
+  retry: (failureCount: number, error: unknown) =>
+    failureCount < 2 && isRetryableBackendError(error),
+  retryDelay: (attemptIndex: number) => Math.min(1000 * 2 ** attemptIndex, 10_000),
+} as const;
+
 async function request<T>(
   path: string,
   init?: RequestInit & { apiKey?: string },
