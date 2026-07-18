@@ -2,8 +2,6 @@
 
 import { useState } from "react";
 import {
-  Alert as ChakraAlert,
-  AlertIcon,
   Badge,
   Box,
   Button,
@@ -16,7 +14,14 @@ import {
   useToast,
 } from "@chakra-ui/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { createAlert, deleteAlert, listAlerts, type Alert } from "@/lib/backend";
+import {
+  createAlert,
+  deleteAlert,
+  listAlerts,
+  backendQueryRetry,
+  type Alert,
+} from "@/lib/backend";
+import { QueryErrorAlert } from "@/components/QueryErrorAlert/QueryErrorAlert";
 
 export default function AlertsPage() {
   const toast = useToast();
@@ -30,11 +35,11 @@ export default function AlertsPage() {
 
   const hasKey = apiKey.trim().length > 0;
 
-  const { data, isLoading, isError, error } = useQuery({
+  const { data, isLoading, isError, error, isFetching, refetch } = useQuery({
     queryKey: ["alerts", apiKey],
     queryFn: () => listAlerts(apiKey),
     enabled: hasKey,
-    retry: false,
+    ...backendQueryRetry,
   });
 
   const createMutation = useMutation({
@@ -235,10 +240,12 @@ export default function AlertsPage() {
                 <Spinner color="app.accent" size="xl" thickness="3px" />
               </Flex>
             ) : isError ? (
-              <ChakraAlert status="error" borderRadius="xl">
-                <AlertIcon />
-                {error instanceof Error ? error.message : "Failed to load alerts"}
-              </ChakraAlert>
+              <QueryErrorAlert
+                error={error}
+                onRetry={() => refetch()}
+                isRetrying={isFetching}
+                fallbackMessage="Failed to load alerts"
+              />
             ) : !data || data.data.length === 0 ? (
               <Flex
                 justify="center"
