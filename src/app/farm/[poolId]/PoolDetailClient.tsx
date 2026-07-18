@@ -36,6 +36,7 @@ import { useLockFlow } from "@/hooks/useLockFlow";
 import { useStellarBalance } from "@/hooks/useSorobanQuery";
 import { useStellarWallet } from "@/context/StellarWalletContext";
 import ConnectWalletButton from "@/components/ConnectWalletButton/ConnectWalletButton";
+import { useOwnConnectButton } from "@/context/OwnConnectButtonContext";
 import { isDepositPending, DEPOSIT_STEP_LABEL } from "@/types/farm";
 import { Input } from "@chakra-ui/react";
 
@@ -96,6 +97,16 @@ export default function PoolDetailClient({ poolId }: { poolId: string }) {
   const { isOpen, onOpen, onClose } = useDisclosure();
   const { publicKey, walletApi, isConnected, isNetworkMismatch } =
     useStellarWallet();
+
+  // Signal to AppShell that a Connect Wallet button is visible inside the
+  // deposit modal — but ONLY while the modal is open and the wallet is
+  // disconnected. When the modal is closed (or the wallet connects), the
+  // floating global CTA should reappear (Issue #69).
+  const signalOwnCTA = useOwnConnectButton();
+  useEffect(() => {
+    signalOwnCTA(isOpen && !isConnected);
+    return () => signalOwnCTA(false);
+  }, [isOpen, isConnected, signalOwnCTA]);
 
   const balanceQuery = useStellarBalance(publicKey ?? undefined);
   const availableBalance = balanceQuery.data;
