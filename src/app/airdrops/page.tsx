@@ -2,8 +2,6 @@
 
 import { useState } from "react";
 import {
-  Alert,
-  AlertIcon,
   Badge,
   Box,
   Flex,
@@ -12,7 +10,8 @@ import {
   Text,
 } from "@chakra-ui/react";
 import { useQuery } from "@tanstack/react-query";
-import { listAirdrops } from "@/lib/backend";
+import { listAirdrops, backendQueryRetry } from "@/lib/backend";
+import { QueryErrorAlert } from "@/components/QueryErrorAlert/QueryErrorAlert";
 
 function statusColor(status: string) {
   switch (status) {
@@ -31,10 +30,10 @@ function statusColor(status: string) {
 export default function AirdropsPage() {
   const [page] = useState(1);
 
-  const { data, isLoading, isError, error } = useQuery({
+  const { data, isLoading, isError, error, isFetching, refetch } = useQuery({
     queryKey: ["airdrops", page],
     queryFn: () => listAirdrops(page, 20),
-    retry: false,
+    ...backendQueryRetry,
   });
 
   return (
@@ -67,10 +66,12 @@ export default function AirdropsPage() {
             <Spinner color="app.accent" size="xl" thickness="3px" />
           </Flex>
         ) : isError ? (
-          <Alert status="error" borderRadius="xl">
-            <AlertIcon />
-            {error instanceof Error ? error.message : "Failed to load airdrops"}
-          </Alert>
+          <QueryErrorAlert
+            error={error}
+            onRetry={() => refetch()}
+            isRetrying={isFetching}
+            fallbackMessage="Failed to load airdrops"
+          />
         ) : !data || data.airdrops.length === 0 ? (
           <Flex
             justify="center"
