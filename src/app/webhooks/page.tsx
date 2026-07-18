@@ -2,8 +2,6 @@
 
 import { useState } from "react";
 import {
-  Alert,
-  AlertIcon,
   Badge,
   Box,
   Button,
@@ -23,7 +21,9 @@ import {
   listWebhooks,
   testWebhook,
   WEBHOOK_EVENTS,
+  backendQueryRetry,
 } from "@/lib/backend";
+import { QueryErrorAlert } from "@/components/QueryErrorAlert/QueryErrorAlert";
 
 export default function WebhooksPage() {
   const toast = useToast();
@@ -32,10 +32,10 @@ export default function WebhooksPage() {
   const [description, setDescription] = useState("");
   const [selectedEvents, setSelectedEvents] = useState<string[]>([]);
 
-  const { data, isLoading, isError, error } = useQuery({
+  const { data, isLoading, isError, error, isFetching, refetch } = useQuery({
     queryKey: ["webhooks"],
     queryFn: listWebhooks,
-    retry: false,
+    ...backendQueryRetry,
   });
 
   const createMutation = useMutation({
@@ -185,10 +185,12 @@ export default function WebhooksPage() {
             <Spinner color="app.accent" size="xl" thickness="3px" />
           </Flex>
         ) : isError ? (
-          <Alert status="error" borderRadius="xl">
-            <AlertIcon />
-            {error instanceof Error ? error.message : "Failed to load webhooks"}
-          </Alert>
+          <QueryErrorAlert
+            error={error}
+            onRetry={() => refetch()}
+            isRetrying={isFetching}
+            fallbackMessage="Failed to load webhooks"
+          />
         ) : !data || data.webhooks.length === 0 ? (
           <Flex
             justify="center"

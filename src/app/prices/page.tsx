@@ -14,7 +14,8 @@ import {
   Text,
 } from "@chakra-ui/react";
 import { useQuery } from "@tanstack/react-query";
-import { getPrice } from "@/lib/backend";
+import { getPrice, backendQueryRetry } from "@/lib/backend";
+import { QueryErrorAlert } from "@/components/QueryErrorAlert/QueryErrorAlert";
 
 function formatUsd(value: number | null) {
   if (value === null) return "—";
@@ -31,11 +32,11 @@ export default function PricesPage() {
   const [issuer, setIssuer] = useState("");
   const [submitted, setSubmitted] = useState({ assetCode: "XLM", issuer: "" });
 
-  const { data, isLoading, isError, error, isFetching } = useQuery({
+  const { data, isLoading, isError, error, isFetching, refetch } = useQuery({
     queryKey: ["price", submitted.assetCode, submitted.issuer],
     queryFn: () => getPrice(submitted.assetCode, submitted.issuer || undefined),
     enabled: !!submitted.assetCode,
-    retry: false,
+    ...backendQueryRetry,
   });
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -118,10 +119,12 @@ export default function PricesPage() {
             <Spinner color="app.accent" size="xl" thickness="3px" />
           </Flex>
         ) : isError ? (
-          <Alert status="error" borderRadius="xl">
-            <AlertIcon />
-            {error instanceof Error ? error.message : "Failed to fetch price"}
-          </Alert>
+          <QueryErrorAlert
+            error={error}
+            onRetry={() => refetch()}
+            isRetrying={isFetching}
+            fallbackMessage="Failed to fetch price"
+          />
         ) : data ? (
           <Box
             border="1px solid"
