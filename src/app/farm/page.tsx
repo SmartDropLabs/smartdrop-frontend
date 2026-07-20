@@ -1,448 +1,690 @@
 "use client";
-import { useState } from "react";
-import {
-  Button,
-  Text,
-  Flex,
-  Modal,
-  ModalOverlay,
-  ModalContent,
-  ModalHeader,
-  ModalCloseButton,
-  ModalBody,
-  Input,
-  Box,
-  Slider,
-  SliderTrack,
-  SliderFilledTrack,
-  SliderThumb,
-  SliderMark,
-  chakra,
-  Spinner,
-  Tooltip,
-} from "@chakra-ui/react";
-import { useStellarWallet } from "@/context/StellarWalletContext";
+
+import { PlatformStats } from "@/components/PlatformStats/PlatformStats";
+import ConnectWalletButton from "@/components/ConnectWalletButton/ConnectWalletButton";
+import UnlockModal from "@/components/UnlockModal/UnlockModal";
+import { EarningRow, MetricColumn } from "@/app/farm/EarningRow";
 import {
   factoryContractId,
   minLockPeriodSeconds,
   sorobanRpcUrl,
   stellarNetwork,
 } from "@/config";
-import UnlockModal from "@/components/UnlockModal/UnlockModal";
-import { useCountdown } from "@/hooks/useCountdown";
-import { unlockAvailableAt, type FarmPosition } from "@/types/farm";
+import { useStellarWallet } from "@/context/StellarWalletContext";
+import {
+  QUERY_KEYS,
+  useAllUserPositions,
+  useLockAssets,
+  useLockAssetsFeePreview,
+  usePools,
+  useStellarBalance,
+} from "@/hooks/useSorobanQuery";
+import { useSorobanEvents } from "@/hooks/useSorobanEvents";
+import { stellarExpertTxUrl } from "@/lib/soroban";
+import type { UserPosition } from "@/lib/soroban";
+import {
+  DEPOSIT_STEP_LABEL,
+  isDepositPending,
+  type DepositStep,
+  type FarmPosition,
+} from "@/types/farm";
+import {
+  Alert,
+  AlertIcon,
+  Box,
+  Button,
+  Flex,
+  Input,
+  Link,
+  Modal,
+  ModalBody,
+  ModalCloseButton,
+  ModalContent,
+  ModalHeader,
+  ModalOverlay,
+  Spinner,
+  Text,
+  useToast,
+} from "@chakra-ui/react";
+import { useQueryClient } from "@tanstack/react-query";
+import NextLink from "next/link";
+import { useEffect, useMemo, useState } from "react";
 
-const DAY_MS = 24 * 60 * 60 * 1000;
+const ACCENT = "#4AE292";
 
-/** A single staked position row with a live-updating Unlock control. */
-function EarningRow({
-  position,
-  onUnlock,
+type LivePoolRow = {
+  id: string;
+  contractAddress: string;
+  name: string;
+  earned: string;
+  stake: string;
+  dailyRate: string;
+  totalStakedLiquidity: string;
+  symbol: string;
+  lockedAmount: number;
+  lockedAt: number;
+  lockPeriodSeconds: number;
+};
+
+function formatLockPeriod(seconds: number): string {
+  if (seconds >= 86400) {
+    const days = Math.ceil(seconds / 86400);
+    return `${days} day${days === 1 ? "" : "s"}`;
+  }
+  if (seconds >= 3600) {
+    const hours = Math.ceil(seconds / 3600);
+    return `${hours} hour${hours === 1 ? "" : "s"}`;
+  }
+  const minutes = Math.max(1, Math.ceil(seconds / 60));
+  return `${minutes} minute${minutes === 1 ? "" : "s"}`;
+}
+
+function shortHash(hash: string): string {
+  return `${hash.slice(0, 10)}...${hash.slice(-6)}`;
+}
+
+function DepositModal({
+  farm,
+  isOpen,
+  onClose,
 }: {
-  position: FarmPosition;
-  onUnlock: (position: FarmPosition) => void;
+  farm: LivePoolRow | null;
+  isOpen: boolean;
+  onClose: () => void;
 }) {
-  const countdown = useCountdown(unlockAvailableAt(position));
-  const hasStake = position.lockedAmount > 0;
-  const canUnlock = hasStake && countdown.isElapsed;
+  const { publicKey, isConnected, isNetworkMismatch } = useStellarWallet();
+  const [amount, setAmount] = useState("");
+  const [txHash, setTxHash] = useState<string | null>(null);
+  const [step, setStep] = useState<DepositStep>("idle");
+  const [localError, setLocalError] = useState<string | null>(null);
+
+  const selectedContractAddress = farm?.contractAddress || farm?.id || "";
+  const queryClient = useQueryClient();
+  const balanceQuery = useStellarBalance(publicKey ?? undefined);
+  const trimmedAmount = amount.trim();
+  const numericAmount = Number(trimmedAmount);
+  const amountFormatValid = /^\d+(?:\.\d+)?$/.test(trimmedAmount);
+  const decimalPlaces = trimmedAmount.includes(".")
+    ? trimmedAmount.split(".")[1]?.length ?? 0
+    : 0;
+  const amountValid =
+    !!trimmedAmount &&
+    amountFormatValid &&
+    decimalPlaces <= 7 &&
+    Number.isFinite(numericAmount) &&
+    numericAmount > 0;
+  const availableBalance = balanceQuery.data;
+  const exceedsBalance =
+    amountValid &&
+    typeof availableBalance === "number" &&
+    numericAmount > availableBalance;
+  const feePreview = useLockAssetsFeePreview({
+    publicKey,
+    poolContractId: selectedContractAddress,
+    amount: amountValid ? trimmedAmount : "",
+  });
+  const lockMutation = useLockAssets({
+    onHash: (hash) => setTxHash(hash),
+    onStep: (nextStep) => setStep(nextStep),
+  });
+
+  const isFeeSponsored =
+    isConnected &&
+    typeof availableBalance === "number" &&
+    availableBalance < 1.0 &&
+    !!process.env.NEXT_PUBLIC_FEE_SPONSOR_PUBLIC_KEY;
+
+  const isPending = lockMutation.isPending || isDepositPending(step);
+  const canSubmit =
+    isConnected &&
+    !!farm &&
+    !!publicKey &&
+    amountValid &&
+    !exceedsBalance &&
+    !balanceQuery.isLoading &&
+    !balanceQuery.isError &&
+    !feePreview.isLoading &&
+    !feePreview.isFetching &&
+    !feePreview.isError &&
+    !!feePreview.data &&
+    !isNetworkMismatch &&
+    !isPending;
+
+  useEffect(() => {
+    if (isOpen) {
+      setAmount("");
+      setTxHash(null);
+      setStep("idle");
+      setLocalError(null);
+      lockMutation.reset();
+    }
+    // Reset only when the modal opens or the selected pool changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, farm?.id]);
+
+  const resetAndClose = () => {
+    setAmount("");
+    setTxHash(null);
+    setStep("idle");
+    setLocalError(null);
+    lockMutation.reset();
+    onClose();
+  };
+
+  const handleClose = () => {
+    if (isPending) return;
+    resetAndClose();
+  };
+
+  const handleSubmit = async () => {
+    if (!farm || !publicKey) {
+      setLocalError("Connect your Freighter wallet to deposit.");
+      return;
+    }
+    if (isNetworkMismatch) {
+      setLocalError(`Switch Freighter to ${stellarNetwork} to deposit.`);
+      return;
+    }
+    if (!canSubmit) {
+      setLocalError("Enter a valid amount and wait for the fee preview.");
+      return;
+    }
+
+    setLocalError(null);
+    setTxHash(null);
+
+    try {
+      const result = await lockMutation.mutateAsync({
+        poolId: selectedContractAddress,
+        amount: trimmedAmount,
+      });
+
+      if (!result.success) {
+        setStep("error");
+        setLocalError(result.error ?? "Deposit failed. Please try again.");
+        return;
+      }
+
+      queryClient.invalidateQueries({
+        queryKey: [QUERY_KEYS.USER_POSITION, farm.id],
+      });
+      resetAndClose();
+    } catch (error) {
+      setStep("error");
+      setLocalError(
+        error instanceof Error ? error.message : "Deposit failed. Please try again.",
+      );
+    }
+  };
+
+  const explorerUrl = txHash
+    ? stellarExpertTxUrl(txHash, stellarNetwork.toLowerCase())
+    : null;
+  const lockPeriod = formatLockPeriod(
+    farm?.lockPeriodSeconds || minLockPeriodSeconds,
+  );
+
+  if (!farm) return null;
 
   return (
-    <Flex
-      w="95%"
-      h={20}
-      mx="auto"
-      align="center"
-      justify="space-between"
-      borderTop="1px solid #454545"
-      borderBottom="1px solid #454545"
-    >
-      <Text px={8}>{position.name}</Text>
-      <Flex direction="column">
-        <Text fontSize="2xs">Earned</Text>
-        <Text>{position.earned}</Text>
-      </Flex>
-      <Flex direction="column">
-        <Text fontSize="2xs">My Stake</Text>
-        <Text>{position.stake}</Text>
-      </Flex>
-      <Flex direction="column">
-        <Text fontSize="2xs">Daily Rate</Text>
-        <Text>{position.dailyRate}</Text>
-      </Flex>
-      <Flex direction="column">
-        <Text fontSize="2xs">Total Staked Liquidity</Text>
-        <Text>{position.totalStakedLiquidity}</Text>
-      </Flex>
-      <Flex gap={4}>
-        <Button borderRadius="3xl" disabled>
-          Boost
-        </Button>
-        <Tooltip
-          label={
-            !hasStake
-              ? "No locked assets in this position"
-              : `Locked for another ${countdown.label}`
-          }
-          isDisabled={canUnlock}
-          hasArrow
-          bg="#222"
-          color="#fff"
-        >
-          {/* Wrapper keeps the tooltip working while the button is disabled. */}
-          <Box>
+    <Modal isOpen={isOpen} onClose={handleClose}>
+      <ModalOverlay backdropFilter="blur(3px)" />
+      <ModalContent
+        bg="app.surface"
+        color="app.text"
+        borderRadius="3xl"
+        mx={{ base: 4, md: "auto" }}
+      >
+        <ModalHeader mx="auto">Deposit {farm.symbol}</ModalHeader>
+        <ModalCloseButton isDisabled={isPending} />
+        <ModalBody p={{ base: 4, md: 8 }}>
+          <Flex direction="column" gap={5}>
+            <Box>
+              <Text fontWeight="semibold">{farm.name}</Text>
+              <Text fontSize="sm" color="app.muted">
+                Lock {farm.symbol} to earn credits from this pool.
+              </Text>
+            </Box>
+
+            <Box border="1px solid" borderColor="app.border" borderRadius="2xl" p={3}>
+              <Flex justify="space-between" fontSize="sm" py={1} gap={4}>
+                <Text color="app.muted">Available balance</Text>
+                <Text textAlign="right">
+                  {balanceQuery.isLoading
+                    ? "Loading..."
+                    : typeof availableBalance === "number"
+                      ? `${availableBalance.toLocaleString(undefined, {
+                          maximumFractionDigits: 7,
+                        })} XLM`
+                      : "Unavailable"}
+                </Text>
+              </Flex>
+              <Flex justify="space-between" fontSize="sm" py={1} gap={4}>
+                <Text color="app.muted">Estimated Soroban fee</Text>
+                <Text textAlign="right">
+                  {feePreview.isFetching
+                    ? "Simulating..."
+                    : feePreview.data
+                      ? `${feePreview.data.feePreview} stroops`
+                      : "Enter amount"}
+                </Text>
+              </Flex>
+              <Flex justify="space-between" fontSize="sm" py={1} gap={4}>
+                <Text color="app.muted">Minimum lock period</Text>
+                <Text textAlign="right">{lockPeriod}</Text>
+              </Flex>
+            </Box>
+
+            <Flex direction="column" gap={2}>
+              <Text fontSize="sm">Amount ({farm.symbol})</Text>
+              <Box position="relative">
+                <Input
+                  type="number"
+                  min={0}
+                  step="0.0000001"
+                  placeholder="0"
+                  value={amount}
+                  onChange={(event) => setAmount(event.target.value)}
+                  isDisabled={isPending}
+                  borderRadius="2xl"
+                  h="50px"
+                  borderColor="app.border"
+                  bg="app.inputBg"
+                  _placeholder={{ color: "app.muted" }}
+                  _hover={{ borderColor: "app.accent" }}
+                  _focus={{ boxShadow: "none", borderColor: "app.accent" }}
+                  pr="72px"
+                />
+                <Text
+                  position="absolute"
+                  top="50%"
+                  right="14px"
+                  transform="translateY(-50%)"
+                  fontSize="xs"
+                  color="app.muted"
+                  pointerEvents="none"
+                >
+                  {farm.symbol}
+                </Text>
+              </Box>
+              {!!trimmedAmount && !amountValid && (
+                <Text fontSize="xs" color="#ff8080">
+                  Enter a positive amount with no more than 7 decimals.
+                </Text>
+              )}
+              {exceedsBalance && (
+                <Text fontSize="xs" color="#ff8080">
+                  Amount exceeds your Horizon XLM balance.
+                </Text>
+              )}
+            </Flex>
+
+            {isPending && (
+              <Flex
+                align="center"
+                gap={3}
+                bg="app.inputBg"
+                borderRadius="2xl"
+                p={4}
+                border="1px solid"
+                borderColor="app.border"
+              >
+                <Spinner size="sm" color="app.accent" />
+                <Text fontSize="sm" color="app.muted">
+                  {DEPOSIT_STEP_LABEL[step] || "Processing deposit..."}
+                </Text>
+              </Flex>
+            )}
+
+            {txHash && (
+              <Box border="1px solid" borderColor="app.border" borderRadius="2xl" p={3}>
+                <Flex justify="space-between" fontSize="sm" gap={4}>
+                  <Text color="app.muted">Transaction</Text>
+                  {explorerUrl ? (
+                    <Link href={explorerUrl} isExternal color="app.accent" fontFamily="mono">
+                      {shortHash(txHash)}
+                    </Link>
+                  ) : (
+                    <Text fontFamily="mono">{shortHash(txHash)}</Text>
+                  )}
+                </Flex>
+              </Box>
+            )}
+
+            {feePreview.isError && (
+              <Alert status="error" borderRadius="2xl" bg="#2a1414" color="#ff8080">
+                <AlertIcon color="#ff8080" />
+                Fee simulation failed. Check the amount and try again.
+              </Alert>
+            )}
+
+            {balanceQuery.isError && (
+              <Alert status="error" borderRadius="2xl" bg="#2a1414" color="#ff8080">
+                <AlertIcon color="#ff8080" />
+                Unable to load your Horizon balance.
+              </Alert>
+            )}
+
+            {localError && (
+              <Alert status="error" borderRadius="2xl" bg="#2a1414" color="#ff8080">
+                <AlertIcon color="#ff8080" />
+                {localError}
+              </Alert>
+            )}
+
+            {isFeeSponsored && (
+              <Alert status="warning" borderRadius="2xl" bg="#2d2216" color="#ffb86c" fontSize="sm" border="1px solid #7c5c24">
+                <AlertIcon color="#ffb86c" />
+                Your fees are sponsored for this transaction
+              </Alert>
+            )}
+
+            {!isConnected && (
+              <Alert status="warning" borderRadius="2xl" bg="#2a2412" color="#f6c453">
+                <AlertIcon color="#f6c453" />
+                Connect your Freighter wallet to deposit.
+              </Alert>
+            )}
+
             <Button
-              borderRadius="3xl"
-              onClick={() => onUnlock(position)}
-              isDisabled={!canUnlock}
+              borderRadius="2xl"
+              bg="app.accent"
+              color="app.onAccent"
+              _hover={{ opacity: isPending ? 1 : 0.9 }}
+              isDisabled={!canSubmit}
+              onClick={() => void handleSubmit()}
+              w="full"
             >
-              Unlock
+              {isPending ? (
+                <Flex align="center" gap={2}>
+                  <Spinner size="xs" />
+                  <Text>
+                    {step === "signing" ? "Waiting for signature..." : "Processing..."}
+                  </Text>
+                </Flex>
+              ) : (
+                "Deposit with Freighter"
+              )}
             </Button>
-          </Box>
-        </Tooltip>
-      </Flex>
-    </Flex>
+
+            {step === "error" && (
+              <Button
+                variant="ghost"
+                size="sm"
+                color="app.muted"
+                onClick={() => {
+                  setStep("idle");
+                  setLocalError(null);
+                  lockMutation.reset();
+                }}
+              >
+                Try again
+              </Button>
+            )}
+          </Flex>
+        </ModalBody>
+      </ModalContent>
+    </Modal>
   );
 }
 
 export default function Farm() {
-  const { publicKey } = useStellarWallet();
-  const mockFarms = [
-    {
-      name: "BEAM",
-      img: "",
-      earned: "-",
-      stake: "-",
-      dailyRate: "0.00102",
-      totalStakedLiquidity: "$141M",
-    },
-    {
-      name: "BEAM",
-      img: "",
-      earned: "-",
-      stake: "-",
-      dailyRate: "0.00102",
-      totalStakedLiquidity: "$141M",
-    },
-  ];
+  const { publicKey, isConnected, isNetworkMismatch } = useStellarWallet();
+  const toast = useToast();
 
-  const [positions, setPositions] = useState<FarmPosition[]>(() => [
-    {
-      id: "beam-1",
-      name: "BEAM",
-      img: "",
-      earned: "12345",
-      stake: "5.398",
-      dailyRate: "0.00102",
-      totalStakedLiquidity: "$141M",
-      symbol: "BEAM",
-      lockedAmount: 5.398,
-      // Locked well beyond the minimum period → eligible to unlock now.
-      lockedAt: Date.now() - 10 * DAY_MS,
-      lockPeriodSeconds: minLockPeriodSeconds,
-    },
-    {
-      id: "beam-2",
-      name: "BEAM",
-      img: "",
-      earned: "210",
-      stake: "2.5",
-      dailyRate: "0.00102",
-      totalStakedLiquidity: "$141M",
-      symbol: "BEAM",
-      lockedAmount: 2.5,
-      // Locked recently → still time-locked, Unlock disabled with countdown.
-      lockedAt: Date.now() - 2 * 60 * 1000,
-      lockPeriodSeconds: minLockPeriodSeconds,
-    },
+  const {
+    data: pools,
+    isLoading: poolsLoading,
+    isError: poolsError,
+    error: poolsErrorObj,
+  } = usePools();
+
+  const {
+    data: userPositions,
+    isLoading: positionsLoading,
+    isError: positionsError,
+    error: positionsErrorObj,
+  } = useAllUserPositions();
+
+  const poolContractIds = useMemo(
+    () => (pools ?? []).map((p) => p.contractAddress).filter(Boolean),
+    [pools],
+  );
+
+  useSorobanEvents(poolContractIds, [
+    "lock_assets",
+    "unlock_assets",
+    "update_credits",
   ]);
 
-  const [selectedFarm, setSelectedFarm] = useState<(typeof mockFarms)[0] | null>(
-    null
-  );
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [submitPending, setSubmitPending] = useState<boolean>(false);
+  const [selectedFarm, setSelectedFarm] = useState<LivePoolRow | null>(null);
+  const [isDepositOpen, setIsDepositOpen] = useState(false);
 
-  const [unlockPosition, setUnlockPosition] = useState<FarmPosition | null>(
-    null
-  );
-  const [isUnlockOpen, setIsUnlockOpen] = useState(false);
+  useEffect(() => {
+    if (poolsError && poolsErrorObj) {
+      toast({
+        title: "Unable to load pools",
+        description:
+          poolsErrorObj instanceof Error
+            ? poolsErrorObj.message
+            : "Failed to fetch pool data from Soroban",
+        status: "error",
+        duration: 8000,
+        isClosable: true,
+      });
+    }
+  }, [poolsError, poolsErrorObj, toast]);
 
-  const [sliderValue, setSliderValue] = useState(50);
+  useEffect(() => {
+    if (positionsError && positionsErrorObj) {
+      toast({
+        title: "Unable to load positions",
+        description:
+          positionsErrorObj instanceof Error
+            ? positionsErrorObj.message
+            : "Failed to fetch user positions from Soroban",
+        status: "error",
+        duration: 8000,
+        isClosable: true,
+      });
+    }
+  }, [positionsError, positionsErrorObj, toast]);
 
-  const handleDepositClick = (farm: (typeof mockFarms)[0]) => {
-    setSelectedFarm(farm);
-    setIsModalOpen(true);
+  const myPositions = useMemo<FarmPosition[]>(() => {
+    if (!userPositions) return [];
+    return userPositions.map(({ pool, position }) => ({
+      id: pool.id,
+      contractAddress: pool.contractAddress,
+      name: pool.asset.code,
+      img: "",
+      earned: position?.credits ?? "-",
+      stake: position?.amount ?? "-",
+      dailyRate: pool.dailyRate,
+      totalStakedLiquidity: `$${Number(pool.totalLocked).toLocaleString()}`,
+      symbol: pool.asset.code,
+      lockedAmount: position?.amount ? Number(position.amount) : 0,
+      lockedAt: position?.lockedAt ?? 0,
+      lockPeriodSeconds: position ? pool.minLockPeriod : minLockPeriodSeconds,
+    }));
+  }, [userPositions]);
+
+  const availablePools = useMemo<LivePoolRow[]>(() => {
+    if (!pools) return [];
+    const positionMap = new Map<string, UserPosition | null>();
+    userPositions?.forEach((item) => positionMap.set(item.pool.id, item.position));
+
+    return pools.map((pool) => {
+      const position = positionMap.get(pool.id);
+      return {
+        id: pool.id,
+        contractAddress: pool.contractAddress,
+        name: pool.asset.code,
+        earned: position?.credits ?? "-",
+        stake: position?.amount ?? "-",
+        dailyRate: pool.dailyRate,
+        totalStakedLiquidity: `$${Number(pool.totalLocked).toLocaleString()}`,
+        symbol: pool.asset.code,
+        lockedAmount: position?.amount ? Number(position.amount) : 0,
+        lockedAt: position?.lockedAt ?? 0,
+        lockPeriodSeconds: pool.minLockPeriod,
+      };
+    });
+  }, [pools, userPositions]);
+
+  const handleDepositClick = (pool: LivePoolRow) => {
+    setSelectedFarm(pool);
+    setIsDepositOpen(true);
   };
 
-  const handleModalClose = () => {
-    setIsModalOpen(false);
+  const handleDepositClose = () => {
+    setIsDepositOpen(false);
     setSelectedFarm(null);
   };
 
-  const handleUnlockClick = (position: FarmPosition) => {
-    setUnlockPosition(position);
-    setIsUnlockOpen(true);
-  };
-
-  const handleUnlockClose = () => {
-    setIsUnlockOpen(false);
-    setUnlockPosition(null);
-  };
-
-  // Reflect the reduced stake in the UI immediately after a confirmed unlock.
-  const handleUnlocked = (position: FarmPosition, amount: number) => {
-    setPositions((prev) =>
-      prev.map((p) => {
-        if (p.id !== position.id) return p;
-        const remaining = Math.max(0, p.lockedAmount - amount);
-        return {
-          ...p,
-          lockedAmount: remaining,
-          stake: remaining > 0 ? String(remaining) : "-",
-        };
-      })
-    );
-  };
-
-  const handleLockClick = async () => {
-    setSubmitPending(true);
-    // Wire to Soroban: build invoke transaction, sign with Freighter, submit to sorobanRpcUrl
-    await new Promise((resolve) => setTimeout(resolve, 1500));
-    setSubmitPending(false);
-  };
+  const hasPositions = myPositions.length > 0;
 
   return (
-    <Flex direction="column" align="center">
-      <Text fontSize="xs" color="#A2A2A2" mt={4} px={4} textAlign="center">
+    <Flex direction="column" align="center" gap={6} px={{ base: 4, md: 8 }} py={6}>
+      <PlatformStats />
+      <Text fontSize="xs" color="app.muted" textAlign="center" overflowWrap="anywhere">
         Network: {stellarNetwork}
-        {publicKey ? ` · ${publicKey.slice(0, 4)}…` : ""}
+        {publicKey ? ` - ${publicKey.slice(0, 6)}...` : ""}
         {factoryContractId
-          ? ` · Factory ${factoryContractId.slice(0, 8)}…`
-          : " · Set NEXT_PUBLIC_FACTORY_CONTRACT_ID when your Soroban factory is deployed"}
-        {" · "}
-        {sorobanRpcUrl.replace(/^https:\/\//, "")}
-      </Text>
-      {positions.length > 0 ? (
-        <>
-          <Text
-            my={8}
-            textTransform="uppercase"
-            fontSize="4xl"
-            fontWeight="bold"
-          >
-            My earnings
-          </Text>
-
-          {positions.map((position) => (
-            <EarningRow
-              key={position.id}
-              position={position}
-              onUnlock={handleUnlockClick}
-            />
-          ))}
-        </>
-      ) : (
-        <></>
-      )}
-      <Text my={8} textTransform="uppercase" fontSize="4xl" fontWeight="bold">
-        Deposit to <chakra.span color="#4ae292">earn points</chakra.span>
+          ? ` - Factory ${factoryContractId.slice(0, 8)}...`
+          : " - Set NEXT_PUBLIC_FACTORY_CONTRACT_ID when your Soroban factory is deployed"}
+        {" - "}
+        {sorobanRpcUrl.replace(/^https?:\/\//, "")}
       </Text>
 
-      {mockFarms.map((farm, index) => (
-        <Flex
-          key={index}
-          w="95%"
-          h={20}
-          mx="auto"
-          align="center"
-          justify="space-between"
-          borderTop="1px solid #454545"
-          borderBottom="1px solid #454545"
-        >
-          <Text px={8}>{farm.name}</Text>
-          <Flex direction="column">
-            <Text fontSize="2xs">Earned</Text>
-            <Text>{farm.earned}</Text>
-          </Flex>
-          <Flex direction="column">
-            <Text fontSize="2xs">My Stake</Text>
-            <Text>{farm.stake}</Text>
-          </Flex>
-          <Flex direction="column">
-            <Text fontSize="2xs">Daily Rate</Text>
-            <Text>{farm.dailyRate}</Text>
-          </Flex>
-          <Flex direction="column">
-            <Text fontSize="2xs">Total Staked Liquidity</Text>
-            <Text>{farm.totalStakedLiquidity}</Text>
-          </Flex>
-          <Button borderRadius="3xl" onClick={() => handleDepositClick(farm)}>
-            Deposit
-          </Button>
+      <Text fontSize={{ base: "2xl", md: "3xl" }} fontWeight="extrabold" letterSpacing="tight" w="full" maxW="1200px">
+        Farm Pools
+      </Text>
+
+      {poolsLoading ? (
+        <Flex w="100%" justify="center" py={16}>
+          <Spinner size="xl" color={ACCENT} />
         </Flex>
-      ))}
-
-      <Modal isOpen={isModalOpen} onClose={handleModalClose}>
-        <ModalOverlay backdropFilter="blur(3px)" />
-        <ModalContent bgColor="#171717" color="#fff" borderRadius="3xl">
-          <ModalHeader mx="auto">{selectedFarm?.name}</ModalHeader>
-          <ModalCloseButton />
-          <ModalBody p={8}>
-            <Flex direction="column">
-              <Flex direction="column" gap={8}>
-                <Flex direction="column" gap={2}>
-                  <Text fontSize="2xs" color="#A2A2A2">
-                    Deposit
-                  </Text>
-                  <Box position="relative" w="100%">
-                    <Input
-                      type="number"
-                      borderRadius="2xl"
-                      placeholder="Amount"
-                      h="50px"
-                      borderColor="#454545"
-                      paddingBottom="16px"
-                      _placeholder={{
-                        color: "#A2A2A2",
-                      }}
-                      _hover={{
-                        borderColor: "#4ae292",
-                      }}
-                      _focus={{
-                        boxShadow: "none",
-                        borderColor: "#4ae292",
-                      }}
-                      zIndex={1}
-                    />
-                    <Text
-                      position="absolute"
-                      bottom="4px"
-                      left="16px"
-                      fontSize="xs"
-                      color="#A2A2A2"
-                    >
-                      $3,280.20
-                    </Text>
-                    <Text
-                      position="absolute"
-                      bottom="20px"
-                      right="10px"
-                      fontSize="md"
-                      color="white"
-                    >
-                      BEAM
-                    </Text>
-                    <Flex position="absolute" bottom="5px" right="10px" gap={2}>
-                      <Text fontSize="xs" color="#A2A2A2">
-                        Balance: 0($0)
-                      </Text>
-                      <Text
-                        fontSize="xs"
-                        color="#4ae292"
-                        cursor="pointer"
-                        zIndex={2}
-                      >
-                        Max
-                      </Text>
-                    </Flex>
-                  </Box>
-                </Flex>
-
-                <Flex
-                  direction="column"
-                  w="100%"
-                  border="1px solid #454545"
-                  borderRadius="2xl"
-                  p={2}
+      ) : availablePools.length === 0 ? (
+        <Alert status="info" borderRadius="2xl" w="95%" maxW="1200px">
+          <AlertIcon />
+          No farm pools are currently available. Ensure your factory contract is deployed and configured.
+        </Alert>
+      ) : (
+        <Flex direction="column" gap={3} w="full" maxW="1200px">
+          {availablePools.map((farm) => (
+            <Flex
+              key={farm.id}
+              display={{ base: "flex", md: "flex" }}
+              flexDirection={{ base: "column", md: "row" }}
+              w="full"
+              minH={20}
+              align={{ base: "stretch", md: "center" }}
+              justify={{ base: "flex-start", md: "space-between" }}
+              gap={{ base: 4, md: 0 }}
+              border="1px solid"
+              borderColor="app.border"
+              borderRadius="card"
+              bg="app.surface"
+              boxShadow="card"
+              transition="all 0.2s ease"
+              _hover={{ borderColor: "app.borderHover", boxShadow: "cardHover" }}
+              px={5}
+              py={{ base: 4, md: 0 }}
+            >
+              <NextLink href={`/farm/${farm.id}`} style={{ textDecoration: "none" }}>
+                <Text
+                  fontWeight="bold"
+                  w={{ base: "full", md: "auto" }}
+                  _hover={{ color: "app.accent" }}
+                  cursor="pointer"
                 >
-                  <Text fontSize="xs" color="#A2A2A2">
-                    Boost allocation
-                  </Text>
-
-                  <Box py={6}>
-                    <Slider
-                      aria-label="slider-ex-6"
-                      onChange={(val) => setSliderValue(val)}
-                      pt={8}
-                    >
-                      <SliderMark
-                        value={sliderValue}
-                        textAlign="center"
-                        fontSize="xs"
-                        bg="#fff"
-                        color="#000"
-                        mt="-10"
-                        ml="-5"
-                        w="10"
-                      >
-                        {sliderValue}%
-                      </SliderMark>
-                      <SliderTrack>
-                        <SliderFilledTrack bg="#4ae292" />
-                      </SliderTrack>
-                      <SliderThumb />
-                    </Slider>
-                    <Flex justify="space-between">
-                      <Text fontSize="xs" mt="-5">
-                        1%
-                      </Text>
-                      <Text fontSize="xs" mt="-5">
-                        100%
-                      </Text>
-                    </Flex>
-                  </Box>
-
-                  <Flex justify="space-between" fontSize="xs" py={1}>
-                    <Text color="#A2A2A2">Principal Stake</Text>
-                    <Text>1,620,000 S</Text>
-                  </Flex>
-
-                  <Flex justify="space-between" fontSize="xs" py={1}>
-                    <Text color="#A2A2A2">Virtual Stake</Text>
-                    <Text>1,900,000 vS (380,000 x 5)</Text>
-                  </Flex>
-
-                  <Flex justify="space-between" fontSize="xs" py={1}>
-                    <Text color="#A2A2A2">Total Stake</Text>
-                    <Text>3,520,000 S</Text>
-                  </Flex>
-                </Flex>
-
-                <Flex
-                  w="100%"
-                  border="1px solid #454545"
-                  borderRadius="2xl"
-                  p={2}
-                  justify="space-between"
-                  fontSize="xs"
-                >
-                  <Text color="#A2A2A2">Expected Reward Earned Daily</Text>
-                  <Text fontSize="sm">3.255</Text>
-                </Flex>
-
+                  {farm.name}
+                </Text>
+              </NextLink>
+              <MetricColumn label="Earned" value={farm.earned} />
+              <MetricColumn label="My Stake" value={farm.stake} />
+              <MetricColumn label="Daily Rate" value={farm.dailyRate} />
+              <MetricColumn
+                label="Total Staked Liquidity"
+                value={farm.totalStakedLiquidity}
+                minW="180px"
+              />
+              {isConnected && (
                 <Button
-                  borderRadius="2xl"
-                  onClick={() => void handleLockClick()}
-                  disabled={submitPending}
+                  borderRadius="3xl"
+                  bg="app.accent"
+                  color="app.onAccent"
+                  _hover={{ opacity: 0.9 }}
+                  onClick={() => handleDepositClick(farm)}
+                  isDisabled={isNetworkMismatch}
+                  w={{ base: "full", md: "auto" }}
                 >
-                  {submitPending ? (
-                    <Spinner />
-                  ) : (
-                    "Lock with Freighter (Soroban)"
-                  )}
+                  + Deposit
                 </Button>
-              </Flex>
+              )}
             </Flex>
-          </ModalBody>
-        </ModalContent>
-      </Modal>
+          ))}
+        </Flex>
+      )}
 
-      <UnlockModal
-        isOpen={isUnlockOpen}
-        position={unlockPosition}
-        onClose={handleUnlockClose}
-        onUnlocked={handleUnlocked}
+      <Text fontSize={{ base: "2xl", md: "3xl" }} fontWeight="extrabold" letterSpacing="tight" mt={10} w="full" maxW="1200px">
+        My Earnings
+      </Text>
+
+      {positionsLoading ? (
+        <Flex w="100%" justify="center" py={16}>
+          <Spinner size="xl" color={ACCENT} />
+        </Flex>
+      ) : !isConnected ? (
+        <Alert
+          status="info"
+          borderRadius="2xl"
+          w={{ base: "full", md: "95%" }}
+          maxW="1200px"
+          flexDirection={{ base: "column", md: "row" }}
+          alignItems={{ base: "stretch", md: "center" }}
+          gap={{ base: 3, md: 4 }}
+        >
+          <Flex
+            flex="1"
+            direction={{ base: "column", md: "row" }}
+            align={{ base: "stretch", md: "center" }}
+            justify="space-between"
+            gap={4}
+          >
+            <Flex align="center" gap={2}>
+              <AlertIcon m={0} />
+              <Text>Connect your Freighter wallet to view your positions.</Text>
+            </Flex>
+            <ConnectWalletButton
+              label="Connect Wallet"
+              position="static"
+              bottom="auto"
+              right="auto"
+              left="auto"
+              w={{ base: "full", md: "auto" }}
+            />
+          </Flex>
+        </Alert>
+      ) : !hasPositions ? (
+        <Alert status="info" borderRadius="2xl" w={{ base: "full", md: "95%" }} maxW="1200px">
+          <AlertIcon />
+          No active positions found for the connected wallet.
+        </Alert>
+      ) : (
+        <Flex direction="column" gap={3} w="full" maxW="1200px">
+          {myPositions.map((position) => (
+            <EarningRow key={position.id} position={position} />
+          ))}
+        </Flex>
+      )}
+
+      <DepositModal
+        farm={selectedFarm}
+        isOpen={isDepositOpen}
+        onClose={handleDepositClose}
       />
+      <UnlockModal />
     </Flex>
   );
 }
