@@ -3,6 +3,7 @@
 import { stellarNetwork } from "@/config";
 import { useStellarWallet } from "@/context/StellarWalletContext";
 import { useCountdown } from "@/hooks/useCountdown";
+import { formatCredits } from "@/lib/soroban";
 import { useFarmStore } from "@/store/farmStore";
 import {
   type FarmPosition,
@@ -109,7 +110,7 @@ export const EarningRow = memo(function EarningRow({
       <Text fontWeight="bold" w={{ base: "full", md: "auto" }}>
         {position.name}
       </Text>
-      <MetricColumn label="Earned" value={position.earned} />
+      <MetricColumn label="Earned" value={formatCredits(position.earned)} />
       <MetricColumn label="My Stake" value={position.stake} />
       <MetricColumn label="Daily Rate" value={position.dailyRate} />
       <MetricColumn
