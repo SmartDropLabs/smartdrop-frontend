@@ -19,6 +19,15 @@ import {
 } from "@chakra-ui/react";
 import { useStellarWallet } from "@/context/StellarWalletContext";
 import { useLeaderboard, PAGE_SIZE, type SortKey } from "@/hooks/useLeaderboard";
+import { useLiveAnnouncer } from "@/hooks/useLiveAnnouncer";
+import LiveRegion from "@/components/LiveRegion/LiveRegion";
+
+const LEADERBOARD_TABLE_ID = "leaderboard-table";
+
+const SORT_LABELS: Record<SortKey, string> = {
+  credits: "Credits",
+  stake: "Stake",
+};
 
 function truncate(addr: string): string {
   if (addr.length <= 12) return addr;
@@ -43,8 +52,21 @@ export default function LeaderboardPage() {
     refresh,
   } = useLeaderboard(publicKey);
 
+  // Matches the spinner-vs-table branch below: nothing to announce yet
+  // while the very first fetch is still in flight.
+  const isInitialLoad = isLoading && paged.length === 0;
+  const rangeStart = filteredCount === 0 ? 0 : (currentPage - 1) * PAGE_SIZE + 1;
+  const rangeEnd = Math.min(currentPage * PAGE_SIZE, filteredCount);
+  const announcementMessage = isInitialLoad
+    ? ""
+    : filteredCount === 0
+      ? "No results found."
+      : `Leaderboard updated, sorted by ${SORT_LABELS[sortKey]}, showing rank ${rangeStart}-${rangeEnd} of ${filteredCount.toLocaleString()}.`;
+  const announcement = useLiveAnnouncer(announcementMessage);
+
   return (
     <Flex direction="column" align="center" px={{ base: 6, md: 16 }} py={10}>
+      <LiveRegion message={announcement} />
       <Box w="100%" maxW="900px">
         <HStack spacing={2} mb={5}>
           <Box w="6px" h="6px" borderRadius="full" bg="app.accent" boxShadow="0 0 8px var(--chakra-colors-app-accent)" />
@@ -100,6 +122,8 @@ export default function LeaderboardPage() {
           <Select
             value={sortKey}
             onChange={(e) => setSortKey(e.target.value as SortKey)}
+            aria-controls={LEADERBOARD_TABLE_ID}
+            aria-label="Sort leaderboard by"
             borderRadius="2xl"
             borderColor="app.border"
             bg="app.surface"
@@ -156,13 +180,77 @@ export default function LeaderboardPage() {
             bg="app.surface"
             boxShadow="card"
           >
-            <Table variant="unstyled" size="sm">
+            <Table id={LEADERBOARD_TABLE_ID} variant="unstyled" size="sm">
               <Thead>
                 <Tr borderBottom="1px solid" borderColor="app.border">
                   <Th color="app.muted" fontWeight="medium" py={4} pl={5}>#</Th>
                   <Th color="app.muted" fontWeight="medium" py={4}>Address</Th>
-                  <Th color="app.muted" fontWeight="medium" py={4} isNumeric>Credits</Th>
-                  <Th color="app.muted" fontWeight="medium" py={4} isNumeric>Stake</Th>
+                  <Th
+                    color="app.muted"
+                    fontWeight="medium"
+                    py={4}
+                    px={0}
+                    isNumeric
+                    aria-sort={sortKey === "credits" ? "descending" : "none"}
+                  >
+                    <Button
+                      variant="unstyled"
+                      onClick={() => setSortKey("credits")}
+                      display="flex"
+                      alignItems="center"
+                      justifyContent="flex-end"
+                      gap={1}
+                      ml="auto"
+                      minW="auto"
+                      h="auto"
+                      color="inherit"
+                      fontWeight="inherit"
+                      fontSize="inherit"
+                      textTransform="inherit"
+                      _hover={{ color: "app.accent" }}
+                      _focusVisible={{
+                        outline: "2px solid",
+                        outlineColor: "app.accent",
+                        outlineOffset: "2px",
+                      }}
+                    >
+                      Credits
+                      {sortKey === "credits" && <Text as="span" fontSize="10px">▼</Text>}
+                    </Button>
+                  </Th>
+                  <Th
+                    color="app.muted"
+                    fontWeight="medium"
+                    py={4}
+                    px={0}
+                    isNumeric
+                    aria-sort={sortKey === "stake" ? "descending" : "none"}
+                  >
+                    <Button
+                      variant="unstyled"
+                      onClick={() => setSortKey("stake")}
+                      display="flex"
+                      alignItems="center"
+                      justifyContent="flex-end"
+                      gap={1}
+                      ml="auto"
+                      minW="auto"
+                      h="auto"
+                      color="inherit"
+                      fontWeight="inherit"
+                      fontSize="inherit"
+                      textTransform="inherit"
+                      _hover={{ color: "app.accent" }}
+                      _focusVisible={{
+                        outline: "2px solid",
+                        outlineColor: "app.accent",
+                        outlineOffset: "2px",
+                      }}
+                    >
+                      Stake
+                      {sortKey === "stake" && <Text as="span" fontSize="10px">▼</Text>}
+                    </Button>
+                  </Th>
                   <Th color="app.muted" fontWeight="medium" py={4} pr={5} isNumeric>Boost %</Th>
                 </Tr>
               </Thead>

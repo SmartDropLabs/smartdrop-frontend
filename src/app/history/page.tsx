@@ -20,6 +20,8 @@ import {
 } from "@chakra-ui/react";
 import { useStellarWallet } from "@/context/StellarWalletContext";
 import ConnectWalletButton from "@/components/ConnectWalletButton/ConnectWalletButton";
+import LiveRegion from "@/components/LiveRegion/LiveRegion";
+import { useLiveAnnouncer } from "@/hooks/useLiveAnnouncer";
 import {
   getUserTransactionHistory,
   stellarExpertTxUrl,
@@ -88,8 +90,19 @@ export default function HistoryPage() {
   const totalPages = Math.max(1, Math.ceil(entries.length / PAGE_SIZE));
   const paged = entries.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
+  const rangeStart = entries.length === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
+  const rangeEnd = Math.min(page * PAGE_SIZE, entries.length);
+  const announcementMessage =
+    !isConnected || isLoading
+      ? ""
+      : entries.length === 0
+        ? "No farming history found."
+        : `History updated, showing ${rangeStart}-${rangeEnd} of ${entries.length.toLocaleString()} transactions.`;
+  const announcement = useLiveAnnouncer(announcementMessage);
+
   return (
     <Flex direction="column" align="center" px={{ base: 6, md: 16 }} py={10} gap={2}>
+      <LiveRegion message={announcement} />
       <Box w="100%" maxW="1000px" mb={4}>
         <HStack spacing={2} mb={5}>
           <Box w="6px" h="6px" borderRadius="full" bg="app.accent" boxShadow="0 0 8px var(--chakra-colors-app-accent)" />

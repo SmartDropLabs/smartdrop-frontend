@@ -42,8 +42,6 @@ const nextConfig: NextConfig = {
     unoptimized: true,
   },
   ...(isStaticExport ? { output: "export" } : {}),
-  output: "export",
-  images: { unoptimized: true },
   devIndicators: false,
   ...(basePath ? { basePath, assetPrefix: basePath } : {}),
 };
