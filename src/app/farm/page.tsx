@@ -46,6 +46,7 @@ import {
   Text,
   useToast,
 } from "@chakra-ui/react";
+import { useOwnConnectButton } from "@/context/OwnConnectButtonContext";
 import { useQueryClient } from "@tanstack/react-query";
 import NextLink from "next/link";
 import { useEffect, useMemo, useState } from "react";
@@ -431,6 +432,15 @@ function DepositModal({
 export default function Farm() {
   const { publicKey, isConnected, isNetworkMismatch } = useStellarWallet();
   const toast = useToast();
+
+  // Signal to AppShell that this page renders its own inline Connect Wallet
+  // button inside the "My Earnings" section when the wallet is disconnected,
+  // so the global floating CTA is suppressed (Issue #69).
+  const signalOwnCTA = useOwnConnectButton();
+  useEffect(() => {
+    signalOwnCTA(!isConnected);
+    return () => signalOwnCTA(false);
+  }, [isConnected, signalOwnCTA]);
 
   const {
     data: pools,
