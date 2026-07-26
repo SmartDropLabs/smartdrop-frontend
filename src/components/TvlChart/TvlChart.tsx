@@ -82,6 +82,7 @@ export default function TvlChart({ poolId }: TvlChartProps) {
           tick={{ fontSize: 11, fill: "#A2A2A2" }}
           tickFormatter={(v: string) =>
             new Date(v).toLocaleDateString(undefined, {
+              timeZone: "UTC",
               month: "short",
               day: "numeric",
             })
@@ -111,6 +112,7 @@ export default function TvlChart({ poolId }: TvlChartProps) {
           }}
           labelFormatter={(label) =>
             new Date(String(label)).toLocaleDateString(undefined, {
+              timeZone: "UTC",
               weekday: "short",
               month: "short",
               day: "numeric",

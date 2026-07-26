@@ -1319,11 +1319,14 @@ export class SorobanService {
       const dailyMap = new Map<string, number>();
       let runningTvl = 0;
 
-      // Seed today and past N days so chart always has points
+      // Seed today and past N days using pure UTC date arithmetic
+      // (avoids local-timezone Date.setDate which produces keys that disagree
+      //  with the UTC dateKeys derived from ledgerClosedAt).
+      const dayMs = 86_400_000;
+      const todayUtcMidnight = Math.floor(Date.now() / dayMs) * dayMs;
       for (let i = days - 1; i >= 0; i--) {
-        const d = new Date();
-        d.setDate(d.getDate() - i);
-        dailyMap.set(d.toISOString().slice(0, 10), 0);
+        const key = new Date(todayUtcMidnight - i * dayMs).toISOString().slice(0, 10);
+        dailyMap.set(key, 0);
       }
 
       for (const evt of response.events) {
