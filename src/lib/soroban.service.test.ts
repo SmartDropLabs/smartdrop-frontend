@@ -1462,6 +1462,263 @@ describe("SorobanService leaderboard", () => {
 
     await expect(service.getCreditVelocity(12)).resolves.toBe("0");
   });
+
+  describe("getUserRank", () => {
+    type LeaderboardInternals = {
+      fetchUserRankFromEvents: (
+        address: string,
+        sortKey: "credits" | "stake",
+      ) => Promise<number | null>;
+      fetchUserRankFromApi: (
+        address: string,
+        sortKey: "credits" | "stake",
+      ) => Promise<number | null>;
+      rpcServer: MockRpcServer;
+    };
+
+    function internals(service: SorobanService) {
+      return service as unknown as LeaderboardInternals;
+    }
+
+    it("returns null for empty address", async () => {
+      const { service } = makeService({ pool: false });
+
+      await expect(service.getUserRank("", "credits")).resolves.toBeNull();
+    });
+
+    it("uses API path when LEADERBOARD_API_URL is set and returns the rank", async () => {
+      const previousApi = process.env.NEXT_PUBLIC_LEADERBOARD_API_URL;
+      process.env.NEXT_PUBLIC_LEADERBOARD_API_URL =
+        "https://leaderboard.example/rankings";
+      vi.resetModules();
+      const { SorobanService: ApiSorobanService } = await import("./soroban");
+      const service = new ApiSorobanService();
+      const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue({
+        ok: true,
+        json: async () => ({ rank: 42 }),
+      } as Response);
+
+      try {
+        await expect(
+          service.getUserRank(USER_PUBLIC_KEY, "credits"),
+        ).resolves.toBe(42);
+        expect(fetchSpy).toHaveBeenCalledWith(
+          "https://leaderboard.example/rankings/rank?address=" +
+            encodeURIComponent(USER_PUBLIC_KEY) +
+            "&sort=credits",
+          { headers: { accept: "application/json" } },
+        );
+      } finally {
+        if (previousApi === undefined)
+          delete process.env.NEXT_PUBLIC_LEADERBOARD_API_URL;
+        else process.env.NEXT_PUBLIC_LEADERBOARD_API_URL = previousApi;
+        vi.resetModules();
+      }
+    });
+
+    it("API path returns null when rank is null in response", async () => {
+      const previousApi = process.env.NEXT_PUBLIC_LEADERBOARD_API_URL;
+      process.env.NEXT_PUBLIC_LEADERBOARD_API_URL =
+        "https://leaderboard.example/rankings";
+      vi.resetModules();
+      const { SorobanService: ApiSorobanService } = await import("./soroban");
+      const service = new ApiSorobanService();
+      vi.spyOn(globalThis, "fetch").mockResolvedValue({
+        ok: true,
+        json: async () => ({ rank: null }),
+      } as Response);
+
+      try {
+        await expect(
+          service.getUserRank(USER_PUBLIC_KEY, "stake"),
+        ).resolves.toBeNull();
+      } finally {
+        if (previousApi === undefined)
+          delete process.env.NEXT_PUBLIC_LEADERBOARD_API_URL;
+        else process.env.NEXT_PUBLIC_LEADERBOARD_API_URL = previousApi;
+        vi.resetModules();
+      }
+    });
+
+    it("API path falls back to events when API responds non-OK", async () => {
+      const previousApi = process.env.NEXT_PUBLIC_LEADERBOARD_API_URL;
+      process.env.NEXT_PUBLIC_LEADERBOARD_API_URL =
+        "https://leaderboard.example/rankings";
+      vi.resetModules();
+      const { SorobanService: ApiSorobanService } = await import("./soroban");
+      const service = new ApiSorobanService();
+      vi.spyOn(globalThis, "fetch").mockResolvedValue({
+        ok: false,
+        status: 503,
+      } as Response);
+      const rpcServer = makeMockRpcServer({
+        getLatestLedger: vi.fn().mockResolvedValue({ sequence: 200_000 }),
+        getEvents: vi.fn().mockResolvedValue({
+          events: [
+            makeContractEvent({
+              action: "lock_assets",
+              address: USER_PUBLIC_KEY,
+              value: { amount: 250_000_000n },
+            }),
+          ],
+        }),
+      });
+      internals(service as SorobanService).rpcServer = rpcServer;
+      vi.spyOn(console, "warn").mockImplementation(() => undefined);
+      vi.spyOn(service, "getFactoryPools").mockResolvedValue([
+        {
+          id: "factory-pool",
+          contractAddress: POOL_CONTRACT_ID,
+          asset: { code: "XLM", isNative: true },
+          dailyRate: "0",
+          minLockPeriod: 0,
+          totalLocked: "0",
+          totalUsers: 0,
+          isActive: true,
+          createdAt: 1,
+        },
+      ]);
+
+      try {
+        await expect(
+          service.getUserRank(USER_PUBLIC_KEY, "credits"),
+        ).resolves.toBe(1);
+      } finally {
+        if (previousApi === undefined)
+          delete process.env.NEXT_PUBLIC_LEADERBOARD_API_URL;
+        else process.env.NEXT_PUBLIC_LEADERBOARD_API_URL = previousApi;
+        vi.resetModules();
+      }
+    });
+
+    it("events path returns correct rank when user is on a different page", async () => {
+      const otherUser = StrKey.encodeEd25519PublicKey(Buffer.alloc(32, 8));
+      const thirdUser = StrKey.encodeEd25519PublicKey(Buffer.alloc(32, 9));
+      const { service, rpcServer } = makeService({ pool: false });
+      vi.spyOn(service, "getFactoryPools").mockResolvedValue([
+        {
+          id: "factory-pool",
+          contractAddress: POOL_CONTRACT_ID,
+          asset: { code: "XLM", isNative: true },
+          dailyRate: "0",
+          minLockPeriod: 0,
+          totalLocked: "0",
+          totalUsers: 0,
+          isActive: true,
+          createdAt: 1,
+        },
+      ]);
+      rpcServer.getLatestLedger.mockResolvedValue({ sequence: 200_000 });
+      rpcServer.getEvents.mockResolvedValue({
+        events: [
+          // user1 (otherUser) — rank #1 by credits (120 credits)
+          makeContractEvent({
+            action: "lock_assets",
+            address: otherUser,
+            value: { amount: 100_000_000n },
+          }),
+          makeContractEvent({
+            action: "update_credits",
+            address: otherUser,
+            value: { credits: 120 },
+          }),
+          // user2 (USER_PUBLIC_KEY) — rank #2 by credits (80 credits)
+          makeContractEvent({
+            action: "lock_assets",
+            address: USER_PUBLIC_KEY,
+            value: { amount: 300_000_000n },
+          }),
+          makeContractEvent({
+            action: "update_credits",
+            address: USER_PUBLIC_KEY,
+            value: { credits: 80 },
+          }),
+          // user3 (thirdUser) — rank #3 by credits (50 credits)
+          makeContractEvent({
+            action: "update_credits",
+            address: thirdUser,
+            value: { credits: 50 },
+          }),
+          makeContractEvent({
+            action: "lock_assets",
+            address: thirdUser,
+            value: { amount: 50_000_000n },
+          }),
+        ],
+      });
+
+      // USER_PUBLIC_KEY has 80 credits → rank #2 by credits
+      await expect(
+        service.getUserRank(USER_PUBLIC_KEY, "credits"),
+      ).resolves.toBe(2);
+
+      // otherUser has 120 credits → rank #1 by credits
+      await expect(
+        service.getUserRank(otherUser, "credits"),
+      ).resolves.toBe(1);
+
+      // thirdUser has 50 credits → rank #3 by credits
+      await expect(
+        service.getUserRank(thirdUser, "credits"),
+      ).resolves.toBe(3);
+    });
+
+    it("events path returns null when user has no on-chain activity", async () => {
+      const noHistoryUser = StrKey.encodeEd25519PublicKey(Buffer.alloc(32, 10));
+      const { service, rpcServer } = makeService({ pool: false });
+      vi.spyOn(service, "getFactoryPools").mockResolvedValue([
+        {
+          id: "factory-pool",
+          contractAddress: POOL_CONTRACT_ID,
+          asset: { code: "XLM", isNative: true },
+          dailyRate: "0",
+          minLockPeriod: 0,
+          totalLocked: "0",
+          totalUsers: 0,
+          isActive: true,
+          createdAt: 1,
+        },
+      ]);
+      rpcServer.getLatestLedger.mockResolvedValue({ sequence: 200_000 });
+      rpcServer.getEvents.mockResolvedValue({ events: [] });
+
+      await expect(
+        service.getUserRank(noHistoryUser, "credits"),
+      ).resolves.toBeNull();
+    });
+
+    it("events path returns null when RPC errors", async () => {
+      const warnSpy = vi
+        .spyOn(console, "warn")
+        .mockImplementation(() => undefined);
+      const { service, rpcServer } = makeService({ pool: false });
+      vi.spyOn(service, "getFactoryPools").mockResolvedValue([
+        {
+          id: "factory-pool",
+          contractAddress: POOL_CONTRACT_ID,
+          asset: { code: "XLM", isNative: true },
+          dailyRate: "0",
+          minLockPeriod: 0,
+          totalLocked: "0",
+          totalUsers: 0,
+          isActive: true,
+          createdAt: 1,
+        },
+      ]);
+      rpcServer.getLatestLedger.mockRejectedValue(
+        new Error("RPC unavailable"),
+      );
+
+      await expect(
+        service.getUserRank(USER_PUBLIC_KEY, "stake"),
+      ).resolves.toBeNull();
+
+      expect(warnSpy).toHaveBeenCalledWith(
+        "[SmartDrop] rank-from-events failed:",
+        expect.any(Error),
+      );
+    });
+  });
 });
 
 describe("soroban exported utilities and transaction history", () => {

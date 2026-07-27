@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { sorobanService } from "@/lib/soroban";
 
 export type SortKey = "credits" | "stake";
@@ -22,6 +22,13 @@ export function fetchLeaderboard(
   return sorobanService.getLeaderboard(offset, limit, sortKey);
 }
 
+export function fetchUserRank(
+  address: string,
+  sortKey: SortKey
+): Promise<number | null> {
+  return sorobanService.getUserRank(address, sortKey);
+}
+
 export function useLeaderboard(publicKey: string | null) {
   const [entries, setEntries] = useState<LeaderboardEntry[]>([]);
   const [total, setTotal] = useState(0);
@@ -31,6 +38,13 @@ export function useLeaderboard(publicKey: string | null) {
   const [searchQuery, setSearchQuery] = useState("");
   const [page, setPageState] = useState(1);
   const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null);
+
+  // Separate state for the user's global rank (independent of pagination)
+  const [userRank, setUserRank] = useState<number | null>(null);
+  const [userRankLoading, setUserRankLoading] = useState(false);
+
+  // Generation counter to guard against stale async responses (race condition #79)
+  const fetchGenerationRef = useRef(0);
 
   useEffect(() => {
     const id = setTimeout(() => setSearchQuery(searchInput), SEARCH_DEBOUNCE_MS);
@@ -42,25 +56,63 @@ export function useLeaderboard(publicKey: string | null) {
   const offset = (currentPage - 1) * PAGE_SIZE;
 
   const refresh = useCallback(() => {
+    const generation = ++fetchGenerationRef.current;
+
     setIsLoading(true);
     fetchLeaderboard(offset, PAGE_SIZE, sortKey)
       .then(({ entries, total }) => {
+        // Guard: ignore stale responses
+        if (generation !== fetchGenerationRef.current) return;
         setEntries(entries);
         setTotal(total);
         setLastRefreshed(new Date());
       })
       .catch(() => {
+        if (generation !== fetchGenerationRef.current) return;
         setEntries([]);
         setTotal(0);
       })
-      .finally(() => setIsLoading(false));
+      .finally(() => {
+        if (generation !== fetchGenerationRef.current) return;
+        setIsLoading(false);
+      });
   }, [offset, sortKey]);
+
+  // Fetch the user's global rank independently of pagination
+  const refreshRank = useCallback(() => {
+    if (!publicKey) {
+      setUserRank(null);
+      setUserRankLoading(false);
+      return;
+    }
+
+    const generation = ++fetchGenerationRef.current;
+    setUserRankLoading(true);
+
+    fetchUserRank(publicKey, sortKey)
+      .then((rank) => {
+        if (generation !== fetchGenerationRef.current) return;
+        setUserRank(rank != null ? rank : null);
+      })
+      .catch(() => {
+        if (generation !== fetchGenerationRef.current) return;
+        setUserRank(null);
+      })
+      .finally(() => {
+        if (generation !== fetchGenerationRef.current) return;
+        setUserRankLoading(false);
+      });
+  }, [publicKey, sortKey]);
 
   useEffect(() => {
     refresh();
-    const id = setInterval(refresh, REFRESH_MS);
+    refreshRank();
+    const id = setInterval(() => {
+      refresh();
+      refreshRank();
+    }, REFRESH_MS);
     return () => clearInterval(id);
-  }, [refresh]);
+  }, [refresh, refreshRank]);
 
   const paged = searchQuery
     ? entries.filter((e) =>
@@ -68,6 +120,7 @@ export function useLeaderboard(publicKey: string | null) {
       )
     : entries;
 
+  // Page-local rank for highlighting the user's row in the table
   const connectedRank = (() => {
     if (!publicKey) return 0;
     const idx = entries.findIndex((e) => e.address === publicKey);
@@ -90,6 +143,8 @@ export function useLeaderboard(publicKey: string | null) {
     totalPages,
     setPage: setPageState,
     connectedRank,
+    userRank,
+    userRankLoading,
     filteredCount: searchQuery ? paged.length : total,
     lastRefreshed,
     refresh,

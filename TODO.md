@@ -1,12 +1,10 @@
-# TVL History UTC Timezone Fix — Issue #77
+# Leaderboard Global Rank Fix — TODO
 
-## Implementation Steps
-
-- [x] Step 1: Fix `getPoolHistory` seeding loop in `src/lib/soroban.ts` — replace local-timezone Date arithmetic with UTC millisecond arithmetic
-- [x] Step 2: Fix `TvlChart.tsx` formatters — add explicit `timeZone: 'UTC'` to `toLocaleDateString` calls
-- [x] Step 3: Update existing test expectations in `soroban.service.test.ts`
-- [ ] Step 4: Add comprehensive timezone regression tests in `soroban.service.test.ts`
-  - [ ] Test with mocked `America/Los_Angeles` timezone at 8 PM local (UTC next day)
-  - [ ] Test verifying events at exact UTC day boundaries are not dropped
-  - [ ] Test verifying TvlChart formatters use UTC
+- [x] Plan approved by user
+- [x] Step 1: Add `getUserRank()` to `SorobanService` in `src/lib/soroban.ts`
+- [x] Step 2: Update `useLeaderboard.ts` hook with async rank lookup + race condition guard
+- [x] Step 3: Update `src/app/leaderboard/page.tsx` to use new `userRank` for banner
+- [x] Step 4: Add tests for `getUserRank` in `src/lib/soroban.service.test.ts`
+- [x] Step 5: Create `src/hooks/useLeaderboard.test.ts` for hook tests
+- [ ] Step 6: Run tests and verify everything passes
 
