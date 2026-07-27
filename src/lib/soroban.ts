@@ -1319,11 +1319,14 @@ export class SorobanService {
       const dailyMap = new Map<string, number>();
       let runningTvl = 0;
 
-      // Seed today and past N days so chart always has points
+      // Seed today and past N days using pure UTC date arithmetic
+      // (avoids local-timezone Date.setDate which produces keys that disagree
+      //  with the UTC dateKeys derived from ledgerClosedAt).
+      const dayMs = 86_400_000;
+      const todayUtcMidnight = Math.floor(Date.now() / dayMs) * dayMs;
       for (let i = days - 1; i >= 0; i--) {
-        const d = new Date();
-        d.setDate(d.getDate() - i);
-        dailyMap.set(d.toISOString().slice(0, 10), 0);
+        const key = new Date(todayUtcMidnight - i * dayMs).toISOString().slice(0, 10);
+        dailyMap.set(key, 0);
       }
 
       for (const evt of response.events) {
@@ -1436,6 +1439,124 @@ export class SorobanService {
       }
     }
     return this.fetchLeaderboardFromEvents(offset, limit, sortKey);
+  }
+
+  /**
+   * Resolve the connected user's global rank (1-indexed) independent of pagination.
+   *
+   * Returns the 1-based rank if the address has any on-chain activity, or null
+   * if the address has never participated (no rank at all).
+   *
+   * Prefers the backend indexer when LEADERBOARD_API_URL is configured;
+   * otherwise computes the rank by scanning all relevant on-chain events.
+   */
+  async getUserRank(
+    address: string,
+    sortKey: LeaderboardSortKey = 'credits',
+  ): Promise<number | null> {
+    if (!address) return null;
+
+    if (LEADERBOARD_API_URL) {
+      try {
+        return await this.fetchUserRankFromApi(address, sortKey);
+      } catch (err) {
+        console.warn('[SmartDrop] rank API failed, falling back to event scan:', err);
+      }
+    }
+
+    return this.fetchUserRankFromEvents(address, sortKey);
+  }
+
+  private async fetchUserRankFromApi(
+    address: string,
+    sortKey: LeaderboardSortKey,
+  ): Promise<number | null> {
+    const url = new URL(LEADERBOARD_API_URL.replace(/\/+$/, '') + '/rank');
+    url.searchParams.set('address', address);
+    url.searchParams.set('sort', sortKey);
+
+    const res = await fetch(url.toString(), { headers: { accept: 'application/json' } });
+    if (!res.ok) throw new Error(`Rank API responded ${res.status}`);
+
+    const data = (await res.json()) as { rank?: number | null };
+    return data.rank != null ? Number(data.rank) : null;
+  }
+
+  private async fetchUserRankFromEvents(
+    address: string,
+    sortKey: LeaderboardSortKey,
+  ): Promise<number | null> {
+    const poolIds = await this.getLeaderboardPoolIds();
+    if (poolIds.length === 0) return null;
+
+    try {
+      const latest = await this.rpcServer.getLatestLedger();
+      const startLedger = Math.max(1, latest.sequence - LEADERBOARD_LOOKBACK_LEDGERS);
+
+      const lockSym = xdr.ScVal.scvSymbol('lock_assets').toXDR('base64');
+      const unlockSym = xdr.ScVal.scvSymbol('unlock_assets').toXDR('base64');
+      const creditSym = xdr.ScVal.scvSymbol('update_credits').toXDR('base64');
+
+      const response = await this.rpcServer.getEvents({
+        startLedger,
+        filters: [
+          {
+            type: 'contract',
+            contractIds: poolIds,
+            topics: [[lockSym, '*'], [unlockSym, '*'], [creditSym, '*']],
+          },
+        ],
+        limit: 1000,
+      });
+
+      const agg = new Map<string, { stake: number; credits: number }>();
+      const rowFor = (addr: string) => {
+        let row = agg.get(addr);
+        if (!row) {
+          row = { stake: 0, credits: 0 };
+          agg.set(addr, row);
+        }
+        return row;
+      };
+
+      for (const evt of response.events) {
+        if (!evt.inSuccessfulContractCall) continue;
+        const topics = (evt.topic as xdr.ScVal[]).map(scValToNative);
+        const action = topics[0] as string;
+        const addr = String(topics[1] ?? '');
+        if (!addr) continue;
+
+        const valueNative = scValToNative(evt.value as xdr.ScVal);
+        const amount = this.extractEventAmount(valueNative);
+        const row = rowFor(addr);
+
+        if (action === 'lock_assets') row.stake += amount / 10_000_000;
+        else if (action === 'unlock_assets') row.stake = Math.max(0, row.stake - amount / 10_000_000);
+        else if (action === 'update_credits') row.credits = amount;
+      }
+
+      // Build full sorted list
+      const all = Array.from(agg.entries())
+        .filter(([addr]) => addr.length > 0)
+        .map(([addr, { stake, credits }]) => ({
+          address: addr,
+          totalCredits: Math.round(credits),
+          totalStake: Math.round(stake),
+        }))
+        .filter((e) => e.totalStake > 0 || e.totalCredits > 0);
+
+      all.sort((a, b) =>
+        sortKey === 'credits'
+          ? b.totalCredits - a.totalCredits
+          : b.totalStake - a.totalStake,
+      );
+
+      const idx = all.findIndex((e) => e.address === address);
+      return idx === -1 ? null : idx + 1;
+    } catch (err) {
+      console.warn('[SmartDrop] rank-from-events failed:', err);
+      return null;
+    }
   }
 
   private async fetchLeaderboardFromApi(

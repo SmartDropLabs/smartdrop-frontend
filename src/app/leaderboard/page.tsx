@@ -47,6 +47,8 @@ export default function LeaderboardPage() {
     totalPages,
     setPage,
     connectedRank,
+    userRank,
+    userRankLoading,
     filteredCount,
     lastRefreshed,
     refresh,
@@ -84,9 +86,13 @@ export default function LeaderboardPage() {
         >
           Leaderboard
         </Text>
-        {connectedRank > 0 ? (
+        {userRank != null && userRank > 0 ? (
           <Text color="app.accent" fontSize="lg" fontWeight="semibold">
-            You are rank {connectedRank} of {filteredCount} farmers.
+            You are rank {userRank} of {filteredCount} farmers.
+          </Text>
+        ) : userRankLoading ? (
+          <Text color="app.muted" fontSize="lg" fontStyle="italic">
+            Looking up your rank…
           </Text>
         ) : (
           <Text color="app.muted" fontSize="lg">
