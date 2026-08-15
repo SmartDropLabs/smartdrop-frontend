@@ -52,7 +52,7 @@ export interface LeaderboardRow {
   address: string;
   totalCredits: number;
   totalStake: number;
-  boostUtilization: number;
+  boostUtilization: number | null;
 }
 
 export interface LeaderboardPage {
@@ -1459,7 +1459,7 @@ export class SorobanService {
       address: String(e.address ?? ''),
       totalCredits: Number(e.totalCredits ?? 0),
       totalStake: Number(e.totalStake ?? 0),
-      boostUtilization: Number(e.boostUtilization ?? 0),
+      boostUtilization: e.boostUtilization != null ? Number(e.boostUtilization) : null,
     }));
     return { entries, total: Number(data.total ?? entries.length) };
   }
@@ -1523,7 +1523,7 @@ export class SorobanService {
           address,
           totalCredits: Math.round(credits),
           totalStake: Math.round(stake),
-          boostUtilization: 0,
+          boostUtilization: null,
         }))
         .filter((e) => e.totalStake > 0 || e.totalCredits > 0);
 
