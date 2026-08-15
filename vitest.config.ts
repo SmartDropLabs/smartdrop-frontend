@@ -11,6 +11,7 @@ export default defineConfig({
     environmentMatchGlobs: [
       ['src/hooks/**', 'jsdom'],
       ['src/lib/**', 'node'],
+      ['src/app/api/**', 'node'],
     ],
     environment: 'jsdom',
   },
