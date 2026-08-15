@@ -21,6 +21,7 @@ import { useStellarWallet } from "@/context/StellarWalletContext";
 import { useLeaderboard, PAGE_SIZE, type SortKey } from "@/hooks/useLeaderboard";
 import { useLiveAnnouncer } from "@/hooks/useLiveAnnouncer";
 import LiveRegion from "@/components/LiveRegion/LiveRegion";
+import Pagination from "@/components/Pagination/Pagination";
 
 const LEADERBOARD_TABLE_ID = "leaderboard-table";
 
@@ -315,52 +316,11 @@ export default function LeaderboardPage() {
             </Table>
           </TableContainer>
 
-          <Flex gap={2} mt={6} align="center" wrap="wrap" justify="center">
-            <Button
-              size="sm"
-              borderRadius="2xl"
-              variant="outline"
-              borderColor="app.border"
-              color="app.text"
-              isDisabled={currentPage === 1}
-              onClick={() => setPage((p) => p - 1)}
-              _hover={{ borderColor: "app.accent", color: "app.accent" }}
-            >
-              Prev
-            </Button>
-
-            {Array.from({ length: totalPages }, (_, i) => i + 1).map((p) => (
-              <Button
-                key={p}
-                size="sm"
-                borderRadius="2xl"
-                variant={p === currentPage ? "solid" : "outline"}
-                bg={p === currentPage ? "app.accent" : undefined}
-                color={p === currentPage ? "app.onAccent" : "app.text"}
-                borderColor="app.border"
-                onClick={() => setPage(p)}
-                _hover={{
-                  borderColor: "app.accent",
-                  color: p === currentPage ? "app.onAccent" : "app.accent",
-                }}
-              >
-                {p}
-              </Button>
-            ))}
-
-            <Button
-              size="sm"
-              borderRadius="2xl"
-              variant="outline"
-              borderColor="app.border"
-              color="app.text"
-              isDisabled={currentPage === totalPages}
-              onClick={() => setPage((p) => p + 1)}
-              _hover={{ borderColor: "app.accent", color: "app.accent" }}
-            >
-              Next
-            </Button>
-          </Flex>
+          <Pagination
+            currentPage={currentPage}
+            totalPages={totalPages}
+            onPageChange={setPage}
+          />
 
           {lastRefreshed && (
             <Text fontSize="xs" color="app.muted" mt={4} mb={8}>
