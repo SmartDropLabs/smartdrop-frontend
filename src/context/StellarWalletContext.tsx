@@ -122,6 +122,49 @@ export function StellarWalletProvider({ children }: { children: ReactNode }) {
     [],
   );
 
+  useEffect(() => {
+    let cancelled = false;
+
+    const restoreSession = async () => {
+      try {
+        const freighter = await import("@stellar/freighter-api");
+        const deadlineMs = Date.now() + FREIGHTER_CONNECT_TIMEOUT_MS;
+
+        const connected = await withFreighterConnectTimeout(
+          freighter.isConnected(),
+          deadlineMs,
+        );
+        if (cancelled || !connected.isConnected || connected.error) return;
+
+        const allowed = await withFreighterConnectTimeout(
+          freighter.isAllowed(),
+          deadlineMs,
+        );
+        if (cancelled || !allowed.isAllowed || allowed.error) return;
+
+        const addr = await withFreighterConnectTimeout(
+          freighter.getAddress(),
+          deadlineMs,
+        );
+        if (cancelled || addr.error || !addr.address) return;
+
+        await refreshNetworkDetails(freighter, deadlineMs);
+        if (cancelled) return;
+
+        setPublicKey(addr.address);
+        setWalletApi(freighter as unknown as FreighterWalletApi);
+      } catch {
+        // Silently stay disconnected if Freighter is uninstalled, unauthorized, or timed out
+      }
+    };
+
+    void restoreSession();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [refreshNetworkDetails]);
+
   const connect = useCallback(async () => {
     const freighter = await import("@stellar/freighter-api");
     const signingApi = freighter as unknown as FreighterWalletApi;
