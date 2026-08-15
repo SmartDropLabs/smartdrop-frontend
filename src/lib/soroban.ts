@@ -325,8 +325,17 @@ type PollTransactionResult = {
   errorCode?: string;
 };
 
-const CONTRACT_ERROR_MESSAGES: Record<string, string> = {
+export const CONTRACT_ERROR_MESSAGES: Record<string, string> = {
   '1': 'Assets are still locked',
+  '2': 'Insufficient balance for this operation',
+  '3': 'Pool is not active or closed',
+  '4': 'Deposit amount is below minimum pool requirement',
+  '5': 'Unauthorized caller for this action',
+  '6': 'Position does not exist',
+  '7': 'Invalid lock duration specified',
+  '8': 'Boost percentage is out of allowed range',
+  '9': 'Max pool capacity exceeded',
+  '10': 'Emergency pause active for this contract',
 };
 
 function sleep(ms: number): Promise<void> {
@@ -465,7 +474,12 @@ function extractContractErrorCode(tx: unknown, resultXdr?: string): string | und
 
 export function getContractErrorMessage(errorCode?: string): string | undefined {
   const normalized = normalizeContractErrorCode(errorCode);
-  return normalized ? CONTRACT_ERROR_MESSAGES[normalized] : undefined;
+  if (!normalized) return undefined;
+  const message = CONTRACT_ERROR_MESSAGES[normalized];
+  if (!message) {
+    console.warn('[SmartDrop] Unmapped contract error code:', normalized);
+  }
+  return message;
 }
 
 // ── Transaction signing safety ───────────────────────────────────────────────
@@ -987,7 +1001,7 @@ export class SorobanService {
             confirmation.status === 'TIMEOUT'
               ? 'Transaction confirmation is taking longer than expected.'
               : getContractErrorMessage(confirmation.errorCode) ??
-                `Transaction ${submissionResult.hash} failed on-chain`,
+                `Transaction ${submissionResult.hash} failed on-chain${confirmation.errorCode ? ` (code ${confirmation.errorCode})` : ''}`,
         };
       }
 
@@ -1128,7 +1142,7 @@ export class SorobanService {
             confirmation.status === 'TIMEOUT'
               ? 'Transaction confirmation is taking longer than expected.'
               : getContractErrorMessage(confirmation.errorCode) ??
-                `Transaction ${submissionResult.hash} failed on-chain`,
+                `Transaction ${submissionResult.hash} failed on-chain${confirmation.errorCode ? ` (code ${confirmation.errorCode})` : ''}`,
         };
       }
 
