@@ -21,10 +21,8 @@ function ContextProvider({ children }: { children: ReactNode }) {
   });
 
   useEffect(() => {
-    if (
-      typeof window !== 'undefined' &&
-      (process.env.NODE_ENV !== 'production' || process.env.NEXT_PUBLIC_E2E === 'true')
-    ) {
+    // Only expose __queryClient in isolated E2E test runs with NEXT_PUBLIC_E2E enabled
+    if (typeof window !== 'undefined' && process.env.NEXT_PUBLIC_E2E === 'true') {
       window.__queryClient = queryClient;
     }
   }, [queryClient]);

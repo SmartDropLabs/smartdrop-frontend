@@ -23,6 +23,19 @@ import {
 } from "@/lib/backend";
 import { QueryErrorAlert } from "@/components/QueryErrorAlert/QueryErrorAlert";
 
+/**
+ * Derives a deterministic, display-safe cache key fingerprint from the API key
+ * so raw secrets are never embedded in TanStack Query keys or exposed via query cache.
+ */
+function getApiKeyFingerprint(key: string): string {
+  if (!key) return "";
+  let hash = 5381;
+  for (let i = 0; i < key.length; i++) {
+    hash = ((hash << 5) + hash) ^ key.charCodeAt(i);
+  }
+  return `key_${(hash >>> 0).toString(16)}`;
+}
+
 export default function AlertsPage() {
   const toast = useToast();
   const queryClient = useQueryClient();
@@ -34,9 +47,10 @@ export default function AlertsPage() {
   const [webhookSecret, setWebhookSecret] = useState("");
 
   const hasKey = apiKey.trim().length > 0;
+  const keyFingerprint = getApiKeyFingerprint(apiKey);
 
   const { data, isLoading, isError, error, isFetching, refetch } = useQuery({
-    queryKey: ["alerts", apiKey],
+    queryKey: ["alerts", keyFingerprint],
     queryFn: () => listAlerts(apiKey),
     enabled: hasKey,
     ...backendQueryRetry,
@@ -57,7 +71,7 @@ export default function AlertsPage() {
       setThresholdUsd("");
       setWebhookUrl("");
       setWebhookSecret("");
-      queryClient.invalidateQueries({ queryKey: ["alerts", apiKey] });
+      queryClient.invalidateQueries({ queryKey: ["alerts", keyFingerprint] });
     },
     onError: (err) =>
       toast({
@@ -70,7 +84,7 @@ export default function AlertsPage() {
 
   const deleteMutation = useMutation({
     mutationFn: (id: string) => deleteAlert(apiKey, id),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["alerts", apiKey] }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["alerts", keyFingerprint] }),
   });
 
   const handleSubmit = (e: React.FormEvent) => {

@@ -101,4 +101,36 @@ describe("AlertsPage retry affordance (#96)", () => {
     expect(listAlertsMock).toHaveBeenCalledTimes(2);
     expect(reloadSpy).not.toHaveBeenCalled();
   });
+
+  it("does NOT expose the raw API key secret in TanStack Query keys (#126)", async () => {
+    listAlertsMock.mockResolvedValueOnce(successData);
+
+    const testQueryClient = new QueryClient();
+    render(
+      <ChakraProvider>
+        <QueryClientProvider client={testQueryClient}>
+          <AlertsPage />
+        </QueryClientProvider>
+      </ChakraProvider>,
+    );
+
+    const secretKey = "super_secret_raw_api_key_xyz987";
+    enterApiKey(secretKey);
+
+    await waitFor(() => {
+      expect(listAlertsMock).toHaveBeenCalledWith(secretKey);
+    });
+
+    const cachedQueries = testQueryClient.getQueryCache().getAll();
+    expect(cachedQueries.length).toBeGreaterThan(0);
+
+    for (const query of cachedQueries) {
+      const serializedKey = JSON.stringify(query.queryKey);
+      expect(serializedKey).not.toContain(secretKey);
+      expect(query.queryKey[0]).toBe("alerts");
+      if (query.queryKey[1]) {
+        expect(query.queryKey[1]).toMatch(/^key_[0-9a-f]+$/);
+      }
+    }
+  });
 });
