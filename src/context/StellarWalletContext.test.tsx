@@ -33,8 +33,9 @@ describe("StellarWalletContext visibilitychange network refresh (#140)", () => {
   it("updates network details promptly when tab becomes visible and freighter responds", async () => {
     vi.mocked(freighterApi.getNetworkDetails).mockResolvedValue({
       network: "TESTNET",
+      networkUrl: "",
       networkPassphrase: "Test SDF Network ; September 2015",
-    } as any);
+    });
 
     const { result } = renderHook(() => useStellarWallet(), { wrapper });
 
@@ -48,8 +49,9 @@ describe("StellarWalletContext visibilitychange network refresh (#140)", () => {
     // Simulate tab becoming visible with new network details
     vi.mocked(freighterApi.getNetworkDetails).mockResolvedValueOnce({
       network: "PUBLIC",
+      networkUrl: "",
       networkPassphrase: "Public Global Stellar Network ; September 2015",
-    } as any);
+    });
 
     await act(async () => {
       Object.defineProperty(document, "visibilityState", {
@@ -66,8 +68,9 @@ describe("StellarWalletContext visibilitychange network refresh (#140)", () => {
     vi.useFakeTimers();
     vi.mocked(freighterApi.getNetworkDetails).mockResolvedValueOnce({
       network: "TESTNET",
+      networkUrl: "",
       networkPassphrase: "Test SDF Network ; September 2015",
-    } as any);
+    });
 
     const { result } = renderHook(() => useStellarWallet(), { wrapper });
 
