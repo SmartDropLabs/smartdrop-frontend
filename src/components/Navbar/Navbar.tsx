@@ -8,6 +8,7 @@ import {
 } from "@chakra-ui/react";
 import { ChevronDownIcon } from "@chakra-ui/icons";
 import { useStellarWallet } from "@/context/StellarWalletContext";
+import { usePlatformStats } from "@/hooks/useSorobanQuery";
 import NextLink from "next/link";
 import { usePathname } from "next/navigation";
 import ThemeToggle from "@/components/ThemeToggle/ThemeToggle";
@@ -102,6 +103,7 @@ function StatPill({ label, value, pulse = false }: { label: string; value: strin
 
 export default function Navbar() {
   const { isConnected, publicKey } = useStellarWallet();
+  const { data: stats } = usePlatformStats();
 
   return (
     <nav
@@ -133,9 +135,20 @@ export default function Navbar() {
             <StatPill label="Wallet" value={shortenStellarAddress(publicKey)} />
           ) : (
             <>
-              <StatPill label="Online" value="213" pulse />
-              <StatPill label="Users" value="30,738" />
-              <StatPill label="TVL" value="$302M" />
+              <StatPill
+                label="Users"
+                value={
+                  stats?.totalUsers !== undefined
+                    ? stats.totalUsers.toLocaleString()
+                    : stats?.totalFarmers !== undefined
+                      ? stats.totalFarmers.toLocaleString()
+                      : "—"
+                }
+              />
+              <StatPill
+                label="TVL"
+                value={stats?.totalValueLocked ?? stats?.tvl ?? "—"}
+              />
             </>
           )}
           <div className="hidden lg:block">
