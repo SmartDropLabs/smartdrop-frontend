@@ -365,22 +365,23 @@ await toast.withErrorHandling(
 
 ### Development
 
-- Errors logged to browser console with full stack traces
-- Component stack included for React errors
+- Errors logged unconditionally to browser console (`console.error("[SmartDrop Error]", logData)`) with full context
+- Component stack included for React render errors
 - Detailed error information displayed in error boundaries
 
 ### Production
 
-- Errors logged to browser console (optional)
-- Errors can be sent to error tracking service (Sentry, LogRocket, etc.)
-- User-friendly messages shown (no technical details)
+- Errors logged unconditionally to browser console for baseline production visibility
+- Environment tagged via `process.env.NODE_ENV`
+- User-friendly messages shown to end-users (no raw technical details exposed in UI)
+- Sentry / external APM hook available via `ErrorLogger.log()`
 
-To enable production error tracking:
+To enable external production error tracking:
 
 ```typescript
 // In errorLogger.log() method
 if (!this.isDevelopment) {
-  captureException(error, { contexts: { smartdrop: logData } });
+  // captureException(error, { contexts: { smartdrop: logData } });
 }
 ```
 
