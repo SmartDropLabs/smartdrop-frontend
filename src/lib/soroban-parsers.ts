@@ -94,9 +94,20 @@ export function parsePoolEntry(
   const contractAddress = decodeScString(
     entry['contract_address'] ?? entry['address'] ?? entry['pool_address'] ?? '',
   );
-  const id =
-    decodeScString(entry['id'] ?? entry['pool_id'] ?? contractAddress) ||
-    String(fallbackIndex);
+  const explicitId = decodeScString(entry['id'] ?? entry['pool_id'] ?? '');
+  let id: string;
+  if (explicitId) {
+    id = explicitId;
+  } else if (contractAddress) {
+    id = contractAddress;
+  } else {
+    console.warn(
+      `[SmartDrop] parsePoolEntry: pool at index ${fallbackIndex} has no id/pool_id/contract_address — ` +
+        `falling back to its array position, which is NOT stable across factory reorderings. ` +
+        `Its /farm/[poolId] URL may silently point to a different pool later.`,
+    );
+    id = String(fallbackIndex);
+  }
 
   return {
     id,
