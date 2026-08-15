@@ -24,6 +24,15 @@ const theme = extendTheme({
       // Accent — #0f7a4e passes 4.5:1 on white; #4ae292 is the dark-mode green
       "app.accent":    { default: "#0f7a4e",  _dark: "#4ae292" },
       "app.accent2":   { default: "#2563eb",  _dark: "#6dd5ff" },
+      // Errors & Warnings — WCAG AA (4.5:1 contrast audited across light/dark surfaces)
+      "app.errorBg":   { default: "#fdecec",  _dark: "#2a1414" },
+      "app.errorFg":   { default: "#b3261e",  _dark: "#ff8080" },
+      "app.errorBorder": { default: "#f5c2c7", _dark: "#5c2424" },
+      "app.warningBg": { default: "#fdf3e2",  _dark: "#2a2412" },
+      "app.warningFg": { default: "#8a5a00",  _dark: "#f6c453" },
+      "app.warningBorder": { default: "#ffe69c", _dark: "#7c5c24" },
+      "app.warningAltBg": { default: "#fff4e5", _dark: "#2d2216" },
+      "app.warningAltFg": { default: "#b45309", _dark: "#ffb86c" },
       // Text
       "app.text":      { default: "#171717",  _dark: "#ffffff" },
       "app.muted":     { default: "#6b7280",  _dark: "#9a9a9a" },

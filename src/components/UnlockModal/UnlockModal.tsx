@@ -313,11 +313,11 @@ export default function UnlockModal() {
                 <Alert
                   status="warning"
                   borderRadius="2xl"
-                  bg="#2a2412"
-                  color="#f6c453"
+                  bg="app.warningBg"
+                  color="app.warningFg"
                   fontSize="sm"
                 >
-                  <AlertIcon color="#f6c453" />
+                  <AlertIcon color="app.warningFg" />
                   Assets are time-locked for security. You can unlock once the countdown
                   reaches zero to protect against impulsive withdrawals.
                 </Alert>
@@ -329,66 +329,70 @@ export default function UnlockModal() {
                 </Text>
                 <Box position="relative" w="100%">
                   <Input
+                    placeholder="0.00"
                     type="number"
-                    borderRadius="2xl"
-                    placeholder="Amount"
-                    h="50px"
-                    w="full"
-                    pr="120px"
+                    min="0"
+                    step="any"
                     value={amount}
                     onChange={(e) => setAmount(e.target.value)}
-                    isDisabled={!canUnlock || isProcessing}
-                    borderColor="app.border"
+                    isInvalid={!amountValid}
+                    disabled={!canUnlock || isProcessing}
                     bg="app.inputBg"
-                    color="app.text"
-                    _placeholder={{ color: "app.muted" }}
-                    _hover={{ borderColor: "app.accent" }}
-                    _focus={{ boxShadow: "none", borderColor: "app.accent" }}
+                    borderColor="app.border"
+                    borderRadius="2xl"
+                    fontSize="sm"
+                    pr="16"
+                    _focus={{ borderColor: "app.borderHover" }}
                   />
-                  <Flex
-                    position="absolute"
-                    top="50%"
-                    right="12px"
-                    transform="translateY(-50%)"
-                    gap={3}
-                    align="center"
-                  >
-                    <Text fontSize="sm">{position.symbol}</Text>
-                    <Text
-                      fontSize="xs"
+                  {canUnlock && (
+                    <Button
+                      size="xs"
+                      position="absolute"
+                      right="2"
+                      top="50%"
+                      transform="translateY(-50%)"
+                      variant="ghost"
                       color="app.accent"
-                      cursor={canUnlock ? "pointer" : "not-allowed"}
-                      onClick={canUnlock ? set50Pct : undefined}
-                      _hover={canUnlock ? { opacity: 0.8 } : {}}
-                      transition="opacity 0.2s"
+                      onClick={() => setAmount(String(maxUnlockable))}
                     >
-                      50%
-                    </Text>
-                    <Text
-                      fontSize="xs"
-                      color="app.accent"
-                      cursor={canUnlock ? "pointer" : "not-allowed"}
-                      onClick={canUnlock ? setMax : undefined}
-                      _hover={canUnlock ? { opacity: 0.8 } : {}}
-                      transition="opacity 0.2s"
-                    >
-                      Max
-                    </Text>
-                  </Flex>
+                      MAX
+                    </Button>
+                  )}
                 </Box>
+                {amount && (
+                  <Text fontSize="2xs" color={amountValid ? "app.muted" : "app.errorFg"}>
+                    Remaining after unlock: {remainingStake} {position.symbol}
+                  </Text>
+                )}
               </Flex>
 
-              {amountValid && (
-                <Box border="1px solid #303030" borderRadius="2xl" p={3}>
-                  {infoRow(
-                    "Remaining stake",
-                    `${remainingStake.toFixed(4)} ${position.symbol}`,
-                  )}
-                  {infoRow(
-                    "New daily rate",
-                    `${newDailyRate.toFixed(6)} credits/day`,
-                  )}
-                </Box>
+              {amount && !amountValid && (
+                <Text fontSize="xs" color="app.errorFg">
+                  Amount must be greater than 0 and at most {maxUnlockable}{" "}
+                  {position.symbol}
+                </Text>
+              )}
+
+              {/* Warnings and errors */}
+              {isNetworkMismatch && (
+                <Alert status="warning" borderRadius="2xl" bg="app.warningBg" color="app.warningFg" fontSize="sm">
+                  <AlertIcon color="app.warningFg" />
+                  Please switch Freighter to {stellarNetwork} before unlocking
+                </Alert>
+              )}
+
+              {step === "timeout" && (
+                <Alert status="warning" borderRadius="2xl" bg="app.warningBg" color="app.warningFg">
+                  <AlertIcon color="app.warningFg" />
+                  <Flex direction="column" gap={1}>
+                    <Text>Confirmation is taking longer than expected.</Text>
+                    {explorerUrl && (
+                      <Link href={explorerUrl} isExternal color="app.accent">
+                        Check the transaction on Stellar Expert
+                      </Link>
+                    )}
+                  </Flex>
+                </Alert>
               )}
 
               {isProcessing && (
@@ -409,20 +413,6 @@ export default function UnlockModal() {
                 </Alert>
               )}
 
-              {step === "timeout" && (
-                <Alert status="warning" borderRadius="2xl" bg="#2a2412" color="#f6c453">
-                  <AlertIcon color="#f6c453" />
-                  <Flex direction="column" gap={1}>
-                    <Text>Confirmation is taking longer than expected.</Text>
-                    {explorerUrl && (
-                      <Link href={explorerUrl} isExternal color="app.accent">
-                        Check the transaction on Stellar Expert
-                      </Link>
-                    )}
-                  </Flex>
-                </Alert>
-              )}
-
               {amountValid &&
                 !!position.minDepositAmount &&
                 remainingStake > 0 &&
@@ -430,11 +420,11 @@ export default function UnlockModal() {
                   <Alert
                     status="warning"
                     borderRadius="2xl"
-                    bg="#2a2412"
-                    color="#f6c453"
+                    bg="app.warningBg"
+                    color="app.warningFg"
                     fontSize="sm"
                   >
-                    <AlertIcon color="#f6c453" />
+                    <AlertIcon color="app.warningFg" />
                     Warning: remaining stake below minimum — the contract will close this position entirely
                   </Alert>
                 )}
@@ -443,11 +433,11 @@ export default function UnlockModal() {
                 <Alert
                   status="error"
                   borderRadius="2xl"
-                  bg="#2a1414"
-                  color="#ff8080"
+                  bg="app.errorBg"
+                  color="app.errorFg"
                   fontSize="sm"
                 >
-                  <AlertIcon color="#ff8080" />
+                  <AlertIcon color="app.errorFg" />
                   {error}
                 </Alert>
               )}

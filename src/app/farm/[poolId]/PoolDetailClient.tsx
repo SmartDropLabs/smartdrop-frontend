@@ -366,7 +366,7 @@ export default function PoolDetailClient({ poolId }: { poolId: string }) {
                   _focus={{ boxShadow: "none", borderColor: "app.accent" }}
                 />
                 {rawAmount !== "0" && rawAmount !== "" && !amountValid && (
-                  <Text fontSize="xs" color="#ff8080">
+                  <Text fontSize="xs" color="app.errorFg">
                     Enter an amount greater than 0.
                   </Text>
                 )}
@@ -382,15 +382,23 @@ export default function PoolDetailClient({ poolId }: { poolId: string }) {
               )}
 
               {flow.step === "error" && flow.error && (
-                <Alert status="error" borderRadius="2xl" bg="#2a1414" color="#ff8080" fontSize="sm">
-                  <AlertIcon color="#ff8080" />
+                <Alert status="error" borderRadius="2xl" bg="app.errorBg" color="app.errorFg" fontSize="sm">
+                  <AlertIcon color="app.errorFg" />
                   {flow.error}
                 </Alert>
               )}
 
               {isFeeSponsored && (
-                <Alert status="warning" borderRadius="2xl" bg="#2d2216" color="#ffb86c" fontSize="sm" border="1px solid #7c5c24">
-                  <AlertIcon color="#ffb86c" />
+                <Alert
+                  status="warning"
+                  borderRadius="2xl"
+                  bg="app.warningAltBg"
+                  color="app.warningAltFg"
+                  fontSize="sm"
+                  border="1px solid"
+                  borderColor="app.warningBorder"
+                >
+                  <AlertIcon color="app.warningAltFg" />
                   Your fees are sponsored for this transaction
                 </Alert>
               )}

@@ -309,12 +309,12 @@ function DepositModal({
                 </Text>
               </Box>
               {!!trimmedAmount && !amountValid && (
-                <Text fontSize="xs" color="#ff8080">
+                <Text fontSize="xs" color="app.errorFg">
                   Enter a positive amount with no more than 7 decimals.
                 </Text>
               )}
               {exceedsBalance && (
-                <Text fontSize="xs" color="#ff8080">
+                <Text fontSize="xs" color="app.errorFg">
                   Amount exceeds your Horizon XLM balance.
                 </Text>
               )}
@@ -332,9 +332,43 @@ function DepositModal({
               >
                 <Spinner size="sm" color="app.accent" />
                 <Text fontSize="sm" color="app.muted">
-                  {DEPOSIT_STEP_LABEL[step] || "Processing deposit..."}
+                  {DEPOSIT_STEP_LABEL[step]}
                 </Text>
               </Flex>
+            )}
+
+            {feePreview.data && !isFeeSponsored && (
+              <Box
+                bg="app.surface"
+                borderRadius="2xl"
+                p={3}
+                border="1px solid"
+                borderColor="app.border"
+                fontSize="xs"
+              >
+                <Flex justify="space-between" mb={1}>
+                  <Text color="app.muted">Estimated network fee</Text>
+                  <Text color="app.text" fontWeight="medium">
+                    {feePreview.data.feeXlm} XLM
+                  </Text>
+                </Flex>
+                <Flex justify="space-between">
+                  <Text color="app.muted">Lock period</Text>
+                  <Text color="app.text" fontWeight="medium">
+                    {farm.minLockPeriod} days minimum
+                  </Text>
+                </Flex>
+                <Flex justify="space-between" mt={1}>
+                  <Text color="app.muted">Reward rate</Text>
+                  {isDailyRatePending ? (
+                    <Spinner size="xs" color="app.accent" />
+                  ) : (
+                    <Text color="app.accent" fontWeight="medium">
+                      ~{effectiveDailyRate.toFixed(4)} credits/day
+                    </Text>
+                  )}
+                </Flex>
+              </Box>
             )}
 
             {txHash && (
@@ -353,36 +387,44 @@ function DepositModal({
             )}
 
             {feePreview.isError && (
-              <Alert status="error" borderRadius="2xl" bg="#2a1414" color="#ff8080">
-                <AlertIcon color="#ff8080" />
+              <Alert status="error" borderRadius="2xl" bg="app.errorBg" color="app.errorFg">
+                <AlertIcon color="app.errorFg" />
                 Fee simulation failed. Check the amount and try again.
               </Alert>
             )}
 
             {balanceQuery.isError && (
-              <Alert status="error" borderRadius="2xl" bg="#2a1414" color="#ff8080">
-                <AlertIcon color="#ff8080" />
+              <Alert status="error" borderRadius="2xl" bg="app.errorBg" color="app.errorFg">
+                <AlertIcon color="app.errorFg" />
                 Unable to load your Horizon balance.
               </Alert>
             )}
 
             {localError && (
-              <Alert status="error" borderRadius="2xl" bg="#2a1414" color="#ff8080">
-                <AlertIcon color="#ff8080" />
+              <Alert status="error" borderRadius="2xl" bg="app.errorBg" color="app.errorFg">
+                <AlertIcon color="app.errorFg" />
                 {localError}
               </Alert>
             )}
 
             {isFeeSponsored && (
-              <Alert status="warning" borderRadius="2xl" bg="#2d2216" color="#ffb86c" fontSize="sm" border="1px solid #7c5c24">
-                <AlertIcon color="#ffb86c" />
+              <Alert
+                status="warning"
+                borderRadius="2xl"
+                bg="app.warningAltBg"
+                color="app.warningAltFg"
+                fontSize="sm"
+                border="1px solid"
+                borderColor="app.warningBorder"
+              >
+                <AlertIcon color="app.warningAltFg" />
                 Your fees are sponsored for this transaction
               </Alert>
             )}
 
             {!isConnected && (
-              <Alert status="warning" borderRadius="2xl" bg="#2a2412" color="#f6c453">
-                <AlertIcon color="#f6c453" />
+              <Alert status="warning" borderRadius="2xl" bg="app.warningBg" color="app.warningFg">
+                <AlertIcon color="app.warningFg" />
                 Connect your Freighter wallet to deposit.
               </Alert>
             )}
