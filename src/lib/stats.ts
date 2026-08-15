@@ -54,26 +54,29 @@ export async function fetchStats(): Promise<StatsData> {
   const factoryId = process.env.NEXT_PUBLIC_FACTORY_CONTRACT_ID;
 
   if (factoryId) {
-    // TODO: wire to Soroban RPC when the factory contract is deployed.
-    //
-    // Steps:
-    //   1. import { sorobanRpcUrl } from "@/config"
-    //   2. const rpc = new SorobanRpc.Server(sorobanRpcUrl)
-    //   3. const poolIds: string[] = await invokeView(rpc, factoryId, "get_pools", [])
-    //   4. For each poolId:
-    //        const locked = await invokeView(rpc, poolId, "get_total_locked", [])
-    //   5. Sum locked amounts and convert to USD via Stellar DEX price feed:
-    //        GET https://horizon.stellar.org/order_book?selling_asset_type=native
-    //             &buying_asset_code=USDC&buying_asset_issuer=…
-    //   6. Count unique addresses:
-    //        const users = await invokeView(rpc, factoryId, "get_unique_users", [])
-    //
-    // Return source: "live" once real data is flowing.
+    try {
+      const { sorobanService } = await import("@/lib/soroban");
+      const platformStats = await sorobanService.getPlatformStats();
+      const tvlRaw = Number(platformStats.tvl.replace(/[^0-9.-]+/g, "")) || 0;
+      const tvlMillions = tvlRaw > 0 ? tvlRaw / 1_000_000 : 0;
+      const sparkline = buildSparkline(tvlMillions > 0 ? tvlMillions : 1);
+
+      return {
+        tvl: platformStats.tvl || formatUsd(tvlRaw),
+        tvlRaw,
+        totalUsers: platformStats.totalUsers ?? platformStats.totalFarmers ?? 0,
+        sparkline,
+        lastUpdated: new Date().toISOString(),
+        source: "live",
+      };
+    } catch (err) {
+      console.warn("[SmartDrop] live stats fetch failed, falling back to demo:", err);
+    }
   }
 
   // ── Demo mode ──────────────────────────────────────────────────────────────
   // Returns realistic numbers so the dashboard is fully usable before contracts
-  // are deployed. Replace with real data above when the factory is live.
+  // are deployed.
   const BASE_TVL_MILLIONS = 302;
   const BASE_USERS = 30_738;
 
