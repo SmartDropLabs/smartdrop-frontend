@@ -373,7 +373,9 @@ export const useTotalUserCredits = () => {
 };
 
 /**
- * Hook for real-time updates with optimistic UI updates
+ * Hook for real-time updates with optimistic UI updates.
+ * Correctly updates both single-pool query keys ([QUERY_KEYS.USER_POSITION, poolId, userAddress])
+ * and multi-pool aggregate query keys ([QUERY_KEYS.USER_POSITION, 'all', userAddress]) read by the Farm page.
  */
 export const useOptimisticUpdate = () => {
   const queryClient = useQueryClient();
@@ -383,6 +385,19 @@ export const useOptimisticUpdate = () => {
     userAddress: string,
     updateFn: (old: UserPosition | null) => UserPosition | null
   ) => {
+    // 1. Update multi-pool aggregate cache read by the Farm page's "My Earnings"
+    queryClient.setQueryData<
+      Array<{ pool: PoolInfo; position: UserPosition | null }>
+    >([QUERY_KEYS.USER_POSITION, "all", userAddress], (old) => {
+      if (!old) return old;
+      return old.map((item) =>
+        item.pool.id === poolId || item.pool.contractAddress === poolId
+          ? { ...item, position: updateFn(item.position) }
+          : item
+      );
+    });
+
+    // 2. Update single-pool query cache
     queryClient.setQueryData(
       [QUERY_KEYS.USER_POSITION, poolId, userAddress],
       updateFn
@@ -394,6 +409,27 @@ export const useOptimisticUpdate = () => {
     userAddress: string,
     newCredits: string
   ) => {
+    // 1. Update multi-pool aggregate cache
+    queryClient.setQueryData<
+      Array<{ pool: PoolInfo; position: UserPosition | null }>
+    >([QUERY_KEYS.USER_POSITION, "all", userAddress], (old) => {
+      if (!old) return old;
+      return old.map((item) => {
+        if (item.pool.id === poolId || item.pool.contractAddress === poolId) {
+          if (!item.position) return item;
+          return {
+            ...item,
+            position: {
+              ...item.position,
+              credits: newCredits,
+            },
+          };
+        }
+        return item;
+      });
+    });
+
+    // 2. Update single-pool user credits cache
     queryClient.setQueryData(
       [QUERY_KEYS.USER_CREDITS, poolId, userAddress],
       newCredits
