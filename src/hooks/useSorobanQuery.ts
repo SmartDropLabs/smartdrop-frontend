@@ -17,6 +17,7 @@ import { useToast } from '@chakra-ui/react';
 // Query Keys
 export const QUERY_KEYS = {
   POOLS: 'pools',
+  POOL_DEPOSITORS: 'poolDepositors',
   USER_POSITION: 'userPosition',
   USER_CREDITS: 'userCredits',
   PLATFORM_STATS: 'platformStats',
@@ -34,6 +35,20 @@ export const usePools = () => {
     refetchInterval: 60000, // 1 minute
     retry: 3,
     retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 30000),
+  });
+};
+
+/**
+ * Hook to fetch depositors for a specific pool with shared caching and polling
+ */
+export const usePoolDepositors = (poolId: string, limit: number = 20) => {
+  return useQuery({
+    queryKey: [QUERY_KEYS.POOL_DEPOSITORS, poolId, limit],
+    queryFn: () => sorobanService.getPoolDepositors(poolId, limit),
+    enabled: !!poolId,
+    staleTime: 30000, // 30 seconds
+    refetchInterval: 60000, // 1 minute
+    retry: 2,
   });
 };
 

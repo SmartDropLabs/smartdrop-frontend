@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import NextLink from "next/link";
 import {
   Alert,
@@ -28,25 +28,25 @@ import {
   Thead,
   Tr,
   useDisclosure,
+  Input,
+  Badge,
+  Heading,
 } from "@chakra-ui/react";
-import { formatCredits, sorobanService } from "@/lib/soroban";
+import { formatCredits } from "@/lib/soroban";
 import type { PoolInfo } from "@/lib/soroban";
 import TvlChart from "@/components/TvlChart/TvlChart";
 import { useLockFlow } from "@/hooks/useLockFlow";
-import { useStellarBalance } from "@/hooks/useSorobanQuery";
+import { usePools, usePoolDepositors, useStellarBalance } from "@/hooks/useSorobanQuery";
 import { useStellarWallet } from "@/context/StellarWalletContext";
 import ConnectWalletButton from "@/components/ConnectWalletButton/ConnectWalletButton";
 import { useOwnConnectButton } from "@/context/OwnConnectButtonContext";
 import { isDepositPending, DEPOSIT_STEP_LABEL } from "@/types/farm";
-import { Input } from "@chakra-ui/react";
 
-const ACCENT = "#4ae292";
-
-interface Depositor {
+type Depositor = {
   address: string;
-  amount: string;
-  credits: string;
-}
+  amount: number;
+  credits: number;
+};
 
 function StatCard({
   label,
@@ -62,21 +62,18 @@ function StatCard({
       direction="column"
       gap={1}
       p={4}
+      borderRadius="2xl"
+      bg="app.surface"
       border="1px solid"
       borderColor="app.border"
-      borderRadius="card"
-      bg="app.surface"
-      boxShadow="card"
-      minW="140px"
-      flex="1"
-      transition="all 0.2s ease"
-      _hover={{ borderColor: "app.borderHover", transform: "translateY(-2px)" }}
+      minW="120px"
+      flex={1}
     >
       <Text fontSize="xs" color="app.muted" fontWeight="medium">
         {label}
       </Text>
       {loading ? (
-        <Skeleton height="24px" w="80%" borderRadius="md" startColor="app.border" endColor="app.surfaceHover" />
+        <Skeleton h="28px" w="70px" borderRadius="md" />
       ) : (
         <Text fontWeight="bold" fontSize="lg" color="app.text">
           {value}
@@ -87,16 +84,33 @@ function StatCard({
 }
 
 export default function PoolDetailClient({ poolId }: { poolId: string }) {
-  const [pool, setPool] = useState<PoolInfo | null>(null);
-  const [depositors, setDepositors] = useState<Depositor[]>([]);
-  const [poolLoading, setPoolLoading] = useState(true);
-  const [depositorsLoading, setDepositorsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [rawAmount, setRawAmount] = useState("0");
 
   const { isOpen, onOpen, onClose } = useDisclosure();
   const { publicKey, walletApi, isConnected, isNetworkMismatch } =
     useStellarWallet();
+
+  const {
+    data: pools,
+    isLoading: poolLoading,
+    isError: poolsError,
+  } = usePools();
+
+  const pool = useMemo(
+    () =>
+      pools?.find((p) => p.id === poolId || p.contractAddress === poolId) ??
+      null,
+    [pools, poolId],
+  );
+
+  const { data: depositors = [], isLoading: depositorsLoading } =
+    usePoolDepositors(poolId, 20);
+
+  const error = poolsError
+    ? "Failed to load pool data."
+    : !poolLoading && pools && !pool
+      ? "Pool not found."
+      : null;
 
   // Signal to AppShell that a Connect Wallet button is visible inside the
   // deposit modal — but ONLY while the modal is open and the wallet is
@@ -123,48 +137,6 @@ export default function PoolDetailClient({ poolId }: { poolId: string }) {
     publicKey: publicKey ?? "",
     walletApi,
   });
-
-  useEffect(() => {
-    let cancelled = false;
-    setPoolLoading(true);
-    sorobanService
-      .getFactoryPools()
-      .then((pools) => {
-        if (cancelled) return;
-        const found = pools.find((p) => p.id === poolId) ?? null;
-        setPool(found);
-        if (!found) setError("Pool not found.");
-        setPoolLoading(false);
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setError("Failed to load pool data.");
-          setPoolLoading(false);
-        }
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [poolId]);
-
-  useEffect(() => {
-    let cancelled = false;
-    setDepositorsLoading(true);
-    sorobanService
-      .getPoolDepositors(poolId, 20)
-      .then((list) => {
-        if (!cancelled) {
-          setDepositors(list);
-          setDepositorsLoading(false);
-        }
-      })
-      .catch(() => {
-        if (!cancelled) setDepositorsLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [poolId]);
 
   const handleModalClose = () => {
     if (isDepositPending(flow.step)) return;
@@ -206,134 +178,172 @@ export default function PoolDetailClient({ poolId }: { poolId: string }) {
       <Box w="full">
         <Breadcrumb fontSize="sm" color="app.muted">
           <BreadcrumbItem>
-            <BreadcrumbLink as={NextLink} href="/farm" color="app.muted" _hover={{ color: ACCENT }}>
+            <BreadcrumbLink as={NextLink} href="/farm" color="app.muted" _hover={{ color: "app.accent" }}>
               Farm
             </BreadcrumbLink>
           </BreadcrumbItem>
           <BreadcrumbItem isCurrentPage>
-            <BreadcrumbLink color={ACCENT}>
+            <BreadcrumbLink color="app.accent">
               {poolLoading ? poolId.slice(0, 8) + "…" : (pool?.asset.code ?? poolId.slice(0, 8) + "…")}
             </BreadcrumbLink>
           </BreadcrumbItem>
         </Breadcrumb>
       </Box>
 
-      {/* Header */}
-      <Flex w="full" justify="space-between" align="center" flexWrap="wrap" gap={4}>
-        {poolLoading ? (
-          <Skeleton height="40px" w="200px" borderRadius="xl" startColor="app.border" endColor="app.surfaceHover" />
-        ) : (
-          <Text
-            fontSize={{ base: "2xl", md: "3xl" }}
-            fontWeight="extrabold"
-            letterSpacing="tight"
-            bgGradient="linear(to-r, app.text, app.accent)"
-            bgClip="text"
-          >
-            {pool?.asset.code ?? "Pool"} Pool
-          </Text>
-        )}
-        <Button
-          borderRadius="3xl"
-          bg="app.accent"
-          color="app.onAccent"
-          _hover={{ opacity: 0.9 }}
-          onClick={onOpen}
-          size="lg"
-          isDisabled={poolLoading || isNetworkMismatch}
+      {/* Main Container */}
+      <Flex direction="column" gap={8} w="full">
+        {/* Pool Header */}
+        <Flex
+          direction={{ base: "column", md: "row" }}
+          justify="space-between"
+          align={{ base: "flex-start", md: "center" }}
+          gap={4}
+          p={6}
+          borderRadius="2xl"
+          bg="app.surface"
+          border="1px solid"
+          borderColor="app.border"
         >
-          Deposit
-        </Button>
-      </Flex>
-
-      {/* Stats */}
-      <Flex w="full" gap={3} flexWrap="wrap">
-        <StatCard
-          label="Daily Rate"
-          value={pool?.dailyRate ?? "—"}
-          loading={poolLoading}
-        />
-        <StatCard
-          label="Min Lock Period"
-          value={
-            pool
-              ? pool.minLockPeriod >= 86400
-                ? `${Math.floor(pool.minLockPeriod / 86400)}d`
-                : `${Math.floor(pool.minLockPeriod / 3600)}h`
-              : "—"
-          }
-          loading={poolLoading}
-        />
-        <StatCard
-          label="Total Users"
-          value={pool ? String(pool.totalUsers) : "—"}
-          loading={poolLoading}
-        />
-        <StatCard
-          label="Total Locked"
-          value={pool ? `$${Number(pool.totalLocked).toLocaleString()}` : "—"}
-          loading={poolLoading}
-        />
-      </Flex>
-
-      {/* TVL Chart */}
-      <Box
-        w="full"
-        p={5}
-        border="1px solid"
-        borderColor="app.border"
-        borderRadius="card"
-        bg="app.surface"
-        boxShadow="card"
-      >
-        <Text fontSize="sm" fontWeight="semibold" mb={4} color="app.muted" letterSpacing="wide" textTransform="uppercase">
-          7-Day TVL
-        </Text>
-        <TvlChart poolId={poolId} />
-      </Box>
-
-      {/* Top Depositors */}
-      <Box w="full" p={5} border="1px solid" borderColor="app.border" borderRadius="card" bg="app.surface" boxShadow="card">
-        <Text fontSize="sm" fontWeight="semibold" mb={4} color="app.muted" letterSpacing="wide" textTransform="uppercase">
-          Top 20 Depositors
-        </Text>
-        {depositorsLoading ? (
-          <Flex direction="column" gap={2}>
-            {Array.from({ length: 5 }).map((_, i) => (
-              <SkeletonText key={i} noOfLines={1} skeletonHeight="32px" borderRadius="md" />
-            ))}
+          <Flex align="center" gap={4}>
+            <Flex
+              w="56px"
+              h="56px"
+              borderRadius="full"
+              bg="rgba(74, 226, 146, 0.15)"
+              align="center"
+              justify="center"
+              fontSize="2xl"
+              flexShrink={0}
+            >
+              🌱
+            </Flex>
+            <Box>
+              <Flex align="center" gap={2}>
+                <Heading size="md" color="app.text">
+                  {poolLoading ? (
+                    <Skeleton h="28px" w="140px" borderRadius="md" />
+                  ) : (
+                    `${pool?.asset.code ?? "—"} Pool`
+                  )}
+                </Heading>
+                {pool?.isActive && (
+                  <Badge
+                    bg="rgba(74, 226, 146, 0.15)"
+                    color="app.accent"
+                    borderRadius="full"
+                    px={2.5}
+                    py={0.5}
+                    fontSize="xs"
+                    fontWeight="semibold"
+                  >
+                    Active
+                  </Badge>
+                )}
+              </Flex>
+              <Text fontSize="xs" color="app.muted" mt={0.5} fontFamily="mono">
+                {poolLoading ? (
+                  <Skeleton h="16px" w="200px" borderRadius="md" mt={1} />
+                ) : (
+                  poolId
+                )}
+              </Text>
+            </Box>
           </Flex>
-        ) : depositors.length === 0 ? (
-          <Text color="app.muted" fontSize="sm">
-            No depositors yet.
-          </Text>
-        ) : (
-          <Box overflowX="auto">
-            <Table size="sm" variant="simple">
+
+          <Button
+            bg="app.accent"
+            color="app.onAccent"
+            borderRadius="2xl"
+            px={6}
+            h="44px"
+            fontWeight="semibold"
+            _hover={{ opacity: 0.9 }}
+            onClick={onOpen}
+            isDisabled={poolLoading || !pool?.isActive}
+          >
+            Deposit
+          </Button>
+        </Flex>
+
+        {/* Stats Row */}
+        <Flex gap={4} wrap="wrap">
+          <StatCard
+            label="Reward Rate"
+            value={poolLoading ? "—" : `${(pool?.dailyRate ?? 0).toFixed(4)} / day`}
+            loading={poolLoading}
+          />
+          <StatCard
+            label="Total Locked"
+            value={poolLoading ? "—" : `${(pool?.totalLocked ?? 0).toLocaleString()} ${pool?.asset.code ?? ""}`}
+            loading={poolLoading}
+          />
+          <StatCard
+            label="Min Lock Period"
+            value={poolLoading ? "—" : `${pool?.minLockPeriod ?? 0} days`}
+            loading={poolLoading}
+          />
+          <StatCard
+            label="Total Users"
+            value={poolLoading ? "—" : String(pool?.totalUsers ?? 0)}
+            loading={poolLoading}
+          />
+        </Flex>
+
+        {/* TVL Chart */}
+        <Box
+          p={6}
+          borderRadius="2xl"
+          bg="app.surface"
+          border="1px solid"
+          borderColor="app.border"
+        >
+          <Heading size="sm" color="app.text" mb={4}>
+            TVL History
+          </Heading>
+          <TvlChart poolId={poolId} />
+        </Box>
+
+        {/* Depositors Table */}
+        <Box
+          p={6}
+          borderRadius="2xl"
+          bg="app.surface"
+          border="1px solid"
+          borderColor="app.border"
+        >
+          <Heading size="sm" color="app.text" mb={4}>
+            Recent Depositors
+          </Heading>
+          {depositorsLoading ? (
+            <SkeletonText noOfLines={4} spacing={3} />
+          ) : depositors.length === 0 ? (
+            <Text fontSize="sm" color="app.muted">
+              No depositors yet. Be the first to deposit!
+            </Text>
+          ) : (
+            <Table variant="simple" size="sm">
               <Thead>
                 <Tr>
-                  <Th color="app.muted" borderColor="app.border">#</Th>
-                  <Th color="app.muted" borderColor="app.border">Address</Th>
-                  <Th color="app.muted" borderColor="app.border" isNumeric>Amount</Th>
-                  <Th color="app.muted" borderColor="app.border" isNumeric>Credits</Th>
+                  <Th borderColor="app.border" color="app.muted">Address</Th>
+                  <Th borderColor="app.border" isNumeric color="app.muted">Staked</Th>
+                  <Th borderColor="app.border" isNumeric color="app.muted">Credits</Th>
                 </Tr>
               </Thead>
               <Tbody>
-                {depositors.map((d, i) => (
-                  <Tr key={d.address} _hover={{ bg: "app.inputBg" }}>
-                    <Td borderColor="app.border" color="app.muted">{i + 1}</Td>
-                    <Td borderColor="app.border" fontFamily="mono" fontSize="xs">
-                      {d.address.slice(0, 6)}…{d.address.slice(-4)}
+                {depositors.map((d) => (
+                  <Tr key={d.address}>
+                    <Td borderColor="app.border" color="app.text" fontFamily="mono">
+                      {d.address.slice(0, 8)}…{d.address.slice(-6)}
                     </Td>
-                    <Td borderColor="app.border" isNumeric>{d.amount}</Td>
-                    <Td borderColor="app.border" isNumeric color={ACCENT}>{formatCredits(d.credits)}</Td>
+                    <Td borderColor="app.border" isNumeric color="app.text">{d.amount} {pool?.asset.code}</Td>
+                    <Td borderColor="app.border" isNumeric color="app.accent">{formatCredits(String(d.credits))}</Td>
                   </Tr>
                 ))}
               </Tbody>
             </Table>
-          </Box>
-        )}
-      </Box>
+          )}
+        </Box>
+      </Flex>
 
       {/* Deposit Modal */}
       <Modal isOpen={isOpen} onClose={handleModalClose}>
