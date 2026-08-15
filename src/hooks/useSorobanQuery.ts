@@ -3,6 +3,7 @@
  * Provides caching, error handling, and automatic refetching
  */
 
+import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   getStellarBalance,
@@ -83,27 +84,50 @@ export const useLockAssetsFeePreview = (args: {
   publicKey?: string | null;
   poolContractId?: string | null;
   amount?: string;
+  debounceMs?: number;
 }) => {
-  const amount = args.amount?.trim() ?? '';
-  const numericAmount = Number(amount);
+  const rawAmount = args.amount?.trim() ?? '';
+  const debounceMs = args.debounceMs ?? 300;
+  const [debouncedAmount, setDebouncedAmount] = useState(rawAmount);
 
-  return useQuery({
-    queryKey: ['lockAssetsFeePreview', args.publicKey, args.poolContractId, amount],
+  useEffect(() => {
+    if (debounceMs <= 0) {
+      setDebouncedAmount(rawAmount);
+      return;
+    }
+    const timer = setTimeout(() => {
+      setDebouncedAmount(rawAmount);
+    }, debounceMs);
+    return () => clearTimeout(timer);
+  }, [rawAmount, debounceMs]);
+
+  const numericAmount = Number(debouncedAmount);
+  const isDebouncing = rawAmount !== debouncedAmount;
+
+  const query = useQuery({
+    queryKey: ['lockAssetsFeePreview', args.publicKey, args.poolContractId, debouncedAmount],
     queryFn: () =>
       simulateLockAssets({
         publicKey: args.publicKey!,
         poolContractId: args.poolContractId!,
-        amount,
+        amount: debouncedAmount,
       }),
     enabled:
       !!args.publicKey &&
       !!args.poolContractId &&
-      !!amount &&
+      !!debouncedAmount &&
       Number.isFinite(numericAmount) &&
       numericAmount > 0,
     staleTime: 10000,
     retry: 1,
   });
+
+  return {
+    ...query,
+    isDebouncing,
+    isFetching: query.isFetching || isDebouncing,
+    isLoading: query.isLoading || (isDebouncing && !!rawAmount && Number(rawAmount) > 0),
+  };
 };
 
 /**
