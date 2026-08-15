@@ -149,7 +149,7 @@ type FreighterSignTransactionResult =
 export interface FreighterWalletApi {
   signTransaction: (
     transactionXdr: string,
-    options: { networkPassphrase: string },
+    options: { networkPassphrase: string; address?: string },
   ) => Promise<FreighterSignTransactionResult>;
 }
 
@@ -299,6 +299,7 @@ export async function simulateLockAssets(
 
 function getSignedTransactionXdr(
   result: FreighterSignTransactionResult,
+  expectedSigner?: string,
 ): string {
   if (typeof result === 'string') {
     return result;
@@ -309,6 +310,16 @@ function getSignedTransactionXdr(
       typeof result.error === 'string'
         ? result.error
         : 'Freighter failed to sign the transaction',
+    );
+  }
+
+  if (
+    expectedSigner &&
+    result.signerAddress &&
+    result.signerAddress !== expectedSigner
+  ) {
+    throw new SecurityError(
+      `Transaction was signed by ${result.signerAddress}, not the connected account ${expectedSigner}. Please sign with the correct Freighter account.`,
     );
   }
 
@@ -939,7 +950,9 @@ export class SorobanService {
       const signedTransaction = getSignedTransactionXdr(
         await walletApi.signTransaction(preparedTransaction.toXDR(), {
           networkPassphrase,
+          address: userAddress,
         }),
+        userAddress,
       );
 
       let finalTxXdr = signedTransaction;
@@ -1080,7 +1093,9 @@ export class SorobanService {
       const signedTransaction = getSignedTransactionXdr(
         await walletApi.signTransaction(preparedTransaction.toXDR(), {
           networkPassphrase,
+          address: userAddress,
         }),
+        userAddress,
       );
 
       let finalTxXdr = signedTransaction;
@@ -1209,7 +1224,9 @@ export class SorobanService {
       const signedTransaction = getSignedTransactionXdr(
         await walletApi.signTransaction(preparedTransaction.toXDR(), {
           networkPassphrase,
+          address: userAddress,
         }),
+        userAddress,
       );
 
       const submissionResult = await this.rpcServer.sendTransaction(

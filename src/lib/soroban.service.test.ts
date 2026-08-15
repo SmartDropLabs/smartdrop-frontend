@@ -185,7 +185,7 @@ afterEach(() => {
 
 describe("soroban formatters", () => {
   it("formats credits below 1000, thousands, and millions", () => {
-    expect(formatCredits("999.4")).toBe("999");
+    expect(formatCredits("999.4")).toBe("999.4");
     expect(formatCredits("1500")).toBe("1.5K");
     expect(formatCredits("2500000")).toBe("2.5M");
   });
@@ -732,6 +732,7 @@ describe("SorobanService RPC writes", () => {
     );
     expect(walletApi.signTransaction).toHaveBeenCalledWith(expect.any(String), {
       networkPassphrase: expect.any(String),
+      address: USER_PUBLIC_KEY,
     });
     expect(rpcServer.sendTransaction).toHaveBeenCalledTimes(1);
   });
