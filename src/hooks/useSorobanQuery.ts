@@ -11,6 +11,7 @@ import {
   type UserPosition,
   type TransactionResult,
 } from '@/lib/soroban';
+import type { PoolInfo } from '@/lib/soroban-parsers';
 import { useStellarWallet } from '@/context/StellarWalletContext';
 import { useToast } from '@chakra-ui/react';
 
