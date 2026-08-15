@@ -17,9 +17,10 @@ const SEARCH_DEBOUNCE_MS = 300;
 export function fetchLeaderboard(
   offset: number,
   limit: number,
-  sortKey: SortKey
+  sortKey: SortKey,
+  searchQuery?: string
 ): Promise<{ entries: LeaderboardEntry[]; total: number }> {
-  return sorobanService.getLeaderboard(offset, limit, sortKey);
+  return sorobanService.getLeaderboard(offset, limit, sortKey, searchQuery);
 }
 
 export function useLeaderboard(publicKey: string | null) {
@@ -33,7 +34,10 @@ export function useLeaderboard(publicKey: string | null) {
   const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null);
 
   useEffect(() => {
-    const id = setTimeout(() => setSearchQuery(searchInput), SEARCH_DEBOUNCE_MS);
+    const id = setTimeout(() => {
+      setSearchQuery(searchInput);
+      setPageState(1);
+    }, SEARCH_DEBOUNCE_MS);
     return () => clearTimeout(id);
   }, [searchInput]);
 
@@ -43,7 +47,7 @@ export function useLeaderboard(publicKey: string | null) {
 
   const refresh = useCallback(() => {
     setIsLoading(true);
-    fetchLeaderboard(offset, PAGE_SIZE, sortKey)
+    fetchLeaderboard(offset, PAGE_SIZE, sortKey, searchQuery)
       .then(({ entries, total }) => {
         setEntries(entries);
         setTotal(total);
@@ -54,7 +58,7 @@ export function useLeaderboard(publicKey: string | null) {
         setTotal(0);
       })
       .finally(() => setIsLoading(false));
-  }, [offset, sortKey]);
+  }, [offset, sortKey, searchQuery]);
 
   useEffect(() => {
     refresh();
@@ -62,11 +66,7 @@ export function useLeaderboard(publicKey: string | null) {
     return () => clearInterval(id);
   }, [refresh]);
 
-  const paged = searchQuery
-    ? entries.filter((e) =>
-        e.address.toLowerCase().includes(searchQuery.toLowerCase())
-      )
-    : entries;
+  const paged = entries;
 
   const connectedRank = (() => {
     if (!publicKey) return 0;
@@ -90,7 +90,7 @@ export function useLeaderboard(publicKey: string | null) {
     totalPages,
     setPage: setPageState,
     connectedRank,
-    filteredCount: searchQuery ? paged.length : total,
+    filteredCount: total,
     lastRefreshed,
     refresh,
   };
