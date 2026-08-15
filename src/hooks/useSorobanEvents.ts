@@ -14,7 +14,8 @@ export interface SorobanEventsRpc {
   ): ReturnType<rpc.Server["getEvents"]>;
 }
 
-const USER_EVENT_TOPICS = new Set(["lock_assets", "unlock_assets"]);
+const USER_POSITION_TOPICS = new Set(["lock_assets", "unlock_assets"]);
+const USER_CREDIT_TOPICS = new Set(["update_credits"]);
 
 /**
  * Polls the Soroban RPC every 5 s for contract events and immediately
@@ -67,7 +68,8 @@ export function useSorobanEvents(
           });
 
           let hasPoolEvent = false;
-          let hasUserEvent = false;
+          let hasUserPositionEvent = false;
+          let hasUserCreditEvent = false;
 
           for (const evt of response.events) {
             if (!evt.inSuccessfulContractCall) continue;
@@ -75,16 +77,28 @@ export function useSorobanEvents(
 
             const topicNatives = (evt.topic as xdr.ScVal[]).map(scValToNative);
             const action = topicNatives[0] as string;
-            const userAddr = topicNatives[1] as string;
+            const userAddr = topicNatives[1] as string | undefined;
 
-            if (USER_EVENT_TOPICS.has(action) && userAddr === publicKey) {
-              hasUserEvent = true;
+            if (USER_POSITION_TOPICS.has(action) && userAddr === publicKey) {
+              hasUserPositionEvent = true;
+            }
+
+            if (
+              USER_CREDIT_TOPICS.has(action) &&
+              (!userAddr || userAddr === publicKey)
+            ) {
+              hasUserCreditEvent = true;
             }
           }
 
-          if (hasUserEvent) {
+          if (hasUserPositionEvent) {
             queryClient.invalidateQueries({
               queryKey: [QUERY_KEYS.USER_POSITION],
+            });
+          }
+          if (hasUserCreditEvent) {
+            queryClient.invalidateQueries({
+              queryKey: [QUERY_KEYS.USER_CREDITS],
             });
           }
           if (hasPoolEvent) {
