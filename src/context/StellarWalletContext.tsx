@@ -225,7 +225,13 @@ export function StellarWalletProvider({ children }: { children: ReactNode }) {
 
     const handleVisibilityChange = () => {
       if (document.visibilityState === "visible") {
-        void refreshNetworkDetails();
+        const deadlineMs = Date.now() + FREIGHTER_CONNECT_TIMEOUT_MS;
+        void refreshNetworkDetails(
+          walletApi as unknown as FreighterModule,
+          deadlineMs,
+        ).catch(() => {
+          // refreshNetworkDetails resets networkName to null internally on timeout/error
+        });
       }
     };
 
@@ -233,7 +239,7 @@ export function StellarWalletProvider({ children }: { children: ReactNode }) {
     return () => {
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-  }, [publicKey, refreshNetworkDetails]);
+  }, [publicKey, walletApi, refreshNetworkDetails]);
 
   const isNetworkMismatch = Boolean(
     networkName && networkName !== stellarNetwork,
