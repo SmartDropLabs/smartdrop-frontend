@@ -92,7 +92,7 @@ export default function PoolDetailClient({ poolId }: { poolId: string }) {
   const [poolLoading, setPoolLoading] = useState(true);
   const [depositorsLoading, setDepositorsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [rawAmount, setRawAmount] = useState("0");
+  const [rawAmount, setRawAmount] = useState("");
 
   const { isOpen, onOpen, onClose } = useDisclosure();
   const { publicKey, walletApi, isConnected, isNetworkMismatch } =
@@ -169,12 +169,22 @@ export default function PoolDetailClient({ poolId }: { poolId: string }) {
   const handleModalClose = () => {
     if (isDepositPending(flow.step)) return;
     flow.reset();
-    setRawAmount("0");
+    setRawAmount("");
     onClose();
   };
 
-  const displayAmount = parseFloat(rawAmount);
-  const amountValid = Number.isFinite(displayAmount) && displayAmount > 0;
+  const trimmedAmount = rawAmount.trim();
+  const numericAmount = Number(trimmedAmount);
+  const amountFormatValid = /^\d+(?:\.\d+)?$/.test(trimmedAmount);
+  const decimalPlaces = trimmedAmount.includes(".")
+    ? trimmedAmount.split(".")[1]?.length ?? 0
+    : 0;
+  const amountValid =
+    !!trimmedAmount &&
+    amountFormatValid &&
+    decimalPlaces <= 7 &&
+    Number.isFinite(numericAmount) &&
+    numericAmount > 0;
   const isPending = isDepositPending(flow.step);
 
   if (error) {
@@ -365,9 +375,9 @@ export default function PoolDetailClient({ poolId }: { poolId: string }) {
                   _hover={{ borderColor: "app.accent" }}
                   _focus={{ boxShadow: "none", borderColor: "app.accent" }}
                 />
-                {rawAmount !== "0" && rawAmount !== "" && !amountValid && (
+                {!!trimmedAmount && !amountValid && (
                   <Text fontSize="xs" color="#ff8080">
-                    Enter an amount greater than 0.
+                    Enter a positive amount with no more than 7 decimals.
                   </Text>
                 )}
               </Flex>
@@ -414,7 +424,7 @@ export default function PoolDetailClient({ poolId }: { poolId: string }) {
                 isDisabled={
                   !amountValid || !isConnected || isPending || isNetworkMismatch
                 }
-                onClick={() => void flow.execute(displayAmount)}
+                onClick={() => void flow.execute(trimmedAmount)}
                 w="full"
               >
                 {isPending ? (
@@ -425,7 +435,7 @@ export default function PoolDetailClient({ poolId }: { poolId: string }) {
                     </Text>
                   </Flex>
                 ) : (
-                  `Lock ${amountValid ? displayAmount : ""} ${pool?.asset.code ?? ""}`
+                  `Lock ${amountValid ? trimmedAmount : ""} ${pool?.asset.code ?? ""}`
                 )}
               </Button>
 

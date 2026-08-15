@@ -32,7 +32,7 @@ export interface LockFlowState {
   record: DepositRecord | null;
   error: string | null;
   isPending: boolean;
-  execute: (displayAmount: number) => Promise<void>;
+  execute: (amount: string | number) => Promise<void>;
   reset: () => void;
 }
 
@@ -54,14 +54,17 @@ export function useLockFlow({
   }, []);
 
   const execute = useCallback(
-    async (displayAmount: number) => {
+    async (amount: string | number) => {
       if (isDepositPending(step)) return;
 
       setError(null);
       setRecord(null);
 
+      const strAmount = typeof amount === "string" ? amount.trim() : String(amount);
+      const numericDisplayAmount = typeof amount === "number" ? amount : parseFloat(amount) || 0;
+
       const start = Date.now();
-      trackEvent("deposit_initiated", { poolId, symbol, displayAmount });
+      trackEvent("deposit_initiated", { poolId, symbol, displayAmount: numericDisplayAmount });
 
       try {
         if (!walletApi || !publicKey) {
@@ -75,7 +78,7 @@ export function useLockFlow({
         const result = await lockAssets({
           poolContractId: poolId,
           publicKey,
-          amount: String(displayAmount),
+          amount: strAmount,
           walletApi,
           onStep: setStep,
         });
@@ -90,7 +93,7 @@ export function useLockFlow({
         const depositRecord: DepositRecord = {
           poolId,
           symbol,
-          displayAmount,
+          displayAmount: numericDisplayAmount,
           txHash,
           confirmedAt: Date.now(),
         };
@@ -101,7 +104,7 @@ export function useLockFlow({
         trackEvent("deposit_succeeded", {
           poolId,
           symbol,
-          displayAmount,
+          displayAmount: numericDisplayAmount,
           txHash,
           durationMs: Date.now() - start,
         });
