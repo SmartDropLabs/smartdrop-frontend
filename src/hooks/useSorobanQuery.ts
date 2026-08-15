@@ -216,7 +216,16 @@ export const useUnlockAssets = () => {
 
         // Invalidate related queries
         queryClient.invalidateQueries({
+          queryKey: [QUERY_KEYS.POOLS],
+        });
+        queryClient.invalidateQueries({
+          queryKey: [QUERY_KEYS.USER_POSITION],
+        });
+        queryClient.invalidateQueries({
           queryKey: [QUERY_KEYS.USER_POSITION, variables.poolId],
+        });
+        queryClient.invalidateQueries({
+          queryKey: [QUERY_KEYS.USER_POSITION, 'all', publicKey],
         });
         queryClient.invalidateQueries({
           queryKey: [QUERY_KEYS.USER_CREDITS, variables.poolId],
@@ -225,7 +234,7 @@ export const useUnlockAssets = () => {
           queryKey: [QUERY_KEYS.PLATFORM_STATS],
         });
         queryClient.invalidateQueries({
-          queryKey: [QUERY_KEYS.POOLS],
+          queryKey: ['stellarBalance', publicKey],
         });
       } else {
         toast({
