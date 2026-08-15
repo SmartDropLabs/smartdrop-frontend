@@ -10,6 +10,7 @@ export interface AssetInfo {
   code: string;
   issuer?: string;
   isNative?: boolean;
+  decimals?: number;
 }
 
 export interface PoolInfo {
@@ -45,15 +46,18 @@ export function decodeScString(v: unknown): string {
 }
 
 /**
- * Convert a Soroban i128/u128/u64 stroops value to a 7-decimal display string.
- * Stroops are the smallest Stellar unit: 1 XLM = 10,000,000 stroops.
+ * Convert a Soroban i128/u128/u64 raw integer value to a decimal display string.
+ * Defaults to 7 decimal places for Stellar native SAC assets.
  */
-export function bigintToDisplayAmount(raw: unknown): string {
+export function bigintToDisplayAmount(raw: unknown, decimals = 7): string {
   if (typeof raw === 'bigint') {
-    const stroops = raw < 0n ? 0n : raw;
-    const whole = stroops / 10_000_000n;
-    const frac = stroops % 10_000_000n;
-    return `${whole}.${String(frac).padStart(7, '0')}`;
+    const rawVal = raw < 0n ? 0n : raw;
+    const safeDecimals = Math.max(0, Math.floor(decimals));
+    if (safeDecimals === 0) return rawVal.toString();
+    const divisor = 10n ** BigInt(safeDecimals);
+    const whole = rawVal / divisor;
+    const frac = rawVal % divisor;
+    return `${whole}.${String(frac).padStart(safeDecimals, '0')}`;
   }
   return String(raw ?? '0');
 }
@@ -63,18 +67,18 @@ export function bigintToDisplayAmount(raw: unknown): string {
  * into a typed PoolInfo.
  *
  * Expected canonical contract field names (snake_case):
- *   id, contract_address, asset_code, asset_issuer, is_native,
- *   daily_rate (i128 stroops), min_lock_period (u64 seconds),
- *   total_locked (i128 stroops), total_users (u32), is_active (bool), created_at (u64)
+ *   id, contract_address, asset_code, asset_issuer, is_native, decimals,
+ *   daily_rate (i128), min_lock_period (u64 seconds),
+ *   total_locked (i128), total_users (u32), is_active (bool), created_at (u64)
  *
- * Nested asset object { code, issuer, is_native } is also accepted.
+ * Nested asset object { code, issuer, is_native, decimals } is also accepted.
  * Throws on missing required structure so the caller can skip with a warning.
  */
 export function parsePoolEntry(
   entry: Record<string, unknown>,
   fallbackIndex: number,
 ): PoolInfo {
-  // Asset fields may arrive nested ({ asset: { code, issuer, is_native } }) or flat.
+  // Asset fields may arrive nested ({ asset: { code, issuer, is_native, decimals } }) or flat.
   const assetObj =
     typeof entry['asset'] === 'object' && entry['asset'] !== null
       ? (entry['asset'] as Record<string, unknown>)
@@ -91,6 +95,16 @@ export function parsePoolEntry(
       : undefined;
   const isNative = Boolean(assetObj?.['is_native'] ?? entry['is_native'] ?? !issuer);
 
+  const rawDecimals = assetObj?.['decimals'] ?? entry['decimals'] ?? entry['asset_decimals'];
+  const decimals =
+    typeof rawDecimals === 'number' && Number.isFinite(rawDecimals)
+      ? rawDecimals
+      : typeof rawDecimals === 'bigint'
+        ? Number(rawDecimals)
+        : isNative
+          ? 7
+          : 7;
+
   const contractAddress = decodeScString(
     entry['contract_address'] ?? entry['address'] ?? entry['pool_address'] ?? '',
   );
@@ -101,10 +115,10 @@ export function parsePoolEntry(
   return {
     id,
     contractAddress,
-    asset: { code, issuer, isNative },
-    dailyRate: bigintToDisplayAmount(entry['daily_rate'] ?? entry['rate'] ?? 0n),
+    asset: { code, issuer, isNative, decimals },
+    dailyRate: bigintToDisplayAmount(entry['daily_rate'] ?? entry['rate'] ?? 0n, decimals),
     minLockPeriod: Number(entry['min_lock_period'] ?? entry['lock_period'] ?? 0),
-    totalLocked: bigintToDisplayAmount(entry['total_locked'] ?? entry['tvl'] ?? 0n),
+    totalLocked: bigintToDisplayAmount(entry['total_locked'] ?? entry['tvl'] ?? 0n, decimals),
     totalUsers: Number(entry['total_users'] ?? entry['users'] ?? 0),
     isActive: Boolean(entry['is_active'] ?? true),
     createdAt: Number(entry['created_at'] ?? entry['timestamp'] ?? 0),

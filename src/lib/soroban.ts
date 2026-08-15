@@ -170,6 +170,7 @@ export interface BuildLockAssetsTransactionArgs {
   poolContractId: string;
   publicKey: string;
   amount: string;
+  decimals?: number;
 }
 
 export type LockAssetsRpc = Pick<
@@ -266,7 +267,7 @@ export async function buildLockAssetsTransaction(
   const operation = contract.call(
     'lock_assets',
     Address.fromString(args.publicKey).toScVal(),
-    nativeToScVal(amountToStroops(args.amount), { type: 'i128' }),
+    nativeToScVal(amountToStroops(args.amount, args.decimals ?? 7), { type: 'i128' }),
   );
 
   return new TransactionBuilder(account, {
@@ -1681,15 +1682,15 @@ export const unlockAssets = async ({
   walletApi,
   onHash,
   onStep,
+  decimals,
 }: {
   poolContractId: string;
   publicKey: string;
   amount: string;
   walletApi: FreighterWalletApi;
+  decimals?: number;
 } & UnlockAssetsCallbacks) => {
-  // Convert display-unit amount to integer stroops before passing as i128.
-  // 1 display unit = 10,000,000 stroops (Stellar's fixed-point precision).
-  const stroops = Math.round(parseFloat(amount) * 10_000_000).toString();
+  const stroops = amountToStroops(amount, decimals ?? 7).toString();
   return sorobanService.unlockAssets(poolContractId, publicKey, stroops, walletApi, {
     onHash,
     onStep,
