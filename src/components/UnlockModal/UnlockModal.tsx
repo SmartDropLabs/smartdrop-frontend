@@ -261,7 +261,10 @@ export default function UnlockModal() {
         queryClient.setQueryData<UserPosition>(positionKey, previousPosition);
       }
 
-      const normalizedError = toast.handleError(err, "Unlock Transaction");
+      // Issue #250: let the user retry the same unlock straight from the
+      // error toast instead of having to reopen the modal and re-enter
+      // the amount.
+      const normalizedError = toast.handleError(err, "Unlock Transaction", () => void handleUnlock());
       setError(normalizedError.userMessage);
       setStep("error");
       trackEvent("unlock_failed", {
