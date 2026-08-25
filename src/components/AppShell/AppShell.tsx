@@ -4,6 +4,7 @@ import ConnectWalletButton from "@/components/ConnectWalletButton/ConnectWalletB
 import Footer from "@/components/Footer/Footer";
 import Navbar from "@/components/Navbar/Navbar";
 import NetworkMismatchBanner from "@/components/NetworkMismatchBanner/NetworkMismatchBanner";
+import RpcUnreachableBanner from "@/components/RpcUnreachableBanner/RpcUnreachableBanner";
 import ContextProvider from "@/context";
 import {
   OwnConnectButtonProvider,
@@ -40,6 +41,7 @@ function LayoutWrapper({ children }: { children: React.ReactNode }) {
       color="app.text"
     >
       <Navbar />
+      <RpcUnreachableBanner />
       <NetworkMismatchBanner />
       {isConnected ? (
         <>

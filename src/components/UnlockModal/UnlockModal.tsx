@@ -15,7 +15,7 @@ import {
     getContractErrorMessage,
     type UserPosition,
 } from "@/lib/soroban";
-import { QUERY_KEYS } from "@/hooks/useSorobanQuery";
+import { QUERY_KEYS, useUnlockAssetsFeePreview } from "@/hooks/useSorobanQuery";
 import { useFarmStore } from "@/store/farmStore";
 import { unlockAvailableAt } from "@/types/farm";
 import { useQueryClient } from "@tanstack/react-query";
@@ -85,6 +85,12 @@ export default function UnlockModal() {
     numericAmount >= 0.01 &&
     !!position &&
     numericAmount <= position.lockedAmount;
+
+  const feePreview = useUnlockAssetsFeePreview({
+    publicKey,
+    poolContractId: selectedPoolContractId,
+    amount: amountValid ? amount : "",
+  });
 
   // Reset transient state whenever the modal opens for a (new) position.
   useEffect(() => {
@@ -430,6 +436,14 @@ export default function UnlockModal() {
                   {infoRow(
                     "New daily rate",
                     `${newDailyRate.toFixed(6)} credits/day`,
+                  )}
+                  {infoRow(
+                    "Estimated Soroban fee",
+                    feePreview.isFetching
+                      ? "Simulating..."
+                      : feePreview.data
+                        ? `${feePreview.data.feePreview} stroops`
+                        : "Unavailable",
                   )}
                 </Box>
               )}

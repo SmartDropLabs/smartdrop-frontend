@@ -7,7 +7,9 @@ import { useEffect, useRef, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   getStellarBalance,
+  rpcServer,
   simulateLockAssets,
+  simulateUnlockAssets,
   sorobanService,
   type UserPosition,
   type TransactionResult,
@@ -147,6 +149,56 @@ export const useLockAssetsFeePreview = (args: {
     ],
     queryFn: () =>
       simulateLockAssets({
+        publicKey: args.publicKey!,
+        poolContractId: args.poolContractId!,
+        amount: debouncedAmount,
+      }),
+    enabled:
+      !!args.publicKey &&
+      !!args.poolContractId &&
+      !!debouncedAmount &&
+      Number.isFinite(numericAmount) &&
+      numericAmount > 0,
+    staleTime: 10000,
+    retry: 1,
+  });
+
+  return { ...query, isFetching: query.isFetching || isDebouncing };
+};
+
+/**
+ * Same live, debounced fee-preview pattern as useLockAssetsFeePreview, for
+ * unlock_assets — issue #240: UnlockModal submitted transactions with no fee
+ * estimate shown before the Freighter signing prompt.
+ */
+export const useUnlockAssetsFeePreview = (args: {
+  publicKey?: string | null;
+  poolContractId?: string | null;
+  amount?: string;
+}) => {
+  const amount = args.amount?.trim() ?? '';
+  const [debouncedAmount, setDebouncedAmount] = useState('');
+
+  useEffect(() => {
+    const id = setTimeout(
+      () => setDebouncedAmount(amount),
+      LOCK_ASSETS_FEE_PREVIEW_DEBOUNCE_MS,
+    );
+    return () => clearTimeout(id);
+  }, [amount]);
+
+  const numericAmount = Number(debouncedAmount);
+  const isDebouncing = amount !== debouncedAmount;
+
+  const query = useQuery({
+    queryKey: [
+      'unlockAssetsFeePreview',
+      args.publicKey,
+      args.poolContractId,
+      debouncedAmount,
+    ],
+    queryFn: () =>
+      simulateUnlockAssets({
         publicKey: args.publicKey!,
         poolContractId: args.poolContractId!,
         amount: debouncedAmount,
@@ -559,4 +611,26 @@ export function usePlatformStats(initialData?: UIPlatformStats) {
     refetchInterval: 120000, // Re-checks the blockchain automatically every 2 minutes
     initialData: initialData
   });
+}
+
+/**
+ * Global Soroban RPC connectivity check (issue #248). When the RPC endpoint
+ * is unreachable, individual pages each show their own query error with no
+ * indication it's a shared, RPC-wide outage rather than a one-off failure.
+ * A single, cheap getHealth() poll gives a global "is the chain reachable"
+ * signal a top-level banner can react to.
+ */
+export function useRpcHealth() {
+  const query = useQuery({
+    queryKey: ['rpcHealth'],
+    queryFn: () => rpcServer.getHealth(),
+    staleTime: 15000,
+    refetchInterval: 30000,
+    retry: 1,
+    // Never let this surface a spinner/blank state anywhere it's used —
+    // it's a background signal, not something a page should block on.
+    refetchOnWindowFocus: true,
+  });
+
+  return { isUnreachable: query.isError };
 }
