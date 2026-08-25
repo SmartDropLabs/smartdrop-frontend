@@ -59,20 +59,22 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
           display="flex"
           alignItems="center"
           justifyContent="center"
-          bg="black"
-          color="white"
+          bg="app.bg"
+          color="app.text"
           p={4}
         >
           <VStack spacing={6} textAlign="center">
             <Heading size="lg">Something went wrong</Heading>
-            <Text color="gray.400" maxW="md">
+            <Text color="app.muted" maxW="md">
               We encountered an unexpected error. Please try again.
             </Text>
             {process.env.NODE_ENV === "development" && (
               <Box
-                bg="gray.900"
+                bg="app.surface"
+                border="1px solid"
+                borderColor="app.border"
                 p={4}
-                borderRadius="md"
+                borderRadius="card"
                 w="100%"
                 maxW="md"
                 textAlign="left"
@@ -80,17 +82,19 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
                 fontFamily="mono"
                 overflowX="auto"
               >
-                <Text color="red.400" fontWeight="bold" mb={2}>
+                <Text color="app.errorFg" fontWeight="bold" mb={2}>
                   {error?.name}: {error?.message}
                 </Text>
-                <Text color="gray.400" whiteSpace="pre-wrap" fontSize="xs">
+                <Text color="app.muted" whiteSpace="pre-wrap" fontSize="xs">
                   {error?.stack}
                 </Text>
               </Box>
             )}
             <Button
               onClick={this.retry}
-              colorScheme="blue"
+              bg="app.accent"
+              color="app.onAccent"
+              _hover={{ opacity: 0.9 }}
               size="lg"
               borderRadius="full"
             >
@@ -126,9 +130,11 @@ export function ErrorBoundarySection({
           <Box
             w="100%"
             p={6}
-            borderRadius="md"
-            bg="red.900"
-            color="white"
+            borderRadius="card"
+            border="1px solid"
+            borderColor="app.errorFg"
+            bg="app.errorBg"
+            color="app.errorFg"
             textAlign="center"
           >
             <Heading size="sm" mb={2}>
@@ -138,8 +144,10 @@ export function ErrorBoundarySection({
             <Button
               onClick={retry}
               size="sm"
-              colorScheme="red"
               variant="outline"
+              borderColor="app.errorFg"
+              color="app.errorFg"
+              _hover={{ bg: "app.errorFg", color: "app.onAccent" }}
             >
               Retry
             </Button>

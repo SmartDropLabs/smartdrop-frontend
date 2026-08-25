@@ -1,13 +1,13 @@
-"use client";
+import type { Metadata } from "next";
+import RedirectClient from "./RedirectClient";
 
-import { useRouter } from "next/navigation";
-import { useEffect } from "react";
+// Issue #227: /leaderbord is a typo'd legacy URL kept only as a redirect to
+// /leaderboard. Keep it out of search indexes so the typo variant doesn't
+// compete with the real page.
+export const metadata: Metadata = {
+  robots: { index: false, follow: false },
+};
 
-/** Old URL; static hosts keep this route as a client redirect. */
 export default function LeaderbordRedirect() {
-  const router = useRouter();
-  useEffect(() => {
-    router.replace("/leaderboard");
-  }, [router]);
-  return null;
+  return <RedirectClient />;
 }
