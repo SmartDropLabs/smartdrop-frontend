@@ -4,6 +4,7 @@
  */
 
 import {
+  Account,
   Contract,
   TransactionBuilder,
   BASE_FEE,
@@ -15,7 +16,6 @@ import {
   Networks,
   Transaction,
   FeeBumpTransaction,
-  Account,
 } from '@stellar/stellar-sdk';
 import {
   factoryContractId,
