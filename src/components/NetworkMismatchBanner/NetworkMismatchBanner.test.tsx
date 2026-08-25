@@ -3,6 +3,7 @@ import { ChakraProvider } from "@chakra-ui/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import NetworkMismatchBanner from "./NetworkMismatchBanner";
+import { ErrorProvider } from "@/context/ErrorContext";
 import {
   StellarWalletProvider,
   useStellarWallet,
@@ -31,10 +32,12 @@ function ConnectHarness() {
 function renderBannerHarness() {
   return render(
     <ChakraProvider>
-      <StellarWalletProvider>
-        <NetworkMismatchBanner />
-        <ConnectHarness />
-      </StellarWalletProvider>
+      <ErrorProvider>
+        <StellarWalletProvider>
+          <NetworkMismatchBanner />
+          <ConnectHarness />
+        </StellarWalletProvider>
+      </ErrorProvider>
     </ChakraProvider>,
   );
 }
