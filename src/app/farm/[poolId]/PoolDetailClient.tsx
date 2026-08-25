@@ -36,6 +36,8 @@ import {
   usePoolDepositors,
   usePools,
   useStellarBalance,
+  useUserCredits,
+  useUserPosition,
 } from "@/hooks/useSorobanQuery";
 import { useStellarWallet } from "@/context/StellarWalletContext";
 import ConnectWalletButton from "@/components/ConnectWalletButton/ConnectWalletButton";
@@ -148,6 +150,27 @@ export default function PoolDetailClient({ poolId }: { poolId: string }) {
     usePoolDepositors(poolId, 20);
   const depositors: Depositor[] = depositorsData ?? [];
 
+  const { data: userCredits, isLoading: creditsLoading } = useUserCredits(poolId, isConnected);
+  const { data: userPosition, isLoading: positionLoading } = useUserPosition(poolId, isConnected);
+
+  const calculateEarningsBreakdown = () => {
+    if (!userPosition || !pool) return { daily: '0', weekly: '0', total: userCredits || '0' };
+
+    const totalCredits = parseFloat(userCredits || '0');
+    const lockTime = userPosition.lockedAt ? Date.now() - userPosition.lockedAt : 0;
+    const lockDays = lockTime / (1000 * 60 * 60 * 24);
+    const dailyRate = lockDays > 0 ? totalCredits / lockDays : 0;
+    const weeklyRate = dailyRate * 7;
+
+    return {
+      daily: dailyRate.toFixed(4),
+      weekly: weeklyRate.toFixed(4),
+      total: totalCredits.toFixed(4),
+    };
+  };
+
+  const earnings = calculateEarningsBreakdown();
+
   const handleModalClose = () => {
     if (isDepositPending(flow.step)) return;
     flow.reset();
@@ -242,7 +265,7 @@ export default function PoolDetailClient({ poolId }: { poolId: string }) {
         </Button>
       </Flex>
 
-      {/* Stats */}
+      {/* Pool Stats */}
       <Flex w="full" gap={3} flexWrap="wrap">
         <StatCard
           label="Daily Rate"
@@ -271,6 +294,44 @@ export default function PoolDetailClient({ poolId }: { poolId: string }) {
           loading={poolLoading}
         />
       </Flex>
+
+      {/* User Earnings Breakdown - shown when wallet is connected */}
+      {isConnected && (
+        <Box w="full" p={5} border="1px solid" borderColor="app.border" borderRadius="card" bg="app.surface" boxShadow="card">
+          <Text fontSize="sm" fontWeight="semibold" mb={4} color="app.muted" letterSpacing="wide" textTransform="uppercase">
+            Your Earnings
+          </Text>
+          {creditsLoading || positionLoading ? (
+            <Flex direction="column" gap={2}>
+              {Array.from({ length: 3 }).map((_, i) => (
+                <Skeleton key={i} height="40px" borderRadius="md" />
+              ))}
+            </Flex>
+          ) : userCredits ? (
+            <Flex gap={3} flexWrap="wrap">
+              <StatCard
+                label="Daily Earnings"
+                value={earnings.daily}
+                loading={false}
+              />
+              <StatCard
+                label="Weekly Earnings"
+                value={earnings.weekly}
+                loading={false}
+              />
+              <StatCard
+                label="Total Earnings"
+                value={formatCredits(earnings.total)}
+                loading={false}
+              />
+            </Flex>
+          ) : (
+            <Text color="app.muted" fontSize="sm">
+              No earnings yet. Deposit to start earning credits.
+            </Text>
+          )}
+        </Box>
+      )}
 
       {/* TVL Chart */}
       <Box
