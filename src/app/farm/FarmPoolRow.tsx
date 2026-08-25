@@ -1,9 +1,10 @@
 "use client";
 
 import NextLink from "next/link";
-import { Button, Flex, Text } from "@chakra-ui/react";
+import { Box, Button, Flex, Text } from "@chakra-ui/react";
 import { MetricColumn } from "./EarningRow";
 import { memo } from "react";
+import { useCountdown } from "@/hooks/useCountdown";
 
 type LivePoolRow = {
   id: string;
@@ -52,6 +53,12 @@ export const FarmPoolRow = memo(function FarmPoolRow({
   isNetworkMismatch,
   onDeposit,
 }: FarmPoolRowProps) {
+  // Issue #234: surface lock status here too, not just in "My Earnings" —
+  // a user browsing the full pool list shouldn't have to click into a pool
+  // they already have a position in just to see when it unlocks.
+  const hasStake = farm.lockedAmount > 0;
+  const countdown = useCountdown(farm.lockedAt + farm.lockPeriodSeconds * 1000);
+
   return (
     <Flex
       display={{ base: "flex", md: "flex" }}
@@ -89,6 +96,27 @@ export const FarmPoolRow = memo(function FarmPoolRow({
         value={farm.totalStakedLiquidity}
         minW="180px"
       />
+      {hasStake && (
+        <Box
+          display="block"
+          w={{ base: "full", md: "auto" }}
+          minW={{ md: "150px" }}
+          textAlign="center"
+          border="1px solid"
+          borderColor="app.border"
+          borderRadius="2xl"
+          bg="app.inputBg"
+          px={3}
+          py={3}
+        >
+          <Text fontSize="2xs" color="app.muted" textTransform="uppercase">
+            Unlock status
+          </Text>
+          <Text fontSize="lg" fontWeight="bold">
+            {countdown.label}
+          </Text>
+        </Box>
+      )}
       {isConnected && (
         <Button
           borderRadius="3xl"
