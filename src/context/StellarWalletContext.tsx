@@ -1,6 +1,7 @@
 "use client";
 
 import { stellarNetwork } from "@/config";
+import { useErrorHandler } from "@/context/ErrorContext";
 import { FreighterError } from "@/lib/error-handler";
 import type { FreighterWalletApi } from "@/lib/soroban";
 import {
@@ -91,6 +92,7 @@ export function StellarWalletProvider({ children }: { children: ReactNode }) {
   const [publicKey, setPublicKey] = useState<string | null>(null);
   const [walletApi, setWalletApi] = useState<FreighterWalletApi | null>(null);
   const [networkName, setNetworkName] = useState<string | null>(null);
+  const toast = useErrorHandler();
 
   const refreshNetworkDetails = useCallback(
     async (freighterModule?: FreighterModule, deadlineMs?: number) => {
@@ -220,6 +222,21 @@ export function StellarWalletProvider({ children }: { children: ReactNode }) {
     setNetworkName(null);
   }, []);
 
+  // Issue #226: disconnect() itself stays silent — it's also called for an
+  // explicit, user-initiated "Disconnect" click, which needs no toast. Use
+  // this instead at every internal call site where the wallet drops out
+  // from under the user without them asking (extension locked/removed,
+  // access revoked, network unreachable), so they aren't left interacting
+  // with a UI that silently stopped being connected.
+  const { warning: toastWarning } = toast;
+  const disconnectUnexpectedly = useCallback(() => {
+    disconnect();
+    toastWarning(
+      "Wallet disconnected",
+      "Freighter is no longer connected. Reconnect to continue.",
+    );
+  }, [disconnect, toastWarning]);
+
   // Periodic health check for Freighter extension (#222)
   useEffect(() => {
     if (!publicKey) return undefined;
@@ -231,14 +248,14 @@ export function StellarWalletProvider({ children }: { children: ReactNode }) {
         
         // If extension is no longer available, disconnect gracefully
         if (!connected.isConnected || connected.error) {
-          disconnect();
+          disconnectUnexpectedly();
           return;
         }
 
         // Verify we can still get the address
         const addr = await freighter.getAddress();
         if (addr.error || !addr.address) {
-          disconnect();
+          disconnectUnexpectedly();
           return;
         }
 
@@ -248,7 +265,7 @@ export function StellarWalletProvider({ children }: { children: ReactNode }) {
         }
       } catch {
         // Extension error or removal - disconnect
-        disconnect();
+        disconnectUnexpectedly();
       }
     };
 
@@ -256,6 +273,7 @@ export function StellarWalletProvider({ children }: { children: ReactNode }) {
     const interval = setInterval(checkFreighterHealth, 30000);
     
     return () => clearInterval(interval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- disconnectUnexpectedly's own behavior never changes (it only closes over the stable disconnect/toastWarning), so omitting it here avoids re-subscribing this effect on every render.
   }, [publicKey, disconnect]);
 
   // NOTE: this listener does not fire when a user opens the Freighter
@@ -291,7 +309,7 @@ export function StellarWalletProvider({ children }: { children: ReactNode }) {
             if (addr.error || !addr.address) {
               // Extension revoked access or became unreachable — disconnect
               // so the UI doesn't show stale state.
-              disconnect();
+              disconnectUnexpectedly();
               return;
             }
             if (addr.address !== publicKey) {
@@ -309,6 +327,7 @@ export function StellarWalletProvider({ children }: { children: ReactNode }) {
     return () => {
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- see the health-check effect above for why disconnectUnexpectedly is intentionally omitted.
   }, [publicKey, refreshNetworkDetails, disconnect]);
 
   const isNetworkMismatch = Boolean(
