@@ -8,6 +8,7 @@ import {
   usePoolDepositors,
   useLockAssetsFeePreview,
   useSetBoost,
+  useUnlockAssets,
 } from "./useSorobanQuery";
 
 vi.mock("@/lib/soroban", async (importOriginal) => {
@@ -412,5 +413,84 @@ describe("useSetBoost (#92)", () => {
         status: "error",
       }),
     );
+  });
+});
+
+describe("useUnlockAssets (#138)", () => {
+  const TEST_PUBLIC_KEY =
+    "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN";
+  const POOL_ID = "pool-xlm";
+  let queryClient: QueryClient;
+  let toastMock: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+  });
+
+  function unlockWrapper({ children }: { children: ReactNode }) {
+    return createElement(QueryClientProvider, { client: queryClient }, children);
+  }
+
+  beforeEach(async () => {
+    const { useStellarWallet } = await import(
+      "@/context/StellarWalletContext"
+    );
+    vi.mocked(useStellarWallet).mockReturnValue({
+      publicKey: TEST_PUBLIC_KEY,
+      isConnected: true,
+      walletApi: { signTransaction: vi.fn().mockResolvedValue("signed-xdr") },
+      connect: vi.fn(),
+      disconnect: vi.fn(),
+    });
+
+    const { useToast } = await import("@chakra-ui/react");
+    toastMock = vi.fn();
+    vi.mocked(useToast).mockReturnValue(toastMock);
+  });
+
+  it("invalidates the stellarBalance cache on success, matching useLockAssets", async () => {
+    vi.spyOn(sorobanService, "unlockAssets").mockResolvedValue({
+      success: true,
+      transactionHash: "txhash123",
+    });
+    const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
+
+    const { result } = renderHook(() => useUnlockAssets(), {
+      wrapper: unlockWrapper,
+    });
+
+    await act(async () => {
+      result.current.mutate({ poolId: POOL_ID, amount: "10" });
+    });
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect(invalidateSpy).toHaveBeenCalledWith({
+      queryKey: ["stellarBalance", TEST_PUBLIC_KEY],
+    });
+  });
+
+  it("does not invalidate stellarBalance when the unlock fails", async () => {
+    vi.spyOn(sorobanService, "unlockAssets").mockResolvedValue({
+      success: false,
+      error: "Simulation failed",
+    });
+    const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
+
+    const { result } = renderHook(() => useUnlockAssets(), {
+      wrapper: unlockWrapper,
+    });
+
+    await act(async () => {
+      result.current.mutate({ poolId: POOL_ID, amount: "10" });
+    });
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect(invalidateSpy).not.toHaveBeenCalledWith({
+      queryKey: ["stellarBalance", TEST_PUBLIC_KEY],
+    });
   });
 });

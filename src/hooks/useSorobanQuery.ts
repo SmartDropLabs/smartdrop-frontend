@@ -349,6 +349,13 @@ export const useUnlockAssets = () => {
         queryClient.invalidateQueries({
           queryKey: [QUERY_KEYS.POOLS],
         });
+        // Unlocking returns principal to the user's own account, directly
+        // changing spendable balance — must invalidate like useLockAssets
+        // does, or "Available balance" in the Deposit modal serves a stale
+        // value for up to staleTime (issue #138).
+        queryClient.invalidateQueries({
+          queryKey: ['stellarBalance', publicKey],
+        });
       } else {
         toast({
           title: 'Unlock Assets Failed',
