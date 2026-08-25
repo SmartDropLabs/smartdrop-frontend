@@ -34,6 +34,7 @@ export const usePools = () => {
     queryKey: [QUERY_KEYS.POOLS],
     queryFn: () => sorobanService.getFactoryPools(),
     staleTime: 30000, // 30 seconds
+    gcTime: 5 * 60 * 1000, // 5 minutes
     refetchInterval: 60000, // 1 minute
     retry: 3,
     retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 30000),
@@ -52,6 +53,7 @@ export const usePoolDepositors = (poolId: string, limit: number = 20) => {
     queryFn: () => sorobanService.getPoolDepositors(poolId, limit),
     enabled: !!poolId,
     staleTime: 30000,
+    gcTime: 5 * 60 * 1000,
     refetchInterval: 60000,
     retry: 2,
   });
@@ -68,6 +70,7 @@ export const useUserPosition = (poolId: string, enabled: boolean = true) => {
     queryFn: () => sorobanService.getUserPosition(poolId, publicKey!),
     enabled: enabled && !!publicKey && !!poolId,
     staleTime: 15000, // 15 seconds
+    gcTime: 5 * 60 * 1000,
     refetchInterval: 30000, // 30 seconds
     retry: 2,
   });
@@ -84,6 +87,7 @@ export const useUserCredits = (poolId: string, enabled: boolean = true) => {
     queryFn: () => sorobanService.calculateUserCredits(poolId, publicKey!),
     enabled: enabled && !!publicKey && !!poolId,
     staleTime: 5000, // 5 seconds (credits change frequently)
+    gcTime: 5 * 60 * 1000,
     refetchInterval: 10000, // 10 seconds
     retry: 2,
   });
@@ -95,6 +99,7 @@ export const useStellarBalance = (publicKey?: string) => {
     queryFn: () => getStellarBalance(publicKey!),
     enabled: !!publicKey,
     staleTime: 15000,
+    gcTime: 5 * 60 * 1000,
     retry: 2,
   });
 };
@@ -160,6 +165,7 @@ export const useLockAssetsFeePreview = (args: {
       Number.isFinite(numericAmount) &&
       numericAmount > 0,
     staleTime: 10000,
+    gcTime: 5 * 60 * 1000,
     retry: 1,
   });
 
@@ -210,6 +216,7 @@ export const useUnlockAssetsFeePreview = (args: {
       Number.isFinite(numericAmount) &&
       numericAmount > 0,
     staleTime: 10000,
+    gcTime: 5 * 60 * 1000,
     retry: 1,
   });
 
@@ -466,6 +473,7 @@ export const useAllUserPositions = () => {
     },
     enabled: !!publicKey && !!pools && pools.length > 0,
     staleTime: 15000,
+    gcTime: 5 * 60 * 1000,
     refetchInterval: 30000,
   });
 };
@@ -497,6 +505,7 @@ export const useTotalUserCredits = () => {
     },
     enabled: !!publicKey && !!pools && pools.length > 0,
     staleTime: 10000,
+    gcTime: 5 * 60 * 1000,
     refetchInterval: 15000,
   });
 };
@@ -615,6 +624,7 @@ export function usePlatformStats(initialData?: UIPlatformStats) {
       };
     },
     staleTime: 60000,        // Keeps data fresh for 1 minute
+    gcTime: 5 * 60 * 1000,
     refetchInterval: 120000, // Re-checks the blockchain automatically every 2 minutes
     initialData: initialData
   });
@@ -632,6 +642,7 @@ export function useRpcHealth() {
     queryKey: ['rpcHealth'],
     queryFn: () => rpcServer.getHealth(),
     staleTime: 15000,
+    gcTime: 5 * 60 * 1000,
     refetchInterval: 30000,
     retry: 1,
     // Never let this surface a spinner/blank state anywhere it's used —
