@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect } from "react";
 import { IconButton, useColorMode } from "@chakra-ui/react";
 
 function SunMoonIcon({ isDark }: { isDark: boolean }) {
@@ -27,6 +28,18 @@ function SunMoonIcon({ isDark }: { isDark: boolean }) {
 export default function ThemeToggle() {
   const { colorMode, toggleColorMode } = useColorMode();
   const isDark = colorMode === "dark";
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.code === "KeyD") {
+        e.preventDefault();
+        toggleColorMode();
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [toggleColorMode]);
 
   return (
     <IconButton
