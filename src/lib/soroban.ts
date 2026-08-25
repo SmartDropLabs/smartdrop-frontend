@@ -306,6 +306,51 @@ export async function simulateLockAssets(
 }
 
 /**
+ * Read-only unlock_assets simulation for a fee preview (issue #240) — no
+ * signing, no submission. Mirrors buildLockAssetsTransaction/simulateLockAssets.
+ */
+export async function buildUnlockAssetsTransaction(
+  args: BuildLockAssetsTransactionArgs,
+  rpcOverride?: LockAssetsRpc,
+) {
+  const server = rpcOverride ?? rpcServer;
+  const account = await server.getAccount(args.publicKey);
+  const contract = new Contract(args.poolContractId);
+  const operation = contract.call(
+    'unlock_assets',
+    Address.fromString(args.publicKey).toScVal(),
+    nativeToScVal(amountToStroops(args.amount), { type: 'i128' }),
+  );
+
+  return new TransactionBuilder(account, {
+    fee: BASE_FEE,
+    networkPassphrase,
+  })
+    .addOperation(operation)
+    .setTimeout(300)
+    .build();
+}
+
+export async function simulateUnlockAssets(
+  args: BuildLockAssetsTransactionArgs,
+  rpcOverride?: LockAssetsRpc,
+) {
+  const server = rpcOverride ?? rpcServer;
+  const transaction = await buildUnlockAssetsTransaction(args, server);
+  const simulation = await server.simulateTransaction(transaction);
+
+  if ('error' in simulation) {
+    throw new Error(`Simulation failed: ${simulation.error}`);
+  }
+
+  return {
+    transaction,
+    simulation,
+    feePreview: String(simulation.minResourceFee ?? '0'),
+  };
+}
+
+/**
  * Unwraps Freighter's signTransaction response, verifying that the account
  * which actually signed (`result.signerAddress`) is the account SmartDrop
  * believes is connected (`expectedSigner`). Passing `address` in the
