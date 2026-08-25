@@ -6,6 +6,7 @@ import {
   Text,
   Spinner,
   Box,
+  Skeleton,
   useToast,
   Alert,
   AlertIcon,
@@ -34,11 +35,13 @@ function StatCard({
   value,
   accent = "app.accent",
   delay = 0,
+  isLoading = false,
 }: {
   label: string;
   value: string | number;
   accent?: string;
   delay?: number;
+  isLoading?: boolean;
 }) {
   return (
     <MotionBox
@@ -73,9 +76,11 @@ function StatCard({
       <Text color="app.muted" fontSize="sm" mb={2} fontWeight="medium">
         {label}
       </Text>
-      <Text fontSize="3xl" fontWeight="extrabold" color={accent}>
-        {value}
-      </Text>
+      <Skeleton isLoaded={!isLoading} startColor="app.border" endColor="app.surfaceHover">
+        <Text fontSize="3xl" fontWeight="extrabold" color={accent}>
+          {isLoading ? "—" : value}
+        </Text>
+      </Skeleton>
     </MotionBox>
   );
 }
@@ -178,36 +183,32 @@ export default function Home() {
       </MotionBox>
 
       <Flex direction="row" w="100%" maxW="1200px" flexWrap="wrap" gap={4}>
-        {statsLoading ? (
-          <Flex w="100%" justify="center" py={16}>
-            <Spinner size="xl" color="app.accent" thickness="3px" />
-          </Flex>
-        ) : (
-          <>
-            <StatCard
-              label="Total Value Locked"
-              value={stats?.totalValueLocked ?? "Not available"}
-              delay={0.05}
-            />
-            <StatCard
-              label="Active Pools"
-              value={stats?.totalPools ?? "No pools found"}
-              accent="app.accent2"
-              delay={0.1}
-            />
-            <StatCard
-              label="Total Users"
-              value={formatNumber(stats?.totalUsers)}
-              delay={0.15}
-            />
-            <StatCard
-              label="Users Online"
-              value={formatNumber(stats?.onlineUsers)}
-              accent="app.accent2"
-              delay={0.2}
-            />
-          </>
-        )}
+        <StatCard
+          label="Total Value Locked"
+          value={stats?.totalValueLocked ?? "Not available"}
+          delay={0.05}
+          isLoading={statsLoading}
+        />
+        <StatCard
+          label="Active Pools"
+          value={stats?.totalPools ?? "No pools found"}
+          accent="app.accent2"
+          delay={0.1}
+          isLoading={statsLoading}
+        />
+        <StatCard
+          label="Total Users"
+          value={formatNumber(stats?.totalUsers)}
+          delay={0.15}
+          isLoading={statsLoading}
+        />
+        <StatCard
+          label="Users Online"
+          value={formatNumber(stats?.onlineUsers)}
+          accent="app.accent2"
+          delay={0.2}
+          isLoading={statsLoading}
+        />
       </Flex>
 
       <MotionBox

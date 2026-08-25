@@ -39,8 +39,16 @@ function shortenStellarAddress(address: string) {
 
 function Logo() {
   return (
-    <NextLink href="/" className="flex items-center gap-2 hover:opacity-85">
-      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-[#6dffb8] to-[#0f7a4e]">
+    <NextLink
+      href="/"
+      aria-label="SmartDrop home"
+      className="flex items-center gap-2 hover:opacity-85"
+    >
+      <div
+        role="img"
+        aria-label="SmartDrop logo"
+        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-[#6dffb8] to-[#0f7a4e]"
+      >
         <div className="h-2.5 w-2.5 rotate-45 rounded-sm bg-[#0b0d0c]" />
       </div>
       <span className="text-lg font-extrabold tracking-tight text-[color:var(--chakra-colors-app-text)]">
