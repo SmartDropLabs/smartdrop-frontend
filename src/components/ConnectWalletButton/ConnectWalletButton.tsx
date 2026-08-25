@@ -30,7 +30,11 @@ export default function ConnectWalletButton({
       await connect();
       toast.success("Wallet connected", "Freighter is now linked to SmartDrop");
     } catch (error) {
-      toast.handleError(error, "Wallet Connection");
+      // Issue #250: offer a Retry action right on the error toast, so a
+      // failed connect (wrong network, rejected prompt, timeout) doesn't
+      // force the user to dismiss the toast and click Connect all over
+      // again from scratch.
+      toast.handleError(error, "Wallet Connection", () => void handleConnect());
     } finally {
       setIsConnecting(false);
     }
