@@ -5,6 +5,7 @@ import { Box, Button, Flex, Text } from "@chakra-ui/react";
 import { MetricColumn } from "./EarningRow";
 import { memo } from "react";
 import { useCountdown } from "@/hooks/useCountdown";
+import { generatePoolSlug } from "@/lib/pool-slugs";
 
 type LivePoolRow = {
   id: string;
@@ -78,7 +79,7 @@ export const FarmPoolRow = memo(function FarmPoolRow({
       px={5}
       py={{ base: 4, md: 0 }}
     >
-      <NextLink href={`/farm/${farm.id}`} style={{ textDecoration: "none" }}>
+      <NextLink href={`/farm/${generatePoolSlug({ asset: { code: farm.symbol }, id: farm.id } as any)}`} style={{ textDecoration: "none" }}>
         <Text
           fontWeight="bold"
           w={{ base: "full", md: "auto" }}

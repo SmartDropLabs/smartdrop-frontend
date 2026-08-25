@@ -1851,9 +1851,49 @@ export class SorobanService {
 
   async getCreditVelocity(_windowHours: number = 24): Promise<string> {
     try {
-      void _windowHours;
-      const totalCreditsAccumulated = 0n;
-      return totalCreditsAccumulated.toString();
+      if (!this.factoryContract) {
+        return "0";
+      }
+
+      const pools = await this.getFactoryPools();
+      if (!pools || pools.length === 0) {
+        return "0";
+      }
+
+      let totalVelocity = 0n;
+      for (const pool of pools) {
+        const poolContract = this.poolContracts.get(pool.id);
+        if (!poolContract) {
+          this.poolContracts.set(pool.id, new Contract(pool.contractAddress));
+        }
+
+        const resolvedContract = this.poolContracts.get(pool.id) || new Contract(pool.contractAddress);
+        const call = resolvedContract.call("get_total_credits");
+
+        const account = await this.getSimulationAccount();
+        const transaction = new TransactionBuilder(account, {
+          fee: BASE_FEE,
+          networkPassphrase,
+        })
+          .addOperation(call)
+          .setTimeout(30)
+          .build();
+
+        try {
+          const simulation = await this.rpcServer.simulateTransaction(transaction);
+          if (!("error" in simulation) && simulation.result?.retval) {
+            const { scValToNative } = await import('@stellar/stellar-sdk');
+            const value = scValToNative(simulation.result.retval);
+            if (typeof value === 'bigint') {
+              totalVelocity += value;
+            }
+          }
+        } catch {
+          continue;
+        }
+      }
+
+      return totalVelocity.toString();
     } catch (error) {
       console.error("Failed to calculate credit velocity:", error);
       return "0";

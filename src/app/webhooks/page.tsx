@@ -13,7 +13,14 @@ import {
   Text,
   useToast,
   Wrap,
+  AlertDialog,
+  AlertDialogBody,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogContent,
+  AlertDialogOverlay,
 } from "@chakra-ui/react";
+import { useRef } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   createWebhook,
@@ -31,6 +38,9 @@ export default function WebhooksPage() {
   const [url, setUrl] = useState("");
   const [description, setDescription] = useState("");
   const [selectedEvents, setSelectedEvents] = useState<string[]>([]);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [webhookToDelete, setWebhookToDelete] = useState<string | null>(null);
+  const cancelRef = useRef(null);
 
   const { data, isLoading, isError, error, isFetching, refetch } = useQuery({
     queryKey: ["webhooks"],
@@ -59,8 +69,23 @@ export default function WebhooksPage() {
 
   const deleteMutation = useMutation({
     mutationFn: deleteWebhook,
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["webhooks"] }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["webhooks"] });
+      setDeleteConfirmOpen(false);
+      setWebhookToDelete(null);
+    },
   });
+
+  const handleDeleteClick = (webhookId: string) => {
+    setWebhookToDelete(webhookId);
+    setDeleteConfirmOpen(true);
+  };
+
+  const handleConfirmDelete = () => {
+    if (webhookToDelete) {
+      deleteMutation.mutate(webhookToDelete);
+    }
+  };
 
   const testMutation = useMutation({
     mutationFn: testWebhook,
@@ -246,7 +271,7 @@ export default function WebhooksPage() {
                       variant="outline"
                       borderColor="app.border"
                       color="#ff8080"
-                      onClick={() => deleteMutation.mutate(webhook.id)}
+                      onClick={() => handleDeleteClick(webhook.id)}
                       isLoading={deleteMutation.isPending && deleteMutation.variables === webhook.id}
                     >
                       Delete
@@ -258,6 +283,32 @@ export default function WebhooksPage() {
           </Flex>
         )}
       </Box>
+
+      <AlertDialog isOpen={deleteConfirmOpen} leastDestructiveRef={cancelRef} onClose={() => setDeleteConfirmOpen(false)}>
+        <AlertDialogOverlay>
+          <AlertDialogContent>
+            <AlertDialogHeader fontSize="lg" fontWeight="bold">
+              Delete Webhook
+            </AlertDialogHeader>
+            <AlertDialogBody>
+              Are you sure you want to delete this webhook? This action cannot be undone.
+            </AlertDialogBody>
+            <AlertDialogFooter>
+              <Button ref={cancelRef} onClick={() => setDeleteConfirmOpen(false)}>
+                Cancel
+              </Button>
+              <Button
+                colorScheme="red"
+                onClick={handleConfirmDelete}
+                ml={3}
+                isLoading={deleteMutation.isPending}
+              >
+                Delete
+              </Button>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialogOverlay>
+      </AlertDialog>
     </Flex>
   );
 }
