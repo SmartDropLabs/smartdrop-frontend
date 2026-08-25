@@ -2,6 +2,7 @@ import { Suspense } from "react";
 import type { Metadata } from "next";
 import { poolContractId } from "@/config";
 import { sorobanService } from "@/lib/soroban";
+import { generatePoolSlug, extractPoolIdFromSlug } from "@/lib/pool-slugs";
 import PoolDetailClient from "./PoolDetailClient";
 
 export const revalidate = 60;
@@ -11,7 +12,7 @@ export async function generateStaticParams() {
 
   try {
     const pools = await sorobanService.getFactoryPools();
-    const params = pools.map((pool) => ({ poolId: pool.id }));
+    const params = pools.map((pool) => ({ poolId: generatePoolSlug(pool) }));
     return params.length > 0 ? params : fallbackParams;
   } catch {
     // RPC unreachable at build time — fall back to CSR via revalidate
@@ -24,11 +25,17 @@ export async function generateMetadata({
 }: {
   params: Promise<{ poolId: string }>;
 }): Promise<Metadata> {
-  const { poolId } = await params;
+  const { poolId: slug } = await params;
 
-  return {
-    title: `Pool ${poolId.slice(0, 8)}... | SmartDrop Farm`,
-  };
+  try {
+    const pools = await sorobanService.getFactoryPools();
+    const actualPoolId = extractPoolIdFromSlug(slug, pools) || slug;
+    const pool = pools.find((p) => p.id === actualPoolId);
+    const title = pool ? `${pool.asset.code} | SmartDrop Farm` : `Pool | SmartDrop Farm`;
+    return { title };
+  } catch {
+    return { title: `Pool | SmartDrop Farm` };
+  }
 }
 
 export default async function PoolDetailPage({
@@ -36,7 +43,18 @@ export default async function PoolDetailPage({
 }: {
   params: Promise<{ poolId: string }>;
 }) {
-  const { poolId } = await params;
+  const { poolId: slug } = await params;
+
+  let poolId = slug;
+  try {
+    const pools = await sorobanService.getFactoryPools();
+    const resolvedId = extractPoolIdFromSlug(slug, pools);
+    if (resolvedId) {
+      poolId = resolvedId;
+    }
+  } catch {
+    // Fallback to slug as ID if resolution fails
+  }
 
   return (
     <Suspense fallback={null}>
