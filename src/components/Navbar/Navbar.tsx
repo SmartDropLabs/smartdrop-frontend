@@ -21,6 +21,7 @@ import NextLink from "next/link";
 import { usePathname } from "next/navigation";
 import ThemeToggle from "@/components/ThemeToggle/ThemeToggle";
 import { usePlatformStats } from "@/hooks/useSorobanQuery";
+import { useState } from "react";
 
 const MORE_LINKS = [
   { href: "/prices", label: "Prices" },
@@ -124,6 +125,57 @@ function formatCount(value: number | undefined | null): string {
   return value || value === 0 ? value.toLocaleString() : "—";
 }
 
+// Issue #236 (copy-to-clipboard) + #237 (disconnect button): the Navbar's
+// wallet pill used to be a plain, non-interactive display of the shortened
+// address, with the only disconnect affordance living in the separate
+// floating ConnectWalletButton. Fold both into a menu on the pill itself.
+function WalletMenu({ publicKey }: { publicKey: string }) {
+  const { disconnect } = useStellarWallet();
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(publicKey);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // Clipboard may be unavailable in hardened browser contexts.
+    }
+  };
+
+  return (
+    <Menu placement="bottom-end">
+      <MenuButton
+        aria-label="Wallet menu"
+        className="flex items-center gap-1.5 rounded-full border border-[color:var(--chakra-colors-app-border)] bg-[color:var(--chakra-colors-app-surface)] px-3 py-1 text-xs whitespace-nowrap"
+      >
+        <span className="text-[color:var(--chakra-colors-app-muted)]">Wallet</span>{" "}
+        <span className="font-bold text-[color:var(--chakra-colors-app-text)]">
+          {shortenStellarAddress(publicKey)}
+        </span>
+      </MenuButton>
+      <MenuList bg="app.surface" borderColor="app.border">
+        <MenuItem
+          bg="app.surface"
+          color="app.text"
+          _hover={{ bg: "app.surfaceHover" }}
+          onClick={() => void handleCopy()}
+        >
+          {copied ? "Copied!" : "Copy address"}
+        </MenuItem>
+        <MenuItem
+          bg="app.surface"
+          color="app.text"
+          _hover={{ bg: "app.surfaceHover" }}
+          onClick={disconnect}
+        >
+          Disconnect
+        </MenuItem>
+      </MenuList>
+    </Menu>
+  );
+}
+
 function MobileNavDrawer({
   isOpen,
   onClose,
@@ -200,7 +252,7 @@ export default function Navbar() {
 
         <div className="flex flex-wrap items-center gap-3">
           {isConnected && publicKey ? (
-            <StatPill label="Wallet" value={shortenStellarAddress(publicKey)} />
+            <WalletMenu publicKey={publicKey} />
           ) : (
             <>
               <StatPill label="Online" value={formatCount(stats?.onlineUsers)} pulse />

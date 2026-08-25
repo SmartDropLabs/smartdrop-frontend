@@ -22,6 +22,7 @@ import { useStellarWallet } from "@/context/StellarWalletContext";
 import { useLeaderboard, PAGE_SIZE, type SortKey } from "@/hooks/useLeaderboard";
 import { useLiveAnnouncer } from "@/hooks/useLiveAnnouncer";
 import LiveRegion from "@/components/LiveRegion/LiveRegion";
+import CopyAddressButton from "@/components/CopyAddressButton/CopyAddressButton";
 
 const LEADERBOARD_TABLE_ID = "leaderboard-table";
 
@@ -315,6 +316,7 @@ export default function LeaderboardPage() {
                           <Text fontFamily="mono" color="app.text">
                             {truncate(entry.address)}
                           </Text>
+                          <CopyAddressButton address={entry.address} />
                           {isMe && (
                             <Text
                               fontSize="xs"
