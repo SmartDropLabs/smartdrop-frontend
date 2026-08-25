@@ -371,8 +371,11 @@ await toast.withErrorHandling(
 
 ### Production
 
-- Errors logged to browser console (optional)
-- Errors can be sent to error tracking service (Sentry, LogRocket, etc.)
+- Errors always logged to browser console (not optional — `console.error` fires
+  unconditionally in `ErrorLogger.log()`, regardless of environment)
+- Errors are **not yet** sent to an external error tracking service — the
+  Sentry/LogRocket integration below is unimplemented; the snippet shows how
+  to wire it in, not something already active
 - User-friendly messages shown (no technical details)
 
 To enable production error tracking:

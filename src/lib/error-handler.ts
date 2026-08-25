@@ -416,7 +416,14 @@ export async function withRetry<T>(
  * In production, can send to an error tracking service.
  */
 export class ErrorLogger {
-  private isDevelopment = typeof window !== "undefined" && !window.location.hostname.includes("localhost") === false;
+  // Issue #129: this used to be `typeof window !== "undefined" &&
+  // !window.location.hostname.includes("localhost") === false`, which
+  // reduces to "hostname contains 'localhost'" — true only for local dev.
+  // console.error was gated on this, so every deployed environment
+  // (staging, previews, production) silently dropped every logged error.
+  // Use the idiomatic Next.js check instead, and log unconditionally below
+  // so visibility into errors is never fully silent anywhere.
+  private isDevelopment = process.env.NODE_ENV === "development";
 
   log(error: SmartDropError, context?: string): void {
     const logData = {
@@ -426,9 +433,7 @@ export class ErrorLogger {
       ...error.getLogContext(),
     };
 
-    if (this.isDevelopment) {
-      console.error("[SmartDrop Error]", logData);
-    }
+    console.error("[SmartDrop Error]", logData);
 
     // TODO: Send to error tracking service (Sentry, LogRocket, etc.) in production
     // if (!this.isDevelopment) {
