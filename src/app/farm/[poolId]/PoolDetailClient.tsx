@@ -44,6 +44,7 @@ import ConnectWalletButton from "@/components/ConnectWalletButton/ConnectWalletB
 import { useOwnConnectButton } from "@/context/OwnConnectButtonContext";
 import { isDepositPending, DEPOSIT_STEP_LABEL } from "@/types/farm";
 import { Input } from "@chakra-ui/react";
+import ShareButton from "@/components/ShareButton/ShareButton";
 
 const ACCENT = "#4ae292";
 
@@ -192,6 +193,8 @@ export default function PoolDetailClient({ poolId }: { poolId: string }) {
     setShowConfirmation(false);
   };
 
+  const shareUrl = typeof window !== "undefined" ? window.location.href : "";
+
   const displayAmount = parseFloat(rawAmount);
   const amountValid = Number.isFinite(displayAmount) && displayAmount > 0;
   const isPending = isDepositPending(flow.step);
@@ -252,17 +255,26 @@ export default function PoolDetailClient({ poolId }: { poolId: string }) {
             {pool?.asset.code ?? "Pool"} Pool
           </Text>
         )}
-        <Button
-          borderRadius="3xl"
-          bg="app.accent"
-          color="app.onAccent"
-          _hover={{ opacity: 0.9 }}
-          onClick={onOpen}
-          size="lg"
-          isDisabled={poolLoading || isNetworkMismatch}
-        >
-          Deposit
-        </Button>
+        <Flex align="center" gap={2}>
+          {!poolLoading && (
+            <ShareButton
+              url={shareUrl}
+              shareText={`Check out the ${pool?.asset.code ?? "SmartDrop"} pool on SmartDrop`}
+              size="sm"
+            />
+          )}
+          <Button
+            borderRadius="3xl"
+            bg="app.accent"
+            color="app.onAccent"
+            _hover={{ opacity: 0.9 }}
+            onClick={onOpen}
+            size="lg"
+            isDisabled={poolLoading || isNetworkMismatch}
+          >
+            Deposit
+          </Button>
+        </Flex>
       </Flex>
 
       {/* Pool Stats */}

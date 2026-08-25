@@ -20,6 +20,7 @@ import {
   Thead,
   Tr,
 } from "@chakra-ui/react";
+import NextLink from "next/link";
 import { useStellarWallet } from "@/context/StellarWalletContext";
 import ConnectWalletButton from "@/components/ConnectWalletButton/ConnectWalletButton";
 import LiveRegion from "@/components/LiveRegion/LiveRegion";
@@ -147,8 +148,19 @@ export default function HistoryPage() {
       ) : entries.length === 0 ? (
         <EmptyState>
           <Text color="app.muted" textAlign="center">
-            No farming history yet — deposit to a pool to get started.
+            No transactions yet — start by locking assets in a pool.
           </Text>
+          <Button
+            as={NextLink}
+            href="/farm"
+            size="sm"
+            borderRadius="2xl"
+            bg="app.accent"
+            color="app.onAccent"
+            _hover={{ opacity: 0.9 }}
+          >
+            Go to Farm
+          </Button>
         </EmptyState>
       ) : (
         <>

@@ -23,6 +23,7 @@ import { useLeaderboard, PAGE_SIZE, type SortKey } from "@/hooks/useLeaderboard"
 import { useLiveAnnouncer } from "@/hooks/useLiveAnnouncer";
 import LiveRegion from "@/components/LiveRegion/LiveRegion";
 import CopyAddressButton from "@/components/CopyAddressButton/CopyAddressButton";
+import ShareButton from "@/components/ShareButton/ShareButton";
 
 const LEADERBOARD_TABLE_ID = "leaderboard-table";
 
@@ -65,6 +66,7 @@ export default function LeaderboardPage() {
       ? "No results found."
       : `Leaderboard updated, sorted by ${SORT_LABELS[sortKey]}, showing rank ${rangeStart}-${rangeEnd} of ${filteredCount.toLocaleString()}.`;
   const announcement = useLiveAnnouncer(announcementMessage);
+  const shareUrl = typeof window !== "undefined" ? window.location.href : "";
 
   return (
     <Flex direction="column" align="center" px={{ base: 6, md: 16 }} py={10}>
@@ -317,6 +319,14 @@ export default function LeaderboardPage() {
                             {truncate(entry.address)}
                           </Text>
                           <CopyAddressButton address={entry.address} />
+                          <ShareButton
+                            url={shareUrl}
+                            shareText={
+                              isMe
+                                ? `I'm rank ${rank} on the SmartDrop leaderboard!`
+                                : `${truncate(entry.address)} is rank ${rank} on the SmartDrop leaderboard`
+                            }
+                          />
                           {isMe && (
                             <Text
                               fontSize="xs"
