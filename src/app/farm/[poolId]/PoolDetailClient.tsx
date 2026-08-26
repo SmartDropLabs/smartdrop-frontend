@@ -6,9 +6,6 @@ import {
   Alert,
   AlertIcon,
   Box,
-  Breadcrumb,
-  BreadcrumbItem,
-  BreadcrumbLink,
   Button,
   Flex,
   Modal,
@@ -29,6 +26,7 @@ import {
   Tr,
   useDisclosure,
 } from "@chakra-ui/react";
+import Breadcrumbs from "@/components/Breadcrumbs/Breadcrumbs";
 import { formatCredits } from "@/lib/soroban";
 import TvlChart from "@/components/TvlChart/TvlChart";
 import { useLockFlow } from "@/hooks/useLockFlow";
@@ -225,20 +223,18 @@ export default function PoolDetailClient({ poolId }: { poolId: string }) {
       w="full"
     >
       {/* Breadcrumb */}
-      <Box w="full">
-        <Breadcrumb fontSize="sm" color="app.muted">
-          <BreadcrumbItem>
-            <BreadcrumbLink as={NextLink} href="/farm" color="app.muted" _hover={{ color: ACCENT }}>
-              Farm
-            </BreadcrumbLink>
-          </BreadcrumbItem>
-          <BreadcrumbItem isCurrentPage>
-            <BreadcrumbLink color={ACCENT}>
-              {poolLoading ? poolId.slice(0, 8) + "…" : (pool?.asset.code ?? poolId.slice(0, 8) + "…")}
-            </BreadcrumbLink>
-          </BreadcrumbItem>
-        </Breadcrumb>
-      </Box>
+      <Flex w="full">
+        <Breadcrumbs
+          items={[
+            { label: "Farm", href: "/farm" },
+            {
+              label: poolLoading
+                ? poolId.slice(0, 8) + "…"
+                : (pool?.asset.code ?? poolId.slice(0, 8) + "…"),
+            },
+          ]}
+        />
+      </Flex>
 
       {/* Header */}
       <Flex w="full" justify="space-between" align="center" flexWrap="wrap" gap={4}>

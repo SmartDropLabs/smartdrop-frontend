@@ -71,8 +71,6 @@ export function useLockFlow({
         }
 
         setStep("simulating");
-        // Freighter internally simulates then surfaces the popup
-        setStep("signing");
 
         const result = await lockAssets({
           poolContractId: poolId,

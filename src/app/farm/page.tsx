@@ -4,6 +4,7 @@ import { PlatformStats } from "@/components/PlatformStats/PlatformStats";
 import ConnectWalletButton from "@/components/ConnectWalletButton/ConnectWalletButton";
 import UnlockModal from "@/components/UnlockModal/UnlockModal";
 import BoostModal from "@/components/BoostModal/BoostModal";
+import Breadcrumbs from "@/components/Breadcrumbs/Breadcrumbs";
 import { EarningRow, MetricColumn } from "@/app/farm/EarningRow";
 import { FarmPoolRow } from "@/app/farm/FarmPoolRow";
 import {
@@ -521,6 +522,9 @@ export default function Farm() {
 
   return (
     <Flex direction="column" align="center" gap={6} px={{ base: 4, md: 8 }} py={6}>
+      <Flex w="full" maxW="1200px">
+        <Breadcrumbs items={[{ label: "Farm" }]} />
+      </Flex>
       <PlatformStats />
       <Text fontSize="xs" color="app.muted" textAlign="center" overflowWrap="anywhere">
         Network: {stellarNetwork}
