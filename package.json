@@ -13,6 +13,8 @@
     "lint": "next lint",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage --coverage.include src/lib/soroban.ts",
+    "test:visual": "playwright test --config e2e/playwright.config.ts e2e/visual-regression.spec.ts",
+    "test:visual:update": "playwright test --config e2e/playwright.config.ts e2e/visual-regression.spec.ts --update-snapshots",
     "build:analyze": "ANALYZE=true next build",
     "playwright": "playwright test --config e2e/playwright.config.ts",
     "contributors:sync": "node scripts/sync-lernza-contributors.mjs",
