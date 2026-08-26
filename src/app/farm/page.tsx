@@ -63,6 +63,7 @@ type LivePoolRow = {
   lockedAmount: number;
   lockedAt: number;
   lockPeriodSeconds: number;
+  createdAt: number;
 };
 
 function formatLockPeriod(seconds: number): string {
@@ -501,6 +502,7 @@ export default function Farm() {
         lockedAt: position?.lockedAt ?? 0,
         lockPeriodSeconds: pool.minLockPeriod,
         boostAllocation: position?.boostAllocation,
+        createdAt: pool.createdAt,
       };
     });
   }, [pools, userPositions]);

@@ -1,4 +1,5 @@
 ﻿import AppShell from "@/components/AppShell/AppShell";
+import PageTransition from "@/components/PageTransition/PageTransition";
 import type { Metadata, Viewport } from "next";
 import { Inter } from "next/font/google";
 import { CSP_POLICY } from "../../next.config";
@@ -47,7 +48,9 @@ export default function RootLayout({
         <meta httpEquiv="Content-Security-Policy" content={CSP_POLICY} />
       </head>
       <body suppressHydrationWarning>
-        <AppShell>{children}</AppShell>
+        <AppShell>
+          <PageTransition>{children}</PageTransition>
+        </AppShell>
       </body>
     </html>
   );

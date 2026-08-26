@@ -7,6 +7,21 @@ import { memo } from "react";
 import { useCountdown } from "@/hooks/useCountdown";
 import { generatePoolSlug } from "@/lib/pool-slugs";
 
+function formatPoolAge(createdAtMs: number): string {
+  if (!createdAtMs) return "—";
+  const diffMs = Date.now() - createdAtMs;
+  if (diffMs < 0) return "New";
+  const days = Math.floor(diffMs / 86_400_000);
+  if (days === 0) return "Today";
+  if (days === 1) return "1 day ago";
+  if (days < 30) return `${days} days ago`;
+  const months = Math.floor(days / 30);
+  if (months === 1) return "1 month ago";
+  if (months < 12) return `${months} months ago`;
+  const years = Math.floor(months / 12);
+  return years === 1 ? "1 year ago" : `${years} years ago`;
+}
+
 type LivePoolRow = {
   id: string;
   contractAddress: string;
@@ -19,6 +34,7 @@ type LivePoolRow = {
   lockedAmount: number;
   lockedAt: number;
   lockPeriodSeconds: number;
+  createdAt: number;
 };
 
 type FarmPoolRowProps = {
@@ -43,6 +59,7 @@ function farmPoolRowPropsAreEqual(
     previous.farm.lockedAmount === next.farm.lockedAmount &&
     previous.farm.lockedAt === next.farm.lockedAt &&
     previous.farm.lockPeriodSeconds === next.farm.lockPeriodSeconds &&
+    previous.farm.createdAt === next.farm.createdAt &&
     previous.isConnected === next.isConnected &&
     previous.isNetworkMismatch === next.isNetworkMismatch
   );
@@ -96,6 +113,11 @@ export const FarmPoolRow = memo(function FarmPoolRow({
         label="Total Staked Liquidity"
         value={farm.totalStakedLiquidity}
         minW="180px"
+      />
+      <MetricColumn
+        label="Pool Age"
+        value={formatPoolAge(farm.createdAt)}
+        minW="100px"
       />
       {hasStake && (
         <Box

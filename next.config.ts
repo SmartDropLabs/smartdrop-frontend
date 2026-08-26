@@ -48,6 +48,20 @@ const nextConfig: NextConfig = {
   ...(isStaticExport ? { output: "export" } : {}),
   devIndicators: false,
   ...(basePath ? { basePath, assetPrefix: basePath } : {}),
+  headers: async () => [
+    {
+      source: "/icon.svg",
+      headers: [
+        { key: "Cache-Control", value: "public, max-age=0, must-revalidate" },
+      ],
+    },
+    {
+      source: "/apple-icon.png",
+      headers: [
+        { key: "Cache-Control", value: "public, max-age=0, must-revalidate" },
+      ],
+    },
+  ],
 };
 
 export default withBundleAnalyzer({ enabled: process.env.ANALYZE === "true" })(nextConfig);
