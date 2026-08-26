@@ -18,6 +18,7 @@ import {
   useTotalUserCredits,
 } from "@/hooks/useSorobanQuery";
 import { sorobanRpcUrl, stellarNetwork } from "@/config";
+import OnboardingOverlay from "@/components/OnboardingOverlay/OnboardingOverlay";
 
 const MotionBox = motion.create(Box);
 
@@ -246,6 +247,7 @@ export default function Home() {
           </Alert>
         )}
       </MotionBox>
+      <OnboardingOverlay />
     </Flex>
   );
 }

@@ -163,7 +163,7 @@ export interface FreighterWalletApi {
 }
 
 type LockAssetsStep = 'simulating' | 'signing' | 'submitting';
-type UnlockAssetsStep = 'signing' | 'submitting' | 'confirming';
+type UnlockAssetsStep = 'simulating' | 'signing' | 'submitting' | 'confirming';
 
 export interface LockAssetsCallbacks {
   onHash?: (hash: string) => void;
@@ -568,6 +568,47 @@ export function getContractErrorMessage(errorCode?: string): string | undefined 
     console.warn('[SmartDrop] Unmapped contract error code:', normalized);
   }
   return message;
+}
+
+/**
+ * Parse raw Soroban simulation error strings into user-friendly messages.
+ * Catches common failure patterns (insufficient balance, contract errors,
+ * auth failures) and returns a clear message BEFORE the wallet signing
+ * prompt so users are not confused by opaque XDR error strings.
+ */
+export function parseSimulationError(rawError: string): string {
+  const lower = rawError.toLowerCase();
+
+  // Insufficient balance / funding
+  if (lower.includes('insufficient') || lower.includes('underfunded') || lower.includes('balance')) {
+    return 'Insufficient balance to cover this transaction. Please ensure your wallet has enough funds.';
+  }
+
+  // Contract-level numeric error code: "HostError(Contract, #N)"
+  const contractCodeMatch = rawError.match(/HostError\(Contract,\s*#(\d+)\)/i);
+  if (contractCodeMatch) {
+    const code = contractCodeMatch[1];
+    const mapped = CONTRACT_ERROR_MESSAGES[code];
+    return mapped ?? `Contract error #${code}. Please check your position and try again.`;
+  }
+
+  // Authorization / auth failures
+  if (lower.includes('auth') || lower.includes('unauthorized') || lower.includes('not authorized')) {
+    return 'Authorization failed. Make sure your wallet is connected to the correct account.';
+  }
+
+  // Expired / time-related
+  if (lower.includes('expired') || lower.includes('too old') || lower.includes('deadline')) {
+    return 'Transaction expired. Please try again.';
+  }
+
+  // Budget exceeded
+  if (lower.includes('budget') || lower.includes('exceeded') || lower.includes('resource')) {
+    return 'Transaction exceeds the network resource budget. Try a smaller amount.';
+  }
+
+  // Fallback with the raw error for debugging
+  return `Transaction simulation failed: ${rawError}`;
 }
 
 /** `getContractErrorMessage(errorCode) ?? this` — always includes the raw
@@ -1110,14 +1151,25 @@ export class SorobanService {
 
       callbacks?.onStep?.('simulating');
       const poolContract = this.resolvePoolContract(poolId);
-      const { transaction, simulation, feePreview } = await simulateLockAssets(
-        {
-          poolContractId: poolContract.contractId(),
-          publicKey: userAddress,
-          amount,
-        },
-        this.rpcServer,
-      );
+      let simResult;
+      try {
+        simResult = await simulateLockAssets(
+          {
+            poolContractId: poolContract.contractId(),
+            publicKey: userAddress,
+            amount,
+          },
+          this.rpcServer,
+        );
+      } catch (simErr) {
+        const simMessage = simErr instanceof Error ? simErr.message : String(simErr);
+        return {
+          success: false,
+          status: 'FAILED',
+          error: parseSimulationError(simMessage),
+        };
+      }
+      const { transaction, simulation, feePreview } = simResult;
 
       validateSimulationAuth(simulation, [
         {
@@ -1247,6 +1299,8 @@ export class SorobanService {
         }
       }
 
+      callbacks?.onStep?.('simulating');
+
       const call = poolContract.call(
         "unlock_assets",
         Address.fromString(userAddress).toScVal(),
@@ -1268,7 +1322,7 @@ export class SorobanService {
       if ("error" in simulation) {
         return {
           success: false,
-          error: `Simulation failed: ${simulation.error}`,
+          error: parseSimulationError(String(simulation.error)),
         };
       }
 

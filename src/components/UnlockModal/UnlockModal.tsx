@@ -41,6 +41,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 type UnlockStep =
   | "idle"
+  | "simulating"
   | "signing"
   | "submitting"
   | "confirming"
@@ -50,6 +51,7 @@ type UnlockStep =
 
 const UNLOCK_STEP_LABEL: Record<UnlockStep, string> = {
   idle: "",
+  simulating: "Simulating transaction...",
   signing: "Waiting for Freighter signature...",
   submitting: "Submitting transaction to Stellar...",
   confirming: "Confirming transaction on Stellar...",
@@ -77,7 +79,7 @@ export default function UnlockModal() {
   const countdown = useCountdown(unlockAt);
   const canUnlock = Boolean(position) && countdown.isElapsed;
   const isProcessing =
-    step === "signing" || step === "submitting" || step === "confirming";
+    step === "simulating" || step === "signing" || step === "submitting" || step === "confirming";
 
   const numericAmount = Number(amount);
   const amountValid =
@@ -166,7 +168,7 @@ export default function UnlockModal() {
 
     setError(null);
     setTxHash(null);
-    setStep("signing");
+    setStep("simulating");
     const trackingStartTime = Date.now();
     trackEvent("unlock_initiated", {
       farm: position.name,
