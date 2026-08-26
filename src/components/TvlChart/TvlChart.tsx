@@ -17,6 +17,7 @@ const ACCENT = "#4ae292";
 interface TvlDataPoint {
   date: string;
   tvl: string;
+  truncated?: boolean;
 }
 
 interface TvlChartProps {

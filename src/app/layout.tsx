@@ -5,7 +5,6 @@ import { headers } from "next/headers";
 import { Inter } from "next/font/google";
 import { ColorModeScript } from "@chakra-ui/react";
 import { CSP_POLICY } from "../../next.config";
-import theme from "@/lib/theme";
 import "./globals.css";
 
 const inter = Inter({ subsets: ["latin"], display: "swap" });
@@ -13,6 +12,7 @@ const inter = Inter({ subsets: ["latin"], display: "swap" });
 const SITE_NAME = "SmartDrop";
 const SITE_TITLE = "SmartDrop — Stellar Liquidity Farming";
 const SITE_DESCRIPTION = "Stellar-based liquidity-oriented airdrop experiment";
+const INITIAL_COLOR_MODE = "dark";
 
 export const metadata: Metadata = {
   title: {
@@ -56,7 +56,7 @@ export default async function RootLayout({
         <meta httpEquiv="Content-Security-Policy" content={CSP_POLICY} />
         <ColorModeScript
           nonce={nonce}
-          initialColorMode={theme.config.initialColorMode}
+          initialColorMode={INITIAL_COLOR_MODE}
           storageKey="chakra-ui-color-mode"
         />
       </head>

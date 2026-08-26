@@ -5,7 +5,6 @@ import { Box, Button, Flex, Text } from "@chakra-ui/react";
 import { MetricColumn } from "./EarningRow";
 import { memo } from "react";
 import { useCountdown } from "@/hooks/useCountdown";
-import { generatePoolSlug } from "@/lib/pool-slugs";
 
 function formatPoolAge(createdAtMs: number): string {
   if (!createdAtMs) return "—";
@@ -20,6 +19,10 @@ function formatPoolAge(createdAtMs: number): string {
   if (months < 12) return `${months} months ago`;
   const years = Math.floor(months / 12);
   return years === 1 ? "1 year ago" : `${years} years ago`;
+}
+
+function generateLivePoolSlug(pool: Pick<LivePoolRow, "id" | "symbol">): string {
+  return `${pool.symbol.toLowerCase()}-${pool.id.slice(-6).toLowerCase()}`;
 }
 
 type LivePoolRow = {
@@ -96,7 +99,7 @@ export const FarmPoolRow = memo(function FarmPoolRow({
       px={5}
       py={{ base: 4, md: 0 }}
     >
-      <NextLink href={`/farm/${generatePoolSlug({ asset: { code: farm.symbol }, id: farm.id } as any)}`} style={{ textDecoration: "none" }}>
+      <NextLink href={`/farm/${generateLivePoolSlug(farm)}`} style={{ textDecoration: "none" }}>
         <Text
           fontWeight="bold"
           w={{ base: "full", md: "auto" }}

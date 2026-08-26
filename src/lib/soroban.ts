@@ -15,6 +15,7 @@ import {
   Networks,
   Transaction,
   FeeBumpTransaction,
+  Account,
 } from '@stellar/stellar-sdk';
 import {
   factoryContractId,
@@ -1529,7 +1530,7 @@ export class SorobanService {
   async getPoolHistory(
     poolId: string,
     days: number = 7,
-  ): Promise<{ date: string; tvl: string; truncated?: boolean }> {
+  ): Promise<{ date: string; tvl: string; truncated?: boolean }[]> {
     try {
       const latest = await this.rpcServer.getLatestLedger();
       // ~5 s per ledger; days * 86400 / 5
