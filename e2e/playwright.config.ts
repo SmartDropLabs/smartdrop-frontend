@@ -5,6 +5,13 @@ export default defineConfig({
   testMatch: ['**/*.spec.ts', '**/*.test.ts', '**/*.e2e.ts'],
   timeout: 30_000,
   retries: process.env.CI ? 2 : 0,
+  expect: {
+    toHaveScreenshot: {
+      animations: 'disabled',
+      caret: 'hide',
+      scale: 'css',
+    },
+  },
   use: {
     baseURL: 'http://localhost:3000',
     trace: 'on-first-retry',
@@ -23,6 +30,8 @@ export default defineConfig({
     env: {
       NEXT_PUBLIC_STELLAR_NETWORK: 'TESTNET',
       NEXT_PUBLIC_SOROBAN_RPC_URL: 'https://soroban-testnet.stellar.org',
+      NEXT_PUBLIC_LEADERBOARD_API_URL:
+        'http://localhost:3000/__mock-leaderboard-api',
       NEXT_PUBLIC_MIN_LOCK_PERIOD_SECONDS: '604800',
       NEXT_PUBLIC_E2E: 'true',
     },
