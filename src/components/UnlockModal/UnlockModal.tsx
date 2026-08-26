@@ -426,6 +426,16 @@ export default function UnlockModal() {
                 </Box>
               </Flex>
 
+              {!!amount && !amountValid && (
+                <Text fontSize="xs" color="#ff8080" role="alert">
+                  {numericAmount < 0.01
+                    ? `Minimum unlock amount is 0.01 ${position.symbol}.`
+                    : numericAmount > position.lockedAmount
+                      ? `Amount exceeds locked balance of ${position.lockedAmount} ${position.symbol}.`
+                      : "Enter a valid amount."}
+                </Text>
+              )}
+
               {amountValid && (
                 <Box border="1px solid #303030" borderRadius="2xl" p={3}>
                   {infoRow(
