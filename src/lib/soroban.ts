@@ -4,6 +4,7 @@
  */
 
 import {
+  Account,
   Contract,
   TransactionBuilder,
   BASE_FEE,
@@ -1839,7 +1840,8 @@ export class SorobanService {
           totalStake: Math.round(stake),
           boostUtilization: null,
         }))
-        .filter((e) => e.totalStake > 0 || e.totalCredits > 0);
+        .filter((e) => e.totalStake > 0 || e.totalCredits > 0)
+        .filter((e) => !search || e.address.toLowerCase().includes(search.toLowerCase()));
 
       all.sort((a, b) =>
         sortKey === 'credits'
