@@ -11,6 +11,7 @@ import {
   HStack,
   Link,
   Spinner,
+  Stack,
   Table,
   TableContainer,
   Tbody,
@@ -19,6 +20,8 @@ import {
   Th,
   Thead,
   Tr,
+  useBreakpointValue,
+  VStack,
 } from "@chakra-ui/react";
 import NextLink from "next/link";
 import { useStellarWallet } from "@/context/StellarWalletContext";
@@ -73,7 +76,67 @@ function EmptyState({ children }: { children: React.ReactNode }) {
   );
 }
 
+function HistoryCard({ entry }: { entry: TxHistoryEntry }) {
+  return (
+    <Box
+      w="100%"
+      p={4}
+      border="1px solid"
+      borderColor="app.border"
+      borderRadius="card"
+      bg="app.surface"
+    >
+      <Flex justify="space-between" align="center" mb={3}>
+        <Badge
+          colorScheme={entry.action === "lock" ? "green" : "yellow"}
+          borderRadius="full"
+          px={2.5}
+          py={0.5}
+          textTransform="capitalize"
+          fontWeight="semibold"
+        >
+          {entry.action}
+        </Badge>
+        <Text fontSize="xs" color="app.muted" whiteSpace="nowrap">
+          {formatDate(entry.date)}
+        </Text>
+      </Flex>
+
+      <VStack align="stretch" spacing={2}>
+        <Flex justify="space-between">
+          <Text fontSize="sm" color="app.muted">Amount</Text>
+          <Text fontSize="sm" color="app.text" fontWeight="medium">
+            {formatAmount(entry.amount, entry.symbol)}
+          </Text>
+        </Flex>
+        <Flex justify="space-between">
+          <Text fontSize="sm" color="app.muted">Credits Earned</Text>
+          <Text fontSize="sm" color="app.text" fontWeight="medium">
+            {entry.creditsEarned != null
+              ? Number(entry.creditsEarned).toLocaleString()
+              : "—"}
+          </Text>
+        </Flex>
+        <Flex justify="space-between" align="center">
+          <Text fontSize="sm" color="app.muted">Transaction</Text>
+          <Link
+            href={stellarExpertTxUrl(entry.txHash, stellarNetwork.toLowerCase())}
+            isExternal
+            color="app.accent"
+            fontFamily="mono"
+            fontSize="xs"
+            _hover={{ textDecoration: "underline" }}
+          >
+            {truncateHash(entry.txHash)}
+          </Link>
+        </Flex>
+      </VStack>
+    </Box>
+  );
+}
+
 export default function HistoryPage() {
+  const isMobile = useBreakpointValue({ base: true, md: false }, { ssr: false });
   const { publicKey, isConnected } = useStellarWallet();
   const { data: pools } = usePools();
   const [entries, setEntries] = useState<TxHistoryEntry[]>([]);
@@ -164,76 +227,84 @@ export default function HistoryPage() {
         </EmptyState>
       ) : (
         <>
-          <TableContainer
-            w="100%"
-            maxW="1000px"
-            mt={6}
-            overflowX="auto"
-            border="1px solid"
-            borderColor="app.border"
-            borderRadius="card"
-            bg="app.surface"
-            boxShadow="card"
-          >
-            <Table variant="unstyled" size="sm">
-              <Thead>
-                <Tr borderBottom="1px solid" borderColor="app.border">
-                  <Th color="app.muted" fontWeight="medium" py={4} pl={5}>Date</Th>
-                  <Th color="app.muted" fontWeight="medium" py={4}>Action</Th>
-                  <Th color="app.muted" fontWeight="medium" py={4} isNumeric>Amount</Th>
-                  <Th color="app.muted" fontWeight="medium" py={4} isNumeric>Credits Earned</Th>
-                  <Th color="app.muted" fontWeight="medium" py={4} pr={5}>Transaction</Th>
-                </Tr>
-              </Thead>
-              <Tbody>
-                {paged.map((entry) => (
-                  <Tr
-                    key={entry.txHash}
-                    borderTop="1px solid"
-                    borderColor="app.border"
-                    _hover={{ bg: "app.surfaceHover" }}
-                    transition="background 0.15s ease"
-                  >
-                    <Td py={4} pl={5} color="app.text" whiteSpace="nowrap">
-                      {formatDate(entry.date)}
-                    </Td>
-                    <Td py={4}>
-                      <Badge
-                        colorScheme={entry.action === "lock" ? "green" : "yellow"}
-                        borderRadius="full"
-                        px={2.5}
-                        py={0.5}
-                        textTransform="capitalize"
-                        fontWeight="semibold"
-                      >
-                        {entry.action}
-                      </Badge>
-                    </Td>
-                    <Td py={4} isNumeric color="app.text">
-                      {formatAmount(entry.amount, entry.symbol)}
-                    </Td>
-                    <Td py={4} isNumeric color="app.text">
-                      {entry.creditsEarned != null
-                        ? Number(entry.creditsEarned).toLocaleString()
-                        : "—"}
-                    </Td>
-                    <Td py={4} pr={5}>
-                      <Link
-                        href={stellarExpertTxUrl(entry.txHash, stellarNetwork.toLowerCase())}
-                        isExternal
-                        color="app.accent"
-                        fontFamily="mono"
-                        fontSize="xs"
-                        _hover={{ textDecoration: "underline" }}
-                      >
-                        {truncateHash(entry.txHash)}
-                      </Link>
-                    </Td>
+          {isMobile ? (
+            <Stack w="100%" maxW="1000px" mt={6} spacing={3}>
+              {paged.map((entry) => (
+                <HistoryCard key={entry.txHash} entry={entry} />
+              ))}
+            </Stack>
+          ) : (
+            <TableContainer
+              w="100%"
+              maxW="1000px"
+              mt={6}
+              overflowX="auto"
+              border="1px solid"
+              borderColor="app.border"
+              borderRadius="card"
+              bg="app.surface"
+              boxShadow="card"
+            >
+              <Table variant="unstyled" size="sm">
+                <Thead>
+                  <Tr borderBottom="1px solid" borderColor="app.border">
+                    <Th color="app.muted" fontWeight="medium" py={4} pl={5}>Date</Th>
+                    <Th color="app.muted" fontWeight="medium" py={4}>Action</Th>
+                    <Th color="app.muted" fontWeight="medium" py={4} isNumeric>Amount</Th>
+                    <Th color="app.muted" fontWeight="medium" py={4} isNumeric>Credits Earned</Th>
+                    <Th color="app.muted" fontWeight="medium" py={4} pr={5}>Transaction</Th>
                   </Tr>
-                ))}
-              </Tbody>
-            </Table>
-          </TableContainer>
+                </Thead>
+                <Tbody>
+                  {paged.map((entry) => (
+                    <Tr
+                      key={entry.txHash}
+                      borderTop="1px solid"
+                      borderColor="app.border"
+                      _hover={{ bg: "app.surfaceHover" }}
+                      transition="background 0.15s ease"
+                    >
+                      <Td py={4} pl={5} color="app.text" whiteSpace="nowrap">
+                        {formatDate(entry.date)}
+                      </Td>
+                      <Td py={4}>
+                        <Badge
+                          colorScheme={entry.action === "lock" ? "green" : "yellow"}
+                          borderRadius="full"
+                          px={2.5}
+                          py={0.5}
+                          textTransform="capitalize"
+                          fontWeight="semibold"
+                        >
+                          {entry.action}
+                        </Badge>
+                      </Td>
+                      <Td py={4} isNumeric color="app.text">
+                        {formatAmount(entry.amount, entry.symbol)}
+                      </Td>
+                      <Td py={4} isNumeric color="app.text">
+                        {entry.creditsEarned != null
+                          ? Number(entry.creditsEarned).toLocaleString()
+                          : "—"}
+                      </Td>
+                      <Td py={4} pr={5}>
+                        <Link
+                          href={stellarExpertTxUrl(entry.txHash, stellarNetwork.toLowerCase())}
+                          isExternal
+                          color="app.accent"
+                          fontFamily="mono"
+                          fontSize="xs"
+                          _hover={{ textDecoration: "underline" }}
+                        >
+                          {truncateHash(entry.txHash)}
+                        </Link>
+                      </Td>
+                    </Tr>
+                  ))}
+                </Tbody>
+              </Table>
+            </TableContainer>
+          )}
 
           {truncated && (
             <Alert status="warning" borderRadius="2xl" mt={4} bg="#2a2412" color="#f6c453" maxW="1000px" w="full">
