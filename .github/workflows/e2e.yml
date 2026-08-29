@@ -32,6 +32,9 @@ jobs:
       - name: Dependency vulnerability audit
         run: pnpm run audit:high
 
+      - name: Dead code and unused exports
+        run: pnpm run deadcode
+
       - name: Install Playwright browsers
         run: pnpm exec playwright install chromium --with-deps
 
