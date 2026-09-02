@@ -26,20 +26,20 @@
   },
   "dependencies": {
     "@chakra-ui/next-js": "^2.4.2",
-    "@chakra-ui/react": "^2.10.4",
+    "@chakra-ui/react": "^3.37.0",
     "@emotion/react": "^11.13.3",
     "@emotion/styled": "^11.13.0",
-    "@stellar/freighter-api": "^3.1.0",
+    "@stellar/freighter-api": "^6.0.1",
     "@stellar/stellar-base": "^15.0.0",
-    "@stellar/stellar-sdk": "^16.0.1",
-    "@tanstack/react-query": "^5.60.5",
-    "framer-motion": "^11.11.17",
-    "next": "15.5.24",
-    "next-intl": "^4.13.7",
+    "@stellar/stellar-sdk": "^17.0.1",
+    "@tanstack/react-query": "^5.102.8",
+    "framer-motion": "^13.1.1",
+    "next": "16.3.3",
+    "next-intl": "^4.14.1",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "recharts": "^3.9.0",
-    "zustand": "^5.0.14"
+    "zustand": "^5.0.15"
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.12.1",
