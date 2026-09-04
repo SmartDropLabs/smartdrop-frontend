@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Box, Skeleton, Text, useBreakpointValue } from "@chakra-ui/react";
+import { Box, Skeleton, Text, useBreakpointValue, useColorModeValue } from "@chakra-ui/react";
 import {
   AreaChart,
   Area,
@@ -12,7 +12,8 @@ import {
 } from "recharts";
 import { sorobanService } from "@/lib/soroban";
 
-const ACCENT = "#4ae292";
+const ACCENT_DARK = "#4ae292";
+const ACCENT_LIGHT = "#0f7a4e";
 
 interface TvlDataPoint {
   date: string;
@@ -30,6 +31,12 @@ export default function TvlChart({ poolId }: TvlChartProps) {
   // Issue #214: a fixed 180px is tall relative to viewport width on small
   // phones; shrink it below the sm breakpoint instead.
   const chartHeight = useBreakpointValue({ base: 140, sm: 180 }, { fallback: "sm" }) ?? 180;
+
+  const accentColor = useColorModeValue(ACCENT_LIGHT, ACCENT_DARK);
+  const axisTickColor = useColorModeValue("#6b7280", "#A2A2A2");
+  const tooltipBg = useColorModeValue("#ffffff", "#171717");
+  const tooltipBorder = useColorModeValue("#e2e8f0", "#333333");
+  const tooltipText = useColorModeValue("#171717", "#ffffff");
 
   useEffect(() => {
     let cancelled = false;
@@ -77,13 +84,13 @@ export default function TvlChart({ poolId }: TvlChartProps) {
       <AreaChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
         <defs>
           <linearGradient id="tvlGradient" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="5%" stopColor={ACCENT} stopOpacity={0.3} />
-            <stop offset="95%" stopColor={ACCENT} stopOpacity={0} />
+            <stop offset="5%" stopColor={accentColor} stopOpacity={0.3} />
+            <stop offset="95%" stopColor={accentColor} stopOpacity={0} />
           </linearGradient>
         </defs>
         <XAxis
           dataKey="date"
-          tick={{ fontSize: 11, fill: "#A2A2A2" }}
+          tick={{ fontSize: 11, fill: axisTickColor }}
           tickFormatter={(v: string) =>
             new Date(v).toLocaleDateString(undefined, {
               month: "short",
@@ -94,7 +101,7 @@ export default function TvlChart({ poolId }: TvlChartProps) {
           tickLine={false}
         />
         <YAxis
-          tick={{ fontSize: 11, fill: "#A2A2A2" }}
+          tick={{ fontSize: 11, fill: axisTickColor }}
           tickFormatter={(v: number) =>
             v >= 1_000_000
               ? `$${(v / 1_000_000).toFixed(1)}M`
@@ -108,10 +115,20 @@ export default function TvlChart({ poolId }: TvlChartProps) {
         />
         <Tooltip
           contentStyle={{
-            background: "#171717",
-            border: "1px solid #333",
+            backgroundColor: tooltipBg,
+            borderColor: tooltipBorder,
+            color: tooltipText,
             borderRadius: "12px",
             fontSize: "12px",
+            boxShadow: "0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)",
+          }}
+          itemStyle={{
+            color: tooltipText,
+          }}
+          labelStyle={{
+            color: tooltipText,
+            fontWeight: 600,
+            marginBottom: "4px",
           }}
           labelFormatter={(label) =>
             new Date(String(label)).toLocaleDateString(undefined, {
@@ -125,11 +142,11 @@ export default function TvlChart({ poolId }: TvlChartProps) {
         <Area
           type="monotone"
           dataKey="tvl"
-          stroke={ACCENT}
+          stroke={accentColor}
           strokeWidth={2}
           fill="url(#tvlGradient)"
           dot={false}
-          activeDot={{ r: 4, fill: ACCENT }}
+          activeDot={{ r: 4, fill: accentColor }}
         />
       </AreaChart>
     </ResponsiveContainer>
