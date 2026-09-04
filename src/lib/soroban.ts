@@ -2054,7 +2054,8 @@ export const unlockAssets = async ({
 } & UnlockAssetsCallbacks) => {
   // Convert display-unit amount to integer stroops before passing as i128.
   // 1 display unit = 10,000,000 stroops (Stellar's fixed-point precision).
-  const stroops = Math.round(parseFloat(amount) * 10_000_000).toString();
+  // Uses exact string-to-BigInt math matching amountToStroops to avoid float rounding errors (#76).
+  const stroops = amountToStroops(amount).toString();
   return sorobanService.unlockAssets(poolContractId, publicKey, stroops, walletApi, {
     onHash,
     onStep,

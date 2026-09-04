@@ -1,3 +1,5 @@
+import { amountToStroops } from "@/lib/soroban";
+
 /** A user's staked position in a farm, including time-lock metadata. */
 export type FarmPosition = {
   /** Stable identifier so UI updates survive re-renders. */
@@ -68,9 +70,9 @@ export type DepositRecord = {
   confirmedAt: number;
 };
 
-/** Convert a display amount (token units) to Soroban i128 stroops string. */
+/** Convert a display amount (token units) to Soroban i128 stroops string using exact BigInt math (#76). */
 export function toStroops(displayAmount: number): string {
-  return String(Math.round(displayAmount * 10_000_000));
+  return amountToStroops(displayAmount.toString()).toString();
 }
 
 /** Whether a DepositStep represents an in-flight operation (blocks dismiss). */
