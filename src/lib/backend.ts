@@ -3,12 +3,14 @@ import { backendApiUrl } from "@/config";
 export class BackendApiError extends Error {
   status: number;
   code?: string;
+  retryAfterSeconds?: number;
 
-  constructor(message: string, status: number, code?: string) {
+  constructor(message: string, status: number, code?: string, retryAfterSeconds?: number) {
     super(message);
     this.name = "BackendApiError";
     this.status = status;
     this.code = code;
+    this.retryAfterSeconds = retryAfterSeconds;
   }
 }
 
@@ -26,6 +28,10 @@ export class BackendApiError extends Error {
  */
 export function isRetryableBackendError(error: unknown): boolean {
   if (error instanceof BackendApiError) {
+    // 429 Rate Limit is a transient condition that can be retried once the window clears
+    if (error.status === 429) {
+      return true;
+    }
     return error.status >= 500;
   }
   return true;
@@ -36,13 +42,18 @@ export function isRetryableBackendError(error: unknown): boolean {
  * Airdrops, Webhooks, Alerts) — bounded retries with exponential backoff
  * for transient failures only, matching the pattern already used for
  * Soroban queries in useSorobanQuery.ts (retry: 2/3 with backoff), gated
- * by isRetryableBackendError so a deterministic 4xx never auto-retries.
+ * by isRetryableBackendError so a deterministic 4xx (except 429) never auto-retries.
  * Spread into a useQuery(...) call: `useQuery({ ...backendQueryRetry, ... })`.
  */
 export const backendQueryRetry = {
   retry: (failureCount: number, error: unknown) =>
     failureCount < 2 && isRetryableBackendError(error),
-  retryDelay: (attemptIndex: number) => Math.min(1000 * 2 ** attemptIndex, 10_000),
+  retryDelay: (attemptIndex: number, error?: unknown) => {
+    if (error instanceof BackendApiError && error.status === 429 && error.retryAfterSeconds) {
+      return Math.min(error.retryAfterSeconds * 1000, 30_000);
+    }
+    return Math.min(1000 * 2 ** attemptIndex, 10_000);
+  },
 } as const;
 
 async function request<T>(
@@ -58,9 +69,30 @@ async function request<T>(
   const body = await res.json().catch(() => null);
 
   if (!res.ok) {
-    const message =
-      body?.error?.message ?? body?.error ?? `Request failed with status ${res.status}`;
-    throw new BackendApiError(message, res.status, body?.error?.code);
+    let retryAfterSeconds: number | undefined;
+    const retryAfterHeader = res.headers.get("Retry-After");
+    if (retryAfterHeader) {
+      const parsed = parseInt(retryAfterHeader, 10);
+      if (!Number.isNaN(parsed) && parsed > 0) {
+        retryAfterSeconds = parsed;
+      }
+    } else if (body?.error?.details?.retry_after_seconds) {
+      const parsed = Number(body.error.details.retry_after_seconds);
+      if (!Number.isNaN(parsed) && parsed > 0) {
+        retryAfterSeconds = parsed;
+      }
+    }
+
+    let message = body?.error?.message ?? body?.error ?? `Request failed with status ${res.status}`;
+    if (res.status === 429) {
+      if (retryAfterSeconds) {
+        message = `Rate limit exceeded. Please try again in ${retryAfterSeconds} second${retryAfterSeconds === 1 ? "" : "s"}.`;
+      } else {
+        message = "Rate limit exceeded. Please wait a moment and try again.";
+      }
+    }
+
+    throw new BackendApiError(message, res.status, body?.error?.code ?? (res.status === 429 ? "RATE_LIMITED" : undefined), retryAfterSeconds);
   }
 
   return body as T;
