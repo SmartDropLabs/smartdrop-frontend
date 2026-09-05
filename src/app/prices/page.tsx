@@ -10,7 +10,7 @@ import {
   Flex,
   HStack,
   Input,
-  Spinner,
+  Skeleton,
   Text,
 } from "@chakra-ui/react";
 import { useQuery } from "@tanstack/react-query";
@@ -115,9 +115,23 @@ export default function PricesPage() {
 
       <Box w="100%" maxW="800px">
         {isLoading ? (
-          <Flex justify="center" py={10}>
-            <Spinner color="app.accent" size="xl" thickness="3px" />
-          </Flex>
+          <Box
+            border="1px solid"
+            borderColor="app.border"
+            borderRadius="card"
+            bg="app.surface"
+            boxShadow="card"
+            p={6}
+            data-testid="price-skeleton-loader"
+          >
+            <HStack justify="space-between" mb={4} flexWrap="wrap">
+              <Skeleton height="32px" width="100px" borderRadius="md" startColor="app.border" endColor="app.surfaceHover" />
+              <Skeleton height="24px" width="60px" borderRadius="full" startColor="app.border" endColor="app.surfaceHover" />
+            </HStack>
+            <Skeleton height="44px" width="180px" borderRadius="md" mb={3} startColor="app.border" endColor="app.surfaceHover" />
+            <Skeleton height="18px" width="260px" borderRadius="md" mb={4} startColor="app.border" endColor="app.surfaceHover" />
+            <Skeleton height="14px" width="320px" borderRadius="md" startColor="app.border" endColor="app.surfaceHover" />
+          </Box>
         ) : isError ? (
           <QueryErrorAlert
             error={error}
