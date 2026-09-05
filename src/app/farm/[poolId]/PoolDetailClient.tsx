@@ -413,7 +413,33 @@ export default function PoolDetailClient({ poolId }: { poolId: string }) {
               </Text>
 
               <Flex direction="column" gap={2}>
-                <Text fontSize="sm">Amount ({pool?.asset.code})</Text>
+                <Flex justify="space-between" align="center">
+                  <Text fontSize="sm">Amount ({pool?.asset.code})</Text>
+                  {isConnected && (
+                    <Text fontSize="xs" color="app.muted">
+                      Balance:{" "}
+                      {balanceQuery.isLoading ? (
+                        "Loading…"
+                      ) : typeof availableBalance === "number" ? (
+                        <Text
+                          as="span"
+                          color="app.accent"
+                          cursor="pointer"
+                          fontWeight="medium"
+                          onClick={() => setRawAmount(String(availableBalance))}
+                          title="Click to use max balance"
+                        >
+                          {availableBalance.toLocaleString(undefined, {
+                            maximumFractionDigits: 7,
+                          })}{" "}
+                          {pool?.asset.code ?? "XLM"}
+                        </Text>
+                      ) : (
+                        "—"
+                      )}
+                    </Text>
+                  )}
+                </Flex>
                 <Input
                   type="number"
                   min={0}
@@ -435,6 +461,13 @@ export default function PoolDetailClient({ poolId }: { poolId: string }) {
                     Enter an amount greater than 0.
                   </Text>
                 )}
+                {amountValid &&
+                  typeof availableBalance === "number" &&
+                  displayAmount > availableBalance && (
+                    <Text fontSize="xs" color="#ff8080">
+                      Amount exceeds your available balance of {availableBalance.toLocaleString(undefined, { maximumFractionDigits: 7 })} {pool?.asset.code ?? "XLM"}.
+                    </Text>
+                  )}
               </Flex>
 
               {isPending && (
