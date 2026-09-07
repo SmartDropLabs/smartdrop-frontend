@@ -167,6 +167,19 @@ test.describe('Wallet lifecycle E2E', () => {
   // button on "/" and disconnects through the navbar.
   test('floating connect button on "/" connects; navbar menu disconnects', async ({ page }) => {
     await mockSorobanRpc(page);
+    // "/" is the only route this suite visits fresh (every other spec goes
+    // straight to /farm or /history). On a first-ever visit, OnboardingOverlay
+    // (src/components/OnboardingOverlay) opens a Chakra Modal, which marks the
+    // rest of the page aria-hidden for focus-trapping -- that's an accessible-
+    // UX feature, not a bug, but it removes the floating connect button from
+    // the accessibility tree entirely, so getByRole can't find it (`element(s)
+    // not found`, not just "not visible"). Seed the "already onboarded" flag
+    // the overlay itself writes on dismiss, so this test starts at the same
+    // returning-user baseline every other spec in the suite implicitly gets by
+    // never visiting "/".
+    await page.addInitScript(() => {
+      localStorage.setItem('smartdrop_onboarded', 'true');
+    });
     await page.goto('/');
     await page.waitForLoadState('networkidle');
 

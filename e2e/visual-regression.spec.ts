@@ -99,10 +99,21 @@ test.describe("visual regression coverage", () => {
   test("theme toggle persists across reloads on the 404 page", async ({ page }) => {
     const consoleErrors = trackConsoleErrors(page);
 
-    await page.addInitScript(() => {
+    await page.goto("/still-not-a-real-route");
+    await page.waitForLoadState("networkidle");
+    // Seed the "light" baseline via evaluate + an explicit reload, not
+    // page.addInitScript(). addInitScript re-runs on *every* navigation in
+    // this page, including the page.reload() below that's meant to test
+    // persistence -- so it was silently overwriting the "dark" value the
+    // toggle click had just set, back to "light", right before the
+    // persistence check read it. That made this look like a broken toggle
+    // when the toggle itself was working correctly the whole time (confirmed
+    // via trace: localStorage read "dark" immediately after the click, every
+    // time, and only flipped back to "light" after reload).
+    await page.evaluate(() => {
       localStorage.setItem("chakra-ui-color-mode", "light");
     });
-    await page.goto("/still-not-a-real-route");
+    await page.reload();
     await page.waitForLoadState("networkidle");
 
     const toggle = page.getByRole("button", { name: "Toggle colour mode" });
