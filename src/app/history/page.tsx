@@ -136,7 +136,16 @@ function HistoryCard({ entry }: { entry: TxHistoryEntry }) {
 }
 
 export default function HistoryPage() {
-  const isMobile = useBreakpointValue({ base: true, md: false }, { ssr: false });
+  // Chakra's `ssr` option is inverted from what the name suggests: `ssr: false`
+  // means "evaluate window.matchMedia immediately" (assumes a client-only app,
+  // no server render), which crashes `next build`'s static export at
+  // prerender time. `ssr: true` (the safe default) instead uses `fallback`
+  // during the server render and only switches to the real value after
+  // client hydration.
+  const isMobile = useBreakpointValue(
+    { base: true, md: false },
+    { ssr: true, fallback: "base" },
+  );
   const { publicKey, isConnected } = useStellarWallet();
   const { data: pools } = usePools();
   const [entries, setEntries] = useState<TxHistoryEntry[]>([]);
