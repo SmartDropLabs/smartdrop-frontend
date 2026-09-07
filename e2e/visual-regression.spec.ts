@@ -88,6 +88,13 @@ test.describe("visual regression coverage", () => {
 
     await expect(page).toHaveScreenshot("404-page-light.png", {
       fullPage: true,
+      // Next.js dev overlay's error/issues badge (<nextjs-portal>, dev-mode
+      // only -- this suite runs against `pnpm dev`) animates inside what
+      // appears to be a shadow root the animation-disabling style injection
+      // above can't reach, so it renders slightly differently frame to
+      // frame. Confirmed via a real CI diff: every pixel outside this badge
+      // matched exactly. Mask it out rather than compare it.
+      mask: [page.locator("nextjs-portal")],
     });
 
     await page.getByRole("link", { name: "Back to home" }).click();
@@ -133,6 +140,7 @@ test.describe("visual regression coverage", () => {
 
     await expect(page).toHaveScreenshot("404-page-dark.png", {
       fullPage: true,
+      mask: [page.locator("nextjs-portal")],
     });
 
     expect(consoleErrors).toEqual([]);
@@ -155,6 +163,7 @@ test.describe("visual regression coverage", () => {
 
     await expect(page).toHaveScreenshot("leaderboard-credits.png", {
       fullPage: true,
+      mask: [page.locator("nextjs-portal")],
     });
 
     await page.getByRole("button", { name: "Stake" }).click();
@@ -166,6 +175,7 @@ test.describe("visual regression coverage", () => {
 
     await expect(page).toHaveScreenshot("leaderboard-stake.png", {
       fullPage: true,
+      mask: [page.locator("nextjs-portal")],
     });
 
     expect(consoleErrors).toEqual([]);
