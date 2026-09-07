@@ -52,12 +52,26 @@ async function mockLeaderboardApi(page: Page, total: number): Promise<void> {
   });
 }
 
+// Console noise that's inherent to this suite's setup rather than an app
+// defect, and shouldn't fail expect(consoleErrors).toEqual([]):
+//  - Next.js's own dev-only hot-reload/error-overlay machinery
+//    (<HotReload>, part of `next dev` -- this suite's webServer -- never
+//    ships in the production build these tests otherwise stand in for).
+//  - The browser's own "Failed to load resource: 404" log for the routes
+//    these specs deliberately navigate to that don't exist -- that's the
+//    point of the test, not an app bug.
+const IGNORED_CONSOLE_ERROR_PATTERNS = [/<HotReload/, /responded with a status of 404/];
+
 function trackConsoleErrors(page: Page) {
   const errors: string[] = [];
 
   page.on("console", (message: ConsoleMessage) => {
     if (message.type() === "error") {
-      errors.push(message.text());
+      const text = message.text();
+      if (IGNORED_CONSOLE_ERROR_PATTERNS.some((pattern) => pattern.test(text))) {
+        return;
+      }
+      errors.push(text);
     }
   });
 
@@ -66,6 +80,22 @@ function trackConsoleErrors(page: Page) {
   });
 
   return errors;
+}
+
+// Next.js's dev-mode error/issues badge (<nextjs-portal>, bottom-left --
+// this suite runs against `pnpm dev`) animates inside what appears to be a
+// shadow root the animation-disabling style above can't reach, so its
+// pixels aren't reproducible run to run (confirmed via a real CI diff:
+// every pixel outside this badge matched an otherwise-identical baseline
+// exactly). Playwright's `mask` option didn't visibly cover it -- the host
+// element's own layout box doesn't necessarily bound its shadow content --
+// so hide it outright before each screenshot instead.
+async function hideDevOverlay(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    document.querySelectorAll("nextjs-portal").forEach((el) => {
+      (el as HTMLElement).style.display = "none";
+    });
+  });
 }
 
 test.describe("visual regression coverage", () => {
@@ -86,6 +116,7 @@ test.describe("visual regression coverage", () => {
     await expect(page.getByText("This page doesn't exist")).toBeVisible();
     await expect(page.getByRole("link", { name: "Back to home" })).toBeVisible();
 
+    await hideDevOverlay(page);
     await expect(page).toHaveScreenshot("404-page-light.png", {
       fullPage: true,
     });
@@ -99,10 +130,21 @@ test.describe("visual regression coverage", () => {
   test("theme toggle persists across reloads on the 404 page", async ({ page }) => {
     const consoleErrors = trackConsoleErrors(page);
 
-    await page.addInitScript(() => {
+    await page.goto("/still-not-a-real-route");
+    await page.waitForLoadState("networkidle");
+    // Seed the "light" baseline via evaluate + an explicit reload, not
+    // page.addInitScript(). addInitScript re-runs on *every* navigation in
+    // this page, including the page.reload() below that's meant to test
+    // persistence -- so it was silently overwriting the "dark" value the
+    // toggle click had just set, back to "light", right before the
+    // persistence check read it. That made this look like a broken toggle
+    // when the toggle itself was working correctly the whole time (confirmed
+    // via trace: localStorage read "dark" immediately after the click, every
+    // time, and only flipped back to "light" after reload).
+    await page.evaluate(() => {
       localStorage.setItem("chakra-ui-color-mode", "light");
     });
-    await page.goto("/still-not-a-real-route");
+    await page.reload();
     await page.waitForLoadState("networkidle");
 
     const toggle = page.getByRole("button", { name: "Toggle colour mode" });
@@ -120,6 +162,7 @@ test.describe("visual regression coverage", () => {
       return page.evaluate(() => localStorage.getItem("chakra-ui-color-mode"));
     }).toBe("dark");
 
+    await hideDevOverlay(page);
     await expect(page).toHaveScreenshot("404-page-dark.png", {
       fullPage: true,
     });
@@ -142,6 +185,7 @@ test.describe("visual regression coverage", () => {
       "descending",
     );
 
+    await hideDevOverlay(page);
     await expect(page).toHaveScreenshot("leaderboard-credits.png", {
       fullPage: true,
     });
@@ -153,6 +197,7 @@ test.describe("visual regression coverage", () => {
     );
     await expect(page.getByRole("cell", { name: "124" }).first()).toBeVisible();
 
+    await hideDevOverlay(page);
     await expect(page).toHaveScreenshot("leaderboard-stake.png", {
       fullPage: true,
     });
