@@ -269,8 +269,11 @@ test.describe('Farm E2E', () => {
     // Seed a position locked 1 minute ago (7-day lock period → ~7 days remaining)
     await seedPosition(page, FIXED_NOW_MS - 60_000);
 
-    // Countdown label is visible and contains time-remaining text (e.g. "6d …")
-    const countdownText = page.getByText(/\d+d \d+h \d+m \d+s/);
+    // Countdown label is visible and contains time-remaining text (e.g. "6d …").
+    // Both the pool row (FarmPoolRow) and the earnings row (EarningRow) render
+    // this position's countdown independently, so two elements legitimately
+    // match — same reason unlockBtn below is scoped with .first().
+    const countdownText = page.getByText(/\d+d \d+h \d+m \d+s/).first();
     await expect(countdownText).toBeVisible({ timeout: 5_000 });
 
     // Unlock button should be disabled

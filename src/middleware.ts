@@ -1,8 +1,4 @@
-import createMiddleware from 'next-intl/middleware';
 import { NextRequest, NextResponse } from 'next/server';
-import { routing } from './i18n/routing';
-
-const intlMiddleware = createMiddleware(routing);
 
 function generateNonce(): string {
   const bytes = new Uint8Array(16);
@@ -35,16 +31,17 @@ function buildCsp(nonce: string): string {
   ].join('; ');
 }
 
+// Note: this middleware previously also ran a next-intl locale middleware
+// (rewriting every request to /en), but the app has no [locale] segment
+// under src/app -- no page was ever built to receive that rewrite, no
+// translations exist, and nothing in the app calls useTranslations/
+// getTranslations. The rewrite made every route 404 under `next start`
+// (invisible on the deployed static-export build, since middleware doesn't
+// run there, which is why this went unnoticed). Removed rather than
+// completed, since nothing in the app actually depends on it.
 export function middleware(request: NextRequest) {
   const nonce = generateNonce();
   const cspHeader = buildCsp(nonce);
-
-  const intlResponse = intlMiddleware(request);
-
-  if (intlResponse.headers.has('location')) {
-    intlResponse.headers.set('Content-Security-Policy', cspHeader);
-    return intlResponse;
-  }
 
   const requestHeaders = new Headers(request.headers);
   requestHeaders.set('x-nonce', nonce);
@@ -53,12 +50,6 @@ export function middleware(request: NextRequest) {
     request: { headers: requestHeaders },
   });
 
-  for (const [key, value] of intlResponse.headers.entries()) {
-    if (key.toLowerCase() !== 'content-security-policy') {
-      response.headers.set(key, value);
-    }
-  }
-
   response.headers.set('Content-Security-Policy', cspHeader);
 
   return response;
@@ -66,8 +57,6 @@ export function middleware(request: NextRequest) {
 
 export const config = {
   matcher: [
-    '/',
-    '/(en|es)/:path*',
     '/((?!_next|_vercel|.*\\..*).*)',
   ]
 };
