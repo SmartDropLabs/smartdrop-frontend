@@ -24,6 +24,12 @@ const theme = extendTheme({
       // Accent — #0f7a4e passes 4.5:1 on white; #4ae292 is the dark-mode green
       "app.accent":    { default: "#0f7a4e",  _dark: "#4ae292" },
       "app.accent2":   { default: "#2563eb",  _dark: "#6dd5ff" },
+      // Extended palette for richer, multi-hue surfaces (landing page bento
+      // grid, ambient background). #7c3aed passes 5.7:1 on white, #c4b5fd
+      // passes 10.5:1 on the dark bg.
+      "app.accent3":   { default: "#7c3aed",  _dark: "#c4b5fd" },
+      // #be185d passes 6:1 on white, #f9a8d4 passes 10.7:1 on the dark bg.
+      "app.accent4":   { default: "#be185d",  _dark: "#f9a8d4" },
       // Text
       "app.text":      { default: "#171717",  _dark: "#ffffff" },
       "app.muted":     { default: "#6b7280",  _dark: "#9a9a9a" },
@@ -54,6 +60,10 @@ const theme = extendTheme({
     card: "0 1px 2px rgba(0,0,0,0.04), 0 8px 24px -8px rgba(0,0,0,0.35)",
     cardHover: "0 1px 2px rgba(0,0,0,0.06), 0 16px 40px -12px rgba(74,226,146,0.25)",
     glow: "0 0 0 1px rgba(74,226,146,0.4), 0 0 32px rgba(74,226,146,0.25)",
+    // Multi-hue glows for the bento-grid stat cards on the landing page.
+    glowBlue: "0 0 0 1px rgba(109,213,255,0.4), 0 0 32px rgba(109,213,255,0.25)",
+    glowViolet: "0 0 0 1px rgba(196,181,253,0.4), 0 0 32px rgba(196,181,253,0.25)",
+    glowPink: "0 0 0 1px rgba(249,168,212,0.4), 0 0 32px rgba(249,168,212,0.25)",
   },
   radii: {
     card: "1.25rem",
