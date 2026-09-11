@@ -1,6 +1,7 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import { renderHook, act } from "@/test/renderHook";
-import type { SortKey, LeaderboardEntry } from "./useLeaderboard";
+import { sorobanService } from "@/lib/soroban";
+import { useLeaderboard, type LeaderboardEntry } from "./useLeaderboard";
 
 // Manually resolvable promises for controlling resolution order
 function createDeferred<T>() {
@@ -22,23 +23,12 @@ const mockStakeEntries: LeaderboardEntry[] = [
   { address: "addr-stake", totalCredits: 10, totalStake: 999, boostUtilization: 0.9 },
 ];
 
-let fetchLeaderboardMock: ReturnType<typeof vi.fn>;
-
-vi.mock("./useLeaderboard", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("./useLeaderboard")>();
-  return {
-    ...actual,
-    fetchLeaderboard: (...args: unknown[]) => fetchLeaderboardMock(...args),
-  };
-});
-
-// We need to import after mocking
-const { useLeaderboard, fetchLeaderboard } = await import("./useLeaderboard");
-
 describe("useLeaderboard race condition", () => {
+  let getLeaderboardSpy: ReturnType<typeof vi.spyOn>;
+
   beforeEach(() => {
     vi.useFakeTimers();
-    fetchLeaderboardMock = vi.fn();
+    getLeaderboardSpy = vi.spyOn(sorobanService, "getLeaderboard");
   });
 
   afterEach(() => {
@@ -52,7 +42,7 @@ describe("useLeaderboard race condition", () => {
 
     // First call (credits sort) returns slow promise
     // Second call (stake sort) returns fast promise
-    fetchLeaderboardMock
+    getLeaderboardSpy
       .mockReturnValueOnce(deferredCredits.promise)
       .mockReturnValueOnce(deferredStake.promise);
 
@@ -84,7 +74,7 @@ describe("useLeaderboard race condition", () => {
     const deferredFirst = createDeferred<{ entries: LeaderboardEntry[]; total: number }>();
     const deferredSecond = createDeferred<{ entries: LeaderboardEntry[]; total: number }>();
 
-    fetchLeaderboardMock
+    getLeaderboardSpy
       .mockReturnValueOnce(deferredFirst.promise)
       .mockReturnValueOnce(deferredSecond.promise);
 
@@ -121,10 +111,10 @@ describe("useLeaderboard race condition", () => {
     const deferredAuto = createDeferred<{ entries: LeaderboardEntry[]; total: number }>();
     const deferredManual = createDeferred<{ entries: LeaderboardEntry[]; total: number }>();
 
-    fetchLeaderboardMock
+    getLeaderboardSpy
       .mockReturnValueOnce(Promise.resolve({ entries: mockEntries, total: 2 })) // initial
-      .mockReturnValueOnce(deferredAuto.promise)  // auto-refresh
-      .mockReturnValueOnce(deferredManual.promise); // manual refresh
+      .mockReturnValueOnce(deferredAuto.promise)  // auto-refresh (after 30s)
+      .mockReturnValueOnce(deferredManual.promise); // manual refresh (sort change)
 
     const { result, rerender } = renderHook(() => useLeaderboard(null));
 
@@ -133,8 +123,12 @@ describe("useLeaderboard race condition", () => {
       vi.advanceTimersByTime(0);
     });
 
-    // Advance past initial render, then trigger a manual refresh
-    // while auto-refresh is in flight
+    // Advance 30s to trigger auto-refresh
+    await act(async () => {
+      vi.advanceTimersByTime(30000);
+    });
+
+    // While auto-refresh is in flight, trigger a manual refresh (e.g. sort change)
     await act(async () => {
       result.current.setSortKey("stake");
       rerender();
@@ -154,5 +148,22 @@ describe("useLeaderboard race condition", () => {
 
     // Should show manual refresh data
     expect(result.current.paged).toEqual(mockStakeEntries);
+  });
+
+  it("ignores in-flight responses after unmount", async () => {
+    const deferred = createDeferred<{ entries: LeaderboardEntry[]; total: number }>();
+    getLeaderboardSpy.mockReturnValueOnce(deferred.promise);
+
+    const { result, unmount } = renderHook(() => useLeaderboard(null));
+
+    unmount();
+
+    // Resolving after unmount should not throw or set state
+    await act(async () => {
+      deferred.resolve({ entries: mockEntries, total: 2 });
+      await deferred.promise;
+    });
+
+    expect(result.current.paged).toEqual([]);
   });
 });

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { sorobanService } from "@/lib/soroban";
 
 export type SortKey = "credits" | "stake";
@@ -34,6 +34,16 @@ export function useLeaderboard(publicKey: string | null) {
   const [page, setPageState] = useState(1);
   const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null);
 
+  const requestIdRef = useRef(0);
+  const isMountedRef = useRef(true);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
+
   useEffect(() => {
     const id = setTimeout(() => setSearchQuery(searchInput), SEARCH_DEBOUNCE_MS);
     return () => clearTimeout(id);
@@ -44,18 +54,30 @@ export function useLeaderboard(publicKey: string | null) {
   const offset = (currentPage - 1) * PAGE_SIZE;
 
   const refresh = useCallback(() => {
+    const currentRequestId = ++requestIdRef.current;
     setIsLoading(true);
+
     fetchLeaderboard(offset, PAGE_SIZE, sortKey, searchQuery || undefined)
-      .then(({ entries, total }) => {
-        setEntries(entries);
-        setTotal(total);
+      .then(({ entries: fetchedEntries, total: fetchedTotal }) => {
+        if (!isMountedRef.current || currentRequestId !== requestIdRef.current) {
+          return;
+        }
+        setEntries(fetchedEntries);
+        setTotal(fetchedTotal);
         setLastRefreshed(new Date());
       })
       .catch(() => {
+        if (!isMountedRef.current || currentRequestId !== requestIdRef.current) {
+          return;
+        }
         setEntries([]);
         setTotal(0);
       })
-      .finally(() => setIsLoading(false));
+      .finally(() => {
+        if (isMountedRef.current && currentRequestId === requestIdRef.current) {
+          setIsLoading(false);
+        }
+      });
   }, [offset, sortKey, searchQuery]);
 
   useEffect(() => {
