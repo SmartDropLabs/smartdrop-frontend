@@ -264,16 +264,20 @@ describe("soroban amount and Horizon helpers", () => {
     expect(fetchSpy).toHaveBeenCalledWith(
       expect.stringMatching(new RegExp(`/accounts/${USER_PUBLIC_KEY}$`)),
     );
+    // Single source of truth: exactly one Horizon round trip (#369).
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
   });
 
-  it("getStellarBalance throws for Horizon non-OK and missing native balances", async () => {
+  it("getStellarBalance reuses fetchAccountBalances: 404 surfaces as missing native", async () => {
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce({
       ok: false,
       status: 404,
     } as Response);
 
+    // fetchAccountBalances maps 404 to [], so a missing account lands on the
+    // same missing-native error as an account without XLM (#369).
     await expect(getStellarBalance(USER_PUBLIC_KEY)).rejects.toThrow(
-      "Unable to fetch Stellar balance from Horizon (404).",
+      "Horizon account response did not include a native XLM balance.",
     );
 
     fetchSpy.mockResolvedValueOnce({

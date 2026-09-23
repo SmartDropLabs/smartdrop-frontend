@@ -19,7 +19,6 @@ import {
 } from '@stellar/stellar-sdk';
 import {
   factoryContractId,
-  horizonUrl,
   networkPassphrase,
   sorobanRpcUrl,
   simulationAccount,
@@ -214,23 +213,12 @@ export function amountToStroops(amount: string, decimals = 7): bigint {
 }
 
 export async function getStellarBalance(publicKey: string): Promise<number> {
-  const response = await fetch(
-    `${horizonUrl.replace(/\/$/, '')}/accounts/${publicKey}`,
-  );
-
-  if (!response.ok) {
-    throw new Error(
-      `Unable to fetch Stellar balance from Horizon (${response.status}).`,
-    );
-  }
-
-  const account = (await response.json()) as {
-    balances?: Array<{
-      asset_type?: string;
-      balance?: string;
-    }>;
-  };
-  const nativeBalance = account.balances?.find(
+  // Single source of truth for Horizon account fetching (#369): reuse
+  // fetchAccountBalances instead of a second bespoke /accounts call.
+  // A 404 surfaces as an empty list there, which lands on the same
+  // missing-native error below.
+  const balances = await fetchAccountBalances(publicKey);
+  const nativeBalance = balances.find(
     (balance) => balance.asset_type === 'native',
   );
 
