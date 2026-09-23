@@ -19,14 +19,13 @@ import {
 } from '@stellar/stellar-sdk';
 import {
   factoryContractId,
-  horizonUrl,
   networkPassphrase,
   sorobanRpcUrl,
   simulationAccount,
   stellarNetwork,
 } from '@/config';
 import { ConfigError, FeeBumpError, FreighterError, SecurityError } from './error-handler';
-import { fetchAccountBalances } from './stellar';
+import { fetchAccountBalances, fetchHorizonAccount } from './stellar';
 import {
   bigintToDisplayAmount,
   parsePoolsFromNative,
@@ -269,12 +268,9 @@ export async function getStellarBalance(
     signal?.addEventListener('abort', onExternalAbort, { once: true });
   }
 
-  let response: Response;
+  let account: Awaited<ReturnType<typeof fetchHorizonAccount>>;
   try {
-    response = await fetch(
-      `${horizonUrl.replace(/\/$/, '')}/accounts/${publicKey}`,
-      { signal: controller.signal },
-    );
+    account = await fetchHorizonAccount(publicKey, { signal: controller.signal });
   } catch (error) {
     if (timedOut) {
       throw new Error(
@@ -287,18 +283,10 @@ export async function getStellarBalance(
     signal?.removeEventListener('abort', onExternalAbort);
   }
 
-  if (!response.ok) {
-    throw new Error(
-      `Unable to fetch Stellar balance from Horizon (${response.status}).`,
-    );
+  if (account === null) {
+    throw new Error('Unable to fetch Stellar balance from Horizon (404).');
   }
 
-  const account = (await response.json()) as {
-    balances?: Array<{
-      asset_type?: string;
-      balance?: string;
-    }>;
-  };
   const nativeBalance = account.balances?.find(
     (balance) => balance.asset_type === 'native',
   );
