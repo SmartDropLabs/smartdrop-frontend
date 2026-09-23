@@ -91,10 +91,13 @@ export async function POST(request: Request) {
       feeBumpTxXdr: feeBumpTx.toEnvelope().toXDR('base64'),
     });
   } catch (error: unknown) {
-    const msg = error instanceof Error ? error.message : 'Internal server error';
+    // Never return this error's message to the client: an unanticipated
+    // failure here could be a Stellar SDK error about the sponsor secret's
+    // format/structure, which would leak internal server configuration
+    // details. Log it server-side and return a generic 500 message instead.
     console.error('[SignFeeBump] Server error:', error);
     return NextResponse.json(
-      { error: msg },
+      { error: 'Internal server error' },
       { status: 500 },
     );
   }
