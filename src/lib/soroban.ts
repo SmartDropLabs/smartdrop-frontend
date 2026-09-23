@@ -213,10 +213,45 @@ export function amountToStroops(amount: string, decimals = 7): bigint {
   return stroops;
 }
 
-export async function getStellarBalance(publicKey: string): Promise<number> {
-  const response = await fetch(
-    `${horizonUrl.replace(/\/$/, '')}/accounts/${publicKey}`,
-  );
+export const HORIZON_BALANCE_TIMEOUT_MS = 10_000;
+
+export async function getStellarBalance(
+  publicKey: string,
+  signal?: AbortSignal,
+  timeoutMs: number = HORIZON_BALANCE_TIMEOUT_MS,
+): Promise<number> {
+  const controller = new AbortController();
+  let timedOut = false;
+  const timeout = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, timeoutMs);
+
+  // Forward external cancellation (e.g. React Query unmount) to our controller.
+  const onExternalAbort = () => controller.abort();
+  if (signal?.aborted) {
+    controller.abort();
+  } else {
+    signal?.addEventListener('abort', onExternalAbort, { once: true });
+  }
+
+  let response: Response;
+  try {
+    response = await fetch(
+      `${horizonUrl.replace(/\/$/, '')}/accounts/${publicKey}`,
+      { signal: controller.signal },
+    );
+  } catch (error) {
+    if (timedOut) {
+      throw new Error(
+        `Timed out fetching Stellar balance from Horizon after ${timeoutMs / 1000}s.`,
+      );
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+    signal?.removeEventListener('abort', onExternalAbort);
+  }
 
   if (!response.ok) {
     throw new Error(
