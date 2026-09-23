@@ -96,7 +96,7 @@ export const useUserCredits = (poolId: string, enabled: boolean = true) => {
 export const useStellarBalance = (publicKey?: string) => {
   return useQuery({
     queryKey: ['stellarBalance', publicKey],
-    queryFn: () => getStellarBalance(publicKey!),
+    queryFn: ({ signal }) => getStellarBalance(publicKey!, signal),
     enabled: !!publicKey,
     staleTime: 15000,
     gcTime: 5 * 60 * 1000,
