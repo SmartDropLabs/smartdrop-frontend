@@ -21,7 +21,7 @@ import NextLink from "next/link";
 import { usePathname } from "next/navigation";
 import ThemeToggle from "@/components/ThemeToggle/ThemeToggle";
 import { usePlatformStats } from "@/hooks/useSorobanQuery";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 const MORE_LINKS = [
   { href: "/prices", label: "Prices" },
@@ -193,6 +193,15 @@ function MobileNavDrawer({
   onClose: () => void;
   isConnected: boolean;
 }) {
+  // Closing only via each NavLink's onClick misses browser back/forward and
+  // any programmatic navigation, leaving the drawer open over the new page
+  // (#382). Closing on every pathname change covers all of those the same
+  // way, since it's a no-op against an already-closed drawer.
+  const pathname = usePathname();
+  useEffect(() => {
+    onClose();
+  }, [pathname, onClose]);
+
   return (
     <Drawer isOpen={isOpen} placement="right" onClose={onClose}>
       <DrawerOverlay />
