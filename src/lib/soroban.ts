@@ -25,7 +25,7 @@ import {
   simulationAccount,
   stellarNetwork,
 } from '@/config';
-import { ConfigError, FreighterError, SecurityError } from './error-handler';
+import { ConfigError, FeeBumpError, FreighterError, SecurityError } from './error-handler';
 import { fetchAccountBalances } from './stellar';
 import {
   bigintToDisplayAmount,
@@ -214,6 +214,40 @@ export function amountToStroops(amount: string, decimals = 7): bigint {
 }
 
 export const HORIZON_BALANCE_TIMEOUT_MS = 10_000;
+
+/**
+ * Asks the sponsor API to wrap a signed inner transaction in a fee bump.
+ * Any failure is surfaced as a FeeBumpError so the UI can show a friendly message.
+ */
+async function requestFeeBump(innerTxXdr: string): Promise<string> {
+  let response: Response;
+  try {
+    response = await fetch('/api/sign-fee-bump', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ innerTxXdr }),
+    });
+  } catch (error) {
+    throw new FeeBumpError(
+      'Fee sponsor request failed',
+      undefined,
+      error instanceof Error ? error : undefined,
+    );
+  }
+
+  if (!response.ok) {
+    const errText = await response.text().catch(() => '');
+    throw new FeeBumpError(`Fee sponsor failed: ${errText}`, response.status);
+  }
+
+  const resData = (await response.json().catch(() => null)) as
+    | { feeBumpTxXdr?: string }
+    | null;
+  if (!resData?.feeBumpTxXdr) {
+    throw new FeeBumpError('Sponsor API returned invalid response', response.status);
+  }
+  return resData.feeBumpTxXdr;
+}
 
 export async function getStellarBalance(
   publicKey: string,
@@ -1235,20 +1269,7 @@ export class SorobanService {
 
       let finalTxXdr = signedTransaction;
       if (isFeeSponsored) {
-        const response = await fetch('/api/sign-fee-bump', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ innerTxXdr: signedTransaction }),
-        });
-        if (!response.ok) {
-          const errText = await response.text();
-          throw new Error(`Fee sponsor failed: ${errText}`);
-        }
-        const resData = await response.json();
-        if (!resData.feeBumpTxXdr) {
-          throw new Error('Sponsor API returned invalid response');
-        }
-        finalTxXdr = resData.feeBumpTxXdr;
+        finalTxXdr = await requestFeeBump(signedTransaction);
       }
 
       callbacks?.onStep?.('submitting');
@@ -1295,6 +1316,14 @@ export class SorobanService {
       console.error('Error locking assets:', error);
       if (error instanceof SecurityError) {
         throw error;
+      }
+      if (error instanceof FeeBumpError) {
+        return {
+          success: false,
+          status: 'FAILED',
+          errorCode: error.code,
+          error: error.userMessage,
+        };
       }
       return {
         success: false,
@@ -1390,20 +1419,7 @@ export class SorobanService {
 
       let finalTxXdr = signedTransaction;
       if (isFeeSponsored) {
-        const response = await fetch('/api/sign-fee-bump', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ innerTxXdr: signedTransaction }),
-        });
-        if (!response.ok) {
-          const errText = await response.text();
-          throw new Error(`Fee sponsor failed: ${errText}`);
-        }
-        const resData = await response.json();
-        if (!resData.feeBumpTxXdr) {
-          throw new Error('Sponsor API returned invalid response');
-        }
-        finalTxXdr = resData.feeBumpTxXdr;
+        finalTxXdr = await requestFeeBump(signedTransaction);
       }
 
       callbacks?.onStep?.('submitting');
@@ -1450,6 +1466,13 @@ export class SorobanService {
       console.error('Error unlocking assets:', error);
       if (error instanceof SecurityError) {
         throw error;
+      }
+      if (error instanceof FeeBumpError) {
+        return {
+          success: false,
+          errorCode: error.code,
+          error: error.userMessage,
+        };
       }
       return {
         success: false,

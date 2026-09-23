@@ -202,6 +202,33 @@ export class SecurityError extends SmartDropError {
 }
 
 /**
+ * Fee-bump sponsorship failures from /api/sign-fee-bump.
+ */
+export class FeeBumpError extends SmartDropError {
+  readonly code = "FEE_BUMP_FAILED";
+  readonly isTransient = true;
+  readonly isCritical = false;
+  readonly status?: number;
+
+  constructor(message: string, status?: number, originalError?: Error) {
+    super(message, originalError);
+    this.status = status;
+    Object.setPrototypeOf(this, FeeBumpError.prototype);
+  }
+
+  readonly userMessage =
+    "Transaction fee sponsorship is temporarily unavailable. Please try again or add XLM to your wallet for regular fees.";
+
+  getLogContext() {
+    return {
+      ...super.getLogContext(),
+      errorType: "FeeBumpError",
+      status: this.status,
+    };
+  }
+}
+
+/**
  * Configuration errors (missing env vars, invalid config).
  */
 export class ConfigError extends SmartDropError {
