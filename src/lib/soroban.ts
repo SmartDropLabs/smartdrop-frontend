@@ -1271,6 +1271,7 @@ export class SorobanService {
 
   /**
    * Unlock assets from a pool
+   * @param amount - integer stroops as a string (already converted from display units by callers)
    */
   async unlockAssets(
     poolId: string,
@@ -2052,9 +2053,10 @@ export const unlockAssets = async ({
   walletApi: FreighterWalletApi;
   isStillConnected?: () => boolean;
 } & UnlockAssetsCallbacks) => {
-  // Convert display-unit amount to integer stroops before passing as i128.
-  // 1 display unit = 10,000,000 stroops (Stellar's fixed-point precision).
-  const stroops = Math.round(parseFloat(amount) * 10_000_000).toString();
+  // Convert display-unit amount to integer stroops using the same validated
+  // helper lockAssets relies on (rejects malformed/decimal-precision input
+  // with a clear error instead of a raw NaN or BigInt() crash).
+  const stroops = amountToStroops(amount).toString();
   return sorobanService.unlockAssets(poolContractId, publicKey, stroops, walletApi, {
     onHash,
     onStep,
