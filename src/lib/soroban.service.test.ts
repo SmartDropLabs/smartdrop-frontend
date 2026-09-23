@@ -536,6 +536,24 @@ describe("soroban transaction builders", () => {
     );
   });
 
+  it("rejects a malformed unlock amount instead of delegating with NaN/garbage stroops", async () => {
+    const walletApi = { signTransaction: vi.fn() };
+    const unlockSpy = vi
+      .spyOn(sorobanService, "unlockAssets")
+      .mockResolvedValue({ success: true, transactionHash: "abc123" });
+
+    await expect(
+      unlockAssets({
+        poolContractId: "pool-xlm",
+        publicKey: USER_PUBLIC_KEY,
+        amount: "not-a-number",
+        walletApi,
+      }),
+    ).rejects.toThrow("Enter a valid positive decimal amount.");
+
+    expect(unlockSpy).not.toHaveBeenCalled();
+  });
+
   it("delegates lockAssets wrapper callbacks to the singleton service", async () => {
     const walletApi = { signTransaction: vi.fn() };
     const onHash = vi.fn();
