@@ -551,47 +551,6 @@ export const useOptimisticUpdate = () => {
   };
 };
 
-/**
- * Hook for managing loading states across multiple operations
- */
-export const useTransactionStates = () => {
-  const lockMutation = useLockAssets();
-  const unlockMutation = useUnlockAssets();
-  const boostMutation = useSetBoost();
-
-  const isLoading = 
-    lockMutation.isPending || 
-    unlockMutation.isPending || 
-    boostMutation.isPending;
-
-  const hasError = 
-    lockMutation.isError || 
-    unlockMutation.isError || 
-    boostMutation.isError;
-
-  const error = 
-    lockMutation.error || 
-    unlockMutation.error || 
-    boostMutation.error;
-
-  const reset = () => {
-    lockMutation.reset();
-    unlockMutation.reset();
-    boostMutation.reset();
-  };
-
-  return {
-    isLoading,
-    hasError,
-    error,
-    reset,
-    lockAssets: lockMutation.mutate,
-    unlockAssets: unlockMutation.mutate,
-    setBoost: boostMutation.mutate,
-  };
-};
-
-
 export interface UIPlatformStats {
   tvl: string;
   activePools: number;
