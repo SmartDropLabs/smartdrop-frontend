@@ -174,6 +174,29 @@ describe("Navbar active-link highlighting", () => {
   });
 });
 
+describe("Navbar mobile drawer (#382)", () => {
+  it("auto-closes when the pathname changes, not just on a NavLink click", async () => {
+    usePathnameMock.mockReturnValue("/");
+    const { rerender } = renderNavbar();
+
+    fireEvent.click(screen.getByRole("button", { name: "Open menu" }));
+    expect(await screen.findByRole("dialog")).toBeTruthy();
+
+    // Simulate browser back/forward or programmatic navigation -- no
+    // NavLink was clicked, only the pathname changed.
+    usePathnameMock.mockReturnValue("/history");
+    rerender(
+      <ChakraProvider>
+        <Navbar />
+      </ChakraProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog")).toBeNull();
+    });
+  });
+});
+
 describe("Navbar More menu", () => {
   it("opens to show the secondary navigation links", async () => {
     renderNavbar();
