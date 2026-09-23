@@ -152,6 +152,8 @@ export default function HistoryPage() {
   const [truncated, setTruncated] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [page, setPage] = useState(1);
+  const [error, setError] = useState<string | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
 
   const poolContractIds = useMemo(
     () => (pools ?? []).map((p) => p.contractAddress).filter(Boolean),
@@ -160,15 +162,30 @@ export default function HistoryPage() {
 
   useEffect(() => {
     if (!publicKey || poolContractIds.length === 0) return;
+    let cancelled = false;
     setIsLoading(true);
+    setError(null);
     setPage(1);
     getUserTransactionHistory(publicKey, poolContractIds)
       .then(({ entries, truncated }) => {
+        if (cancelled) return;
         setEntries(entries);
         setTruncated(truncated);
       })
-      .finally(() => setIsLoading(false));
-  }, [publicKey, poolContractIds]);
+      .catch((err) => {
+        if (cancelled) return;
+        console.error("Failed to load history:", err);
+        setEntries([]);
+        setTruncated(false);
+        setError("Failed to load transaction history. Please try again.");
+      })
+      .finally(() => {
+        if (!cancelled) setIsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [publicKey, poolContractIds, reloadKey]);
 
   const totalPages = Math.max(1, Math.ceil(entries.length / PAGE_SIZE));
   const paged = entries.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
@@ -178,7 +195,9 @@ export default function HistoryPage() {
   const announcementMessage =
     !isConnected || isLoading
       ? ""
-      : entries.length === 0
+      : error
+        ? error
+        : entries.length === 0
         ? "No farming history found."
         : `History updated, showing ${rangeStart}-${rangeEnd} of ${entries.length.toLocaleString()} transactions.`;
   const announcement = useLiveAnnouncer(announcementMessage);
@@ -217,6 +236,23 @@ export default function HistoryPage() {
         <Flex w="100%" justify="center" py={16}>
           <Spinner color="app.accent" size="xl" thickness="3px" />
         </Flex>
+      ) : error ? (
+        <EmptyState>
+          <Alert status="error" borderRadius="2xl" w="full">
+            <AlertIcon />
+            <Text fontSize="sm">{error}</Text>
+          </Alert>
+          <Button
+            size="sm"
+            borderRadius="2xl"
+            bg="app.accent"
+            color="app.onAccent"
+            _hover={{ opacity: 0.9 }}
+            onClick={() => setReloadKey((k) => k + 1)}
+          >
+            Retry
+          </Button>
+        </EmptyState>
       ) : entries.length === 0 ? (
         <EmptyState>
           <Text color="app.muted" textAlign="center">
