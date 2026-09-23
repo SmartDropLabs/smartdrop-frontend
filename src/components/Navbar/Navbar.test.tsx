@@ -139,6 +139,24 @@ describe("Navbar (connected)", () => {
     });
     expect(await screen.findByText("Copied!")).toBeTruthy();
   });
+
+  it("shows an error toast instead of failing silently when clipboard access is unavailable", async () => {
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: {
+        writeText: vi.fn().mockRejectedValue(new Error("clipboard unavailable")),
+      },
+    });
+
+    renderNavbar();
+
+    fireEvent.click(screen.getByRole("button", { name: "Wallet menu" }));
+    fireEvent.click(await screen.findByText("Copy address"));
+
+    expect(await screen.findByText("Couldn't copy address")).toBeTruthy();
+    expect(screen.getByText(TEST_PUBLIC_KEY)).toBeTruthy();
+    expect(screen.queryByText("Copied!")).toBeNull();
+  });
 });
 
 describe("Navbar active-link highlighting", () => {
