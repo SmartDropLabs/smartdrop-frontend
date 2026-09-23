@@ -46,6 +46,10 @@ export function useLockFlow({
   const [step, setStep] = useState<DepositStep>("idle");
   const [record, setRecord] = useState<DepositRecord | null>(null);
   const [error, setError] = useState<string | null>(null);
+  
+  // Use refs to avoid recreating execute callback when step or walletApi change during execution
+  const stepRef = useRef(step);
+  stepRef.current = step;
   const walletApiRef = useRef(walletApi);
   walletApiRef.current = walletApi;
 
@@ -57,7 +61,8 @@ export function useLockFlow({
 
   const execute = useCallback(
     async (displayAmount: number) => {
-      if (isDepositPending(step)) return;
+      // Use ref to read current step without causing execute to recreate on step changes
+      if (isDepositPending(stepRef.current)) return;
 
       setError(null);
       setRecord(null);
@@ -66,7 +71,7 @@ export function useLockFlow({
       trackEvent("deposit_initiated", { poolId, symbol, displayAmount });
 
       try {
-        if (!walletApi || !publicKey) {
+        if (!walletApiRef.current || !publicKey) {
           throw new Error("Wallet not connected. Please connect Freighter before depositing.");
         }
 
@@ -76,7 +81,7 @@ export function useLockFlow({
           poolContractId: poolId,
           publicKey,
           amount: String(displayAmount),
-          walletApi,
+          walletApi: walletApiRef.current,
           onStep: setStep,
           isStillConnected: () => walletApiRef.current === walletApi,
         });
@@ -133,7 +138,8 @@ export function useLockFlow({
         });
       }
     },
-    [step, poolId, symbol, publicKey, walletApi, queryClient],
+    // Removed 'step' and 'walletApi' from deps - now using refs to prevent unnecessary recreations
+    [poolId, symbol, publicKey, queryClient],
   );
 
   return {
