@@ -16,10 +16,18 @@ const backendApiOrigin = (() => {
   }
 })();
 
+// 'unsafe-eval' is only needed for Next.js dev-mode Fast Refresh (eval-based
+// source maps); production builds don't use eval anywhere, so it's dropped
+// outside development. 'unsafe-inline' stays in style-src for now — Chakra
+// UI/Emotion inject <style> tags at runtime with no nonce wired through, and
+// switching that to a nonce-based policy needs an Emotion cache configured
+// with this nonce (e.g. via @chakra-ui/next-js's CacheProvider), which isn't
+// set up in this app yet.
 function buildCsp(nonce: string): string {
+  const isDev = process.env.NODE_ENV !== 'production';
   return [
     "default-src 'self'",
-    `script-src 'self' 'nonce-${nonce}' 'unsafe-eval'`,
+    `script-src 'self' 'nonce-${nonce}'${isDev ? " 'unsafe-eval'" : ''}`,
     "style-src 'self' 'unsafe-inline'",
     `connect-src 'self' https://horizon.stellar.org https://horizon-testnet.stellar.org https://soroban-testnet.stellar.org https://soroban.stellar.org https://stellar.expert ${backendApiOrigin}`,
     "img-src 'self' data: https:",
