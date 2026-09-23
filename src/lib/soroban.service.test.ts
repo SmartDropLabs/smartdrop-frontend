@@ -263,7 +263,43 @@ describe("soroban amount and Horizon helpers", () => {
 
     expect(fetchSpy).toHaveBeenCalledWith(
       expect.stringMatching(new RegExp(`/accounts/${USER_PUBLIC_KEY}$`)),
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
     );
+  });
+
+  it("getStellarBalance aborts and throws a timeout error when Horizon hangs", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(
+      (_url, init) =>
+        new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () =>
+            reject(new DOMException("Aborted", "AbortError")),
+          );
+        }),
+    );
+
+    await expect(getStellarBalance(USER_PUBLIC_KEY, undefined, 10)).rejects.toThrow(
+      "Timed out fetching Stellar balance from Horizon",
+    );
+  });
+
+  it("getStellarBalance forwards external cancellation to fetch", async () => {
+    let fetchSignal: AbortSignal | undefined;
+    vi.spyOn(globalThis, "fetch").mockImplementation(
+      (_url, init) =>
+        new Promise<Response>((_resolve, reject) => {
+          fetchSignal = init?.signal ?? undefined;
+          fetchSignal?.addEventListener("abort", () =>
+            reject(new DOMException("Aborted", "AbortError")),
+          );
+        }),
+    );
+
+    const external = new AbortController();
+    const pending = getStellarBalance(USER_PUBLIC_KEY, external.signal);
+    external.abort();
+
+    await expect(pending).rejects.toThrow("Aborted");
+    expect(fetchSignal?.aborted).toBe(true);
   });
 
   it("getStellarBalance throws for Horizon non-OK and missing native balances", async () => {
