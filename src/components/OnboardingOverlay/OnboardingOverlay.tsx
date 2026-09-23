@@ -68,7 +68,15 @@ export default function OnboardingOverlay() {
   if (!isOpen) return null;
 
   return (
-    <Modal isOpen={isOpen} onClose={handleClose} isCentered size="md">
+    <Modal
+      isOpen={isOpen}
+      onClose={handleClose}
+      isCentered
+      size="md"
+      closeOnEsc
+      trapFocus
+      returnFocusOnClose
+    >
       <ModalOverlay backdropFilter="blur(5px)" bg="blackAlpha.600" />
       <ModalContent
         bg="app.surface"
