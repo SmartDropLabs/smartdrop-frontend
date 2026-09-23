@@ -21,6 +21,7 @@ import NextLink from "next/link";
 import { usePathname } from "next/navigation";
 import ThemeToggle from "@/components/ThemeToggle/ThemeToggle";
 import { usePlatformStats } from "@/hooks/useSorobanQuery";
+import { useToast } from "@/hooks/useToast";
 import { useState } from "react";
 
 const MORE_LINKS = [
@@ -140,6 +141,7 @@ function formatCount(value: number | undefined | null): string {
 function WalletMenu({ publicKey }: { publicKey: string }) {
   const { disconnect } = useStellarWallet();
   const [copied, setCopied] = useState(false);
+  const toast = useToast();
 
   const handleCopy = async () => {
     try {
@@ -147,7 +149,10 @@ function WalletMenu({ publicKey }: { publicKey: string }) {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch {
-      // Clipboard may be unavailable in hardened browser contexts.
+      // navigator.clipboard is unavailable in non-secure/hardened contexts —
+      // surface it instead of failing silently, and include the address so
+      // the user can still copy it manually.
+      toast.error("Couldn't copy address", publicKey);
     }
   };
 
