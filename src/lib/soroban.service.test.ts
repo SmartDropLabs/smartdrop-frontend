@@ -49,7 +49,7 @@ import {
   unlockAssets,
   validateSimulationAuth,
 } from "./soroban";
-import { SecurityError } from "./error-handler";
+import { FeeBumpError, SecurityError } from "./error-handler";
 
 const POOL_CONTRACT_ID =
   "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4";
@@ -774,6 +774,46 @@ describe("SorobanService RPC writes", () => {
       address: USER_PUBLIC_KEY,
     });
     expect(rpcServer.sendTransaction).toHaveBeenCalledTimes(1);
+  });
+
+  it("lockAssets returns a friendly FeeBumpError message when the sponsor API fails", async () => {
+    vi.stubEnv("NEXT_PUBLIC_FEE_SPONSOR_PUBLIC_KEY", USER_PUBLIC_KEY);
+    const { service, rpcServer } = makeService();
+    mockAssembleTransactionPassthrough();
+    rpcServer.simulateTransaction.mockResolvedValue({
+      result: { auth: [makeAuthEntry("lock_assets")] },
+      minResourceFee: "321",
+    });
+    // Unfunded account (Horizon 404) triggers sponsorship; sponsor then 500s.
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) =>
+      String(input).includes("/api/sign-fee-bump")
+        ? ({
+            ok: false,
+            status: 500,
+            text: async () => "Internal Server Error",
+          } as Response)
+        : ({ ok: false, status: 404 } as Response),
+    );
+    const walletApi = {
+      signTransaction: vi.fn(async (xdrEnvelope: string) => xdrEnvelope),
+    };
+
+    const result = await service.lockAssets(
+      POOL_ID,
+      USER_PUBLIC_KEY,
+      "50000000",
+      walletApi,
+    );
+
+    expect(result).toEqual({
+      success: false,
+      status: "FAILED",
+      errorCode: "FEE_BUMP_FAILED",
+      error: new FeeBumpError("x").userMessage,
+    });
+    expect(result.error).not.toContain("Internal Server Error");
+    expect(rpcServer.sendTransaction).not.toHaveBeenCalled();
+    vi.unstubAllEnvs();
   });
 
   it("lockAssets returns decoded contract error details when confirmation fails", async () => {
