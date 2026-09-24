@@ -68,7 +68,9 @@ function earningRowPropsAreEqual(
     previousPosition.symbol === nextPosition.symbol &&
     previousPosition.lockedAmount === nextPosition.lockedAmount &&
     previousPosition.lockedAt === nextPosition.lockedAt &&
-    previousPosition.lockPeriodSeconds === nextPosition.lockPeriodSeconds
+    previousPosition.lockPeriodSeconds === nextPosition.lockPeriodSeconds &&
+    previousPosition.boostAllocation === nextPosition.boostAllocation &&
+    previousPosition.minDepositAmount === nextPosition.minDepositAmount
   );
 }
 
