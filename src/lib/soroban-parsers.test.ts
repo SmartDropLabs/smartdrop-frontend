@@ -249,3 +249,94 @@ describe('parsePoolEntry – contractAddress field', () => {
     vi.restoreAllMocks();
   });
 });
+
+// ---------------------------------------------------------------------------
+// parsePoolEntry — edge cases: missing fields, wrong types, empty input (#460)
+// ---------------------------------------------------------------------------
+
+describe('parsePoolEntry – edge cases (#460)', () => {
+  it('defaults numeric/string fields when the entry has no matching fields at all', () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const result = parsePoolEntry({}, 5);
+    expect(result.id).toBe('5');
+    expect(result.contractAddress).toBe('');
+    expect(result.asset).toEqual({ code: 'XLM', issuer: undefined, isNative: true });
+    expect(result.dailyRate).toBe('0.0000000');
+    expect(result.minLockPeriod).toBe(0);
+    expect(result.totalLocked).toBe('0.0000000');
+    expect(result.totalUsers).toBe(0);
+    expect(result.isActive).toBe(true);
+    expect(result.createdAt).toBe(0);
+    vi.restoreAllMocks();
+  });
+
+  it('tolerates wrong-typed numeric fields instead of throwing (e.g. a string where a bigint is expected)', () => {
+    const pool = makePool({
+      daily_rate: 'not-a-bigint',
+      total_users: 'also-not-a-number',
+    });
+    const result = parsePoolEntry(pool, 0);
+    // bigintToDisplayAmount falls back to String(raw) for non-bigint input.
+    expect(result.dailyRate).toBe('not-a-bigint');
+    // Number('also-not-a-number') is NaN, which is the honest representation
+    // of an unparseable field rather than a silent throw.
+    expect(Number.isNaN(result.totalUsers)).toBe(true);
+  });
+
+  it('treats an empty-string asset issuer as no issuer (native asset)', () => {
+    const pool = makePool({ asset_issuer: '' });
+    const result = parsePoolEntry(pool, 0);
+    expect(result.asset.issuer).toBeUndefined();
+    expect(result.asset.isNative).toBe(true);
+  });
+
+  it('treats a zero-length Uint8Array issuer as no issuer', () => {
+    const pool = makePool({ asset_issuer: new Uint8Array(0) });
+    const result = parsePoolEntry(pool, 0);
+    expect(result.asset.issuer).toBeUndefined();
+  });
+
+  it('decodes a nested asset object over flat asset_* fields when both are present', () => {
+    const pool = makePool({
+      asset: { code: 'USDC', issuer: 'GISSUER', is_native: false },
+      asset_code: 'XLM',
+      asset_issuer: undefined,
+      is_native: true,
+    });
+    const result = parsePoolEntry(pool, 0);
+    expect(result.asset).toEqual({ code: 'USDC', issuer: 'GISSUER', isNative: false });
+  });
+
+  it('is_active explicitly false is respected rather than defaulted to true', () => {
+    const pool = makePool({ is_active: false });
+    const result = parsePoolEntry(pool, 0);
+    expect(result.isActive).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// parsePoolsFromNative — empty array input (#460)
+// ---------------------------------------------------------------------------
+
+describe('parsePoolsFromNative – empty/degenerate input (#460)', () => {
+  it('returns an empty array for an empty input array', () => {
+    expect(parsePoolsFromNative([])).toEqual([]);
+  });
+
+  it('skips array-typed entries (not a valid pool map) without throwing', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const result = parsePoolsFromNative([['not', 'a', 'map'], makePool({ contract_address: CONTRACT_A })]);
+    expect(result).toHaveLength(1);
+    expect(result[0].id).toBe(CONTRACT_A);
+    expect(String(warnSpy.mock.calls[0][0])).toMatch(/skipping malformed/);
+    warnSpy.mockRestore();
+  });
+
+  it('skips primitive (non-object) entries such as numbers or strings without throwing', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const result = parsePoolsFromNative([42, 'oops', undefined, makePool({ contract_address: CONTRACT_A })]);
+    expect(result).toHaveLength(1);
+    expect(warnSpy).toHaveBeenCalledTimes(3);
+    warnSpy.mockRestore();
+  });
+});
