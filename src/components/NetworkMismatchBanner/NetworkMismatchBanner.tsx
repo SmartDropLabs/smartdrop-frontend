@@ -4,6 +4,9 @@ import { stellarNetwork } from "@/config";
 import { useStellarWallet } from "@/context/StellarWalletContext";
 import { Alert, AlertIcon } from "@chakra-ui/react";
 
+/** Matches the navbar height in globals.css (--navbar-height). */
+const NAVBAR_HEIGHT = "var(--navbar-height, 80px)";
+
 export default function NetworkMismatchBanner() {
   const { isNetworkMismatch, networkName } = useStellarWallet();
 
@@ -13,7 +16,7 @@ export default function NetworkMismatchBanner() {
     <Alert
       status="warning"
       position="sticky"
-      top={{ base: "auto", md: "80px" }}
+      top={{ base: "auto", md: NAVBAR_HEIGHT }}
       zIndex={10}
       borderRadius={0}
       justifyContent="center"

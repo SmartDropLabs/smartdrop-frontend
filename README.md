@@ -117,7 +117,7 @@ Local preview with the same asset paths: `BASE_PATH=/smartdrop-frontend npm run 
 5. In **Settings → General**, set **Node.js** to **20.x** (see `.nvmrc` / `package.json` `engines`).
 6. **Deploy.** Pushes to the connected branch trigger new deployments.
 
-**Routes:** use **`/leaderboard`**. The old **`/leaderbord`** path still loads a tiny page that redirects to `/leaderboard`.
+**Routes:** use **`/leaderboard`**. The old typo'd **`/leaderbord`** path is handled by the shared 404 page, which redirects to `/leaderboard`.
 
 **Freighter:** For wallet connect on your `*.vercel.app` URL, ensure the site is allowed in Freighter / use a network that matches your `NEXT_PUBLIC_STELLAR_NETWORK` settings.
 

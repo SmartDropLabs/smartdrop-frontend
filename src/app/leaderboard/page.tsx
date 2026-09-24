@@ -58,6 +58,10 @@ export default function LeaderboardPage() {
   // Matches the spinner-vs-table branch below: nothing to announce yet
   // while the very first fetch is still in flight.
   const isInitialLoad = isLoading && paged.length === 0;
+  // A refetch (sort change, search, auto-refresh) while existing rows are
+  // still on screen — dim the table so it's clear new data is loading,
+  // rather than leaving stale rows looking indistinguishable from fresh ones.
+  const isRefreshing = isLoading && paged.length > 0;
   const rangeStart = filteredCount === 0 ? 0 : (currentPage - 1) * PAGE_SIZE + 1;
   const rangeEnd = Math.min(currentPage * PAGE_SIZE, filteredCount);
   const announcementMessage = isInitialLoad
@@ -213,6 +217,9 @@ export default function LeaderboardPage() {
             borderRadius="card"
             bg="app.surface"
             boxShadow="card"
+            opacity={isRefreshing ? 0.5 : 1}
+            transition="opacity 0.15s ease"
+            aria-busy={isRefreshing}
           >
             <Table id={LEADERBOARD_TABLE_ID} variant="unstyled" size="sm">
               <Thead>

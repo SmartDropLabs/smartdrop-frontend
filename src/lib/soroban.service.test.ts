@@ -511,7 +511,7 @@ describe("soroban transaction builders", () => {
     );
   });
 
-  it("converts unlock display units to stroops before delegating", async () => {
+  it("passes display units through to the service unchanged (#445)", async () => {
     const walletApi = { signTransaction: vi.fn() };
     const unlockSpy = vi
       .spyOn(sorobanService, "unlockAssets")
@@ -529,14 +529,14 @@ describe("soroban transaction builders", () => {
     expect(unlockSpy).toHaveBeenCalledWith(
       "pool-xlm",
       USER_PUBLIC_KEY,
-      "12345678",
+      "1.2345678",
       walletApi,
       { onHash: undefined, onStep: undefined },
       undefined,
     );
   });
 
-  it("rejects a malformed unlock amount instead of delegating with NaN/garbage stroops", async () => {
+  it("rejects a malformed unlock amount instead of delegating garbage (#445)", async () => {
     const walletApi = { signTransaction: vi.fn() };
     const unlockSpy = vi
       .spyOn(sorobanService, "unlockAssets")
@@ -903,6 +903,38 @@ describe("SorobanService RPC writes", () => {
     });
     expect(walletApi.signTransaction).toHaveBeenCalledTimes(1);
     expect(rpcServer.sendTransaction).toHaveBeenCalledTimes(1);
+  });
+
+  it("unlockAssets converts display units to stroops before building the call (#445)", async () => {
+    const { service, rpcServer } = makeService();
+    rpcServer.simulateTransaction.mockResolvedValue({
+      error: "stop before signing",
+    });
+    const callSpy = vi.spyOn(Contract.prototype, "call");
+
+    const result = await service.unlockAssets(
+      POOL_ID,
+      USER_PUBLIC_KEY,
+      "1.5",
+      {
+        signTransaction: vi.fn(),
+      },
+    );
+
+    expect(result).toMatchObject({ success: false });
+    expect(callSpy).toHaveBeenCalledWith(
+      "unlock_assets",
+      expect.any(xdr.ScVal),
+      expect.any(xdr.ScVal),
+    );
+
+    const op = callSpy.mock.results[0].value as xdr.Operation;
+    const invokeContract = invokeContractFromOperation(op);
+    const [, amountArg] = invokeContract.args();
+
+    expect(invokeContract.functionName().toString()).toBe("unlock_assets");
+    expect(amountArg.switch()).toBe(xdr.ScValType.scvI128());
+    expect(scValToNative(amountArg)).toBe(15_000_000n);
   });
 
   it("unlockAssets throws when the pool is not registered", async () => {
@@ -1782,10 +1814,99 @@ describe("SorobanService leaderboard", () => {
     }
   });
 
-  it("getCreditVelocity currently returns the zero accumulator", async () => {
+  it("getCreditVelocity returns 0 when no factory is configured (#446)", async () => {
     const { service } = makeService({ pool: false });
 
     await expect(service.getCreditVelocity(12)).resolves.toBe("0");
+  });
+
+  it("getCreditVelocity sums per-address credit growth inside the window (#446)", async () => {
+    const otherUser = StrKey.encodeEd25519PublicKey(Buffer.alloc(32, 8));
+    const { service, rpcServer } = makeService({ factory: true, pool: false });
+    vi.spyOn(service, "getFactoryPools").mockResolvedValue([
+      {
+        id: "factory-pool",
+        contractAddress: POOL_CONTRACT_ID,
+        asset: { code: "XLM", isNative: true },
+        dailyRate: "0",
+        minLockPeriod: 0,
+        totalLocked: "0",
+        totalUsers: 0,
+        isActive: true,
+        createdAt: 1,
+      },
+    ]);
+    rpcServer.getLatestLedger.mockResolvedValue({ sequence: 200_000 });
+
+    const now = Date.now();
+    const hoursAgo = (h: number) => new Date(now - h * 3_600_000).toISOString();
+    rpcServer.getEvents.mockResolvedValue({
+      events: [
+        // Baseline: last update before the 24h window opened.
+        makeContractEvent({
+          action: "update_credits",
+          address: USER_PUBLIC_KEY,
+          value: { credits: 100 },
+          ledgerClosedAt: hoursAgo(30),
+        }),
+        // Inside the window: 100 → 180 ⇒ +80.
+        makeContractEvent({
+          action: "update_credits",
+          address: USER_PUBLIC_KEY,
+          value: { credits: 180 },
+          ledgerClosedAt: hoursAgo(10),
+        }),
+        // No pre-window baseline ⇒ no observed delta.
+        makeContractEvent({
+          action: "update_credits",
+          address: otherUser,
+          value: { credits: 50 },
+          ledgerClosedAt: hoursAgo(5),
+        }),
+        // Unrelated actions are ignored.
+        makeContractEvent({
+          action: "lock_assets",
+          address: USER_PUBLIC_KEY,
+          value: { amount: 300_000_000n },
+          ledgerClosedAt: hoursAgo(3),
+        }),
+        // Failed calls are ignored.
+        makeContractEvent({
+          action: "update_credits",
+          address: USER_PUBLIC_KEY,
+          value: { credits: 999 },
+          ledgerClosedAt: hoursAgo(1),
+          inSuccessfulContractCall: false,
+        }),
+      ],
+    });
+
+    await expect(service.getCreditVelocity(24)).resolves.toBe("80");
+  });
+
+  it("getCreditVelocity bounds the event scan by windowHours (#446)", async () => {
+    const { service, rpcServer } = makeService({ factory: true, pool: false });
+    vi.spyOn(service, "getFactoryPools").mockResolvedValue([
+      {
+        id: "factory-pool",
+        contractAddress: POOL_CONTRACT_ID,
+        asset: { code: "XLM", isNative: true },
+        dailyRate: "0",
+        minLockPeriod: 0,
+        totalLocked: "0",
+        totalUsers: 0,
+        isActive: true,
+        createdAt: 1,
+      },
+    ]);
+    rpcServer.getLatestLedger.mockResolvedValue({ sequence: 200_000 });
+    rpcServer.getEvents.mockResolvedValue({ events: [] });
+
+    await expect(service.getCreditVelocity(12)).resolves.toBe("0");
+    // 12h window + equal baseline = 2 × (12 × 3600 / 5) = 17_280 ledgers back.
+    expect(rpcServer.getEvents).toHaveBeenCalledWith(
+      expect.objectContaining({ startLedger: 182_720 }),
+    );
   });
 });
 

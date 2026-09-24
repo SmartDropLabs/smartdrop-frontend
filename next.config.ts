@@ -1,8 +1,15 @@
-﻿import type { NextConfig } from "next";
+import type { NextConfig } from "next";
 import withBundleAnalyzer from "@next/bundle-analyzer";
 import { validateEnv } from "./src/config/validateEnv";
 
-validateEnv();
+const isStaticExport = process.env.NEXT_EXPORT === "true";
+
+// Skip env-var warnings during static-export builds — server-only vars
+// like STELLAR_FEE_SPONSOR_SECRET are legitimately absent in that mode,
+// and the warnings would only confuse developers (#423).
+if (!isStaticExport) {
+  validateEnv();
+}
 
 const raw = process.env.BASE_PATH?.trim() ?? "";
 const basePath = raw.startsWith("/") ? raw : raw ? `/${raw}` : "";
@@ -15,7 +22,6 @@ const basePath = raw.startsWith("/") ? raw : raw ? `/${raw}` : "";
  * When running in static-export mode the frontend hook falls back to querying
  * the Stellar Horizon API directly from the browser.
  */
-const isStaticExport = process.env.NEXT_EXPORT === "true";
 const backendApiOrigin = (() => {
   try {
     return new URL(
@@ -28,7 +34,7 @@ const backendApiOrigin = (() => {
 
 const CSP_POLICY = [
   "default-src 'self'",
-  "script-src 'self' 'unsafe-eval' 'unsafe-inline'",
+  "script-src 'self'",
   "style-src 'self' 'unsafe-inline'",
   `connect-src 'self' https://horizon.stellar.org https://horizon-testnet.stellar.org https://soroban-testnet.stellar.org https://soroban.stellar.org https://stellar.expert ${backendApiOrigin}`,
   "img-src 'self' data: https:",

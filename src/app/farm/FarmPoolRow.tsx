@@ -21,8 +21,10 @@ function formatPoolAge(createdAtMs: number): string {
   return years === 1 ? "1 year ago" : `${years} years ago`;
 }
 
-function generateLivePoolSlug(pool: Pick<LivePoolRow, "id" | "symbol">): string {
-  return `${pool.symbol.toLowerCase()}-${pool.id.slice(-6).toLowerCase()}`;
+// #405 — use contractAddress (stable on-chain identity) instead of id
+// (which may fall back to a transient array index) for URL slugs.
+function generateLivePoolSlug(pool: Pick<LivePoolRow, "contractAddress" | "symbol">): string {
+  return `${pool.symbol.toLowerCase()}-${pool.contractAddress.slice(-6).toLowerCase()}`;
 }
 
 type LivePoolRow = {
@@ -149,6 +151,7 @@ export const FarmPoolRow = memo(function FarmPoolRow({
           bg="app.accent"
           color="app.onAccent"
           _hover={{ opacity: 0.9 }}
+          _focusVisible={{ outline: "2px solid app.accent", outlineOffset: "2px" }}
           onClick={() => onDeposit(farm)}
           isDisabled={isNetworkMismatch}
           w={{ base: "full", md: "auto" }}

@@ -188,4 +188,49 @@ describe("LeaderboardPage accessible live-refresh announcements (#86)", () => {
     expect(stakeHeader.getAttribute("aria-sort")).toBe("descending");
     expect(liveRegionText()).toContain("sorted by Stake");
   });
+
+  it("dims the table while a sort-change refetch is in flight, then restores it", async () => {
+    let resolveSecondFetch:
+      | ((value: { entries: ReturnType<typeof entry>[]; total: number }) => void)
+      | undefined;
+
+    getLeaderboardMock
+      .mockResolvedValueOnce({
+        entries: Array.from({ length: 5 }, (_, i) => entry(i)),
+        total: 5,
+      })
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveSecondFetch = resolve;
+          }),
+      );
+
+    await act(async () => {
+      renderPage();
+    });
+
+    const tableContainer = screen.getByRole("table").parentElement as HTMLElement;
+    expect(tableContainer.getAttribute("aria-busy")).not.toBe("true");
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /stake/i }));
+    });
+
+    // The old rows are still on screen (no spinner/blank flash) but marked
+    // busy and visually dimmed while the new sort's data is still loading.
+    expect(tableContainer.getAttribute("aria-busy")).toBe("true");
+    expect(getComputedStyle(tableContainer).opacity).toBe("0.5");
+    expect(screen.getAllByRole("row").length).toBeGreaterThan(1);
+
+    await act(async () => {
+      resolveSecondFetch?.({
+        entries: Array.from({ length: 5 }, (_, i) => entry(i)),
+        total: 5,
+      });
+    });
+
+    expect(tableContainer.getAttribute("aria-busy")).not.toBe("true");
+    expect(getComputedStyle(tableContainer).opacity).toBe("1");
+  });
 });
