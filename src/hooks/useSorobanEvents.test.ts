@@ -39,6 +39,8 @@ describe("useSorobanEvents", () => {
       publicKey: TEST_PUBLIC_KEY,
       isConnected: true,
       walletApi: null,
+      networkName: "TESTNET",
+      isNetworkMismatch: false,
       connect: vi.fn(),
       disconnect: vi.fn(),
     });
@@ -370,6 +372,8 @@ describe("useSorobanEvents", () => {
       publicKey: null,
       isConnected: false,
       walletApi: null,
+      networkName: null,
+      isNetworkMismatch: false,
       connect: vi.fn(),
       disconnect: vi.fn(),
     });
