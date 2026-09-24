@@ -48,8 +48,6 @@ export function useLockFlow({
   const [error, setError] = useState<string | null>(null);
   
   // Use refs to avoid recreating execute callback when step or walletApi change during execution
-  const stepRef = useRef(step);
-  stepRef.current = step;
   const walletApiRef = useRef(walletApi);
   walletApiRef.current = walletApi;
   // step changes throughout the flow (idle -> simulating -> signing ->
