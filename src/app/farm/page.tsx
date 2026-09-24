@@ -178,10 +178,10 @@ function DepositModal({
     await flow.execute(numericAmount);
   };
 
-  // Auto-close the modal shortly after a successful deposit.
+  // Auto-close the modal after a successful deposit (#416).
   useEffect(() => {
     if (flow.step === "success") {
-      const timer = setTimeout(resetAndClose, 1500);
+      const timer = setTimeout(resetAndClose, 3500);
       return () => clearTimeout(timer);
     }
   }, [flow.step]);

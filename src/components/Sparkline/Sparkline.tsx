@@ -3,6 +3,8 @@ type SparklineProps = {
   data: number[];
   width?: number;
   height?: number;
+  /** If true, the sparkline will scale to fill its container width. */
+  responsive?: boolean;
   /** Stroke colour for the line. */
   color?: string;
   /** If true, fills the area under the line with a semi-transparent version of color. */
@@ -29,6 +31,7 @@ export function Sparkline({
   data,
   width = 120,
   height = 32,
+  responsive = false,
   color = "#4AE292",
   fill = true,
   label,
@@ -56,11 +59,12 @@ export function Sparkline({
 
   return (
     <svg
-      width={width}
+      width={responsive ? "100%" : width}
       height={height}
       viewBox={`0 0 ${width} ${height}`}
       role="img"
       aria-label={accessibleLabel}
+      style={responsive ? { maxWidth: width } : undefined}
     >
       <title>{accessibleLabel}</title>
       {fill && (
