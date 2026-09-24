@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import NextLink from "next/link";
 import {
   Alert,
@@ -30,6 +30,7 @@ import Breadcrumbs from "@/components/Breadcrumbs/Breadcrumbs";
 import { formatCredits } from "@/lib/soroban";
 import TvlChart from "@/components/TvlChart/TvlChart";
 import { useLockFlow } from "@/hooks/useLockFlow";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   usePoolDepositors,
   usePools,
@@ -144,6 +145,18 @@ export default function PoolDetailClient({ poolId }: { poolId: string }) {
     publicKey: publicKey ?? "",
     walletApi,
   });
+
+  // Invalidate cached queries when pool changes so the fee preview
+  // doesn't briefly show stale data from the previous pool (#410).
+  const queryClient = useQueryClient();
+  const prevPoolIdRef = useRef(poolId);
+  useEffect(() => {
+    if (prevPoolIdRef.current !== poolId) {
+      prevPoolIdRef.current = poolId;
+      queryClient.invalidateQueries({ queryKey: ["userPosition"] });
+      queryClient.invalidateQueries({ queryKey: ["userCredits"] });
+    }
+  }, [poolId, queryClient]);
 
   const { data: depositorsData, isLoading: depositorsLoading } =
     usePoolDepositors(poolId, 20);
