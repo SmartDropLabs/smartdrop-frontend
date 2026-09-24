@@ -152,7 +152,7 @@ describe("SorobanService network passphrase guard", () => {
   });
 
   it("throws FreighterError when wallet network mismatches in unlockAssets", async () => {
-    const { service } = makeService();
+    const { service, rpcServer } = makeService();
     rpcServer.simulateTransaction.mockResolvedValue({
       result: { auth: [makeAuthEntry("unlock_assets")] },
       minResourceFee: "100",
@@ -173,7 +173,7 @@ describe("SorobanService network passphrase guard", () => {
   });
 
   it("throws FreighterError when wallet network mismatches in setBoost", async () => {
-    const { service } = makeService();
+    const { service, rpcServer } = makeService();
     rpcServer.simulateTransaction.mockResolvedValue({
       result: { auth: [makeAuthEntry("set_boost")] },
       minResourceFee: "100",
