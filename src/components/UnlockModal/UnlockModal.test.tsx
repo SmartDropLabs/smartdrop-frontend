@@ -1,10 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import UnlockModal from './UnlockModal';
-import { useFarmStore } from '@/store/farmStore';
+import { useFarmStore, type FarmStore } from '@/store/farmStore';
 import { useStellarWallet } from '@/context/StellarWalletContext';
 import { useUnlockAssetsFeePreview } from '@/hooks/useSorobanQuery';
-import { unlockAssets } from '@/lib/soroban';
+import { unlockAssets, type UnlockAssetsCallbacks } from '@/lib/soroban';
 import { useCountdown } from '@/hooks/useCountdown';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ChakraProvider } from '@chakra-ui/react';
@@ -97,18 +97,19 @@ describe('UnlockModal', () => {
     vi.clearAllMocks();
 
     // Default mock implementations
-    vi.mocked(useFarmStore).mockImplementation((selector: (state: Record<string, unknown>) => unknown) => {
+    vi.mocked(useFarmStore).mockImplementation((selector: (state: FarmStore) => unknown) => {
       const state = {
         activeModal: 'unlock',
         selectedPosition: mockPosition,
         close: vi.fn(),
-      };
+      } as unknown as FarmStore;
       return selector(state);
     });
 
     vi.mocked(useStellarWallet).mockReturnValue({
       publicKey: 'G_TEST_USER',
       walletApi: { signTransaction: vi.fn() } as never,
+      networkName: 'TESTNET',
       isNetworkMismatch: false,
       isConnected: true,
       connect: vi.fn(),
@@ -136,8 +137,12 @@ describe('UnlockModal', () => {
   });
 
   it('does not render modal content when position is null', () => {
-    vi.mocked(useFarmStore).mockImplementation((selector: (state: Record<string, unknown>) => unknown) => {
-      return selector({ activeModal: 'unlock', selectedPosition: null, close: vi.fn() });
+    vi.mocked(useFarmStore).mockImplementation((selector: (state: FarmStore) => unknown) => {
+      return selector({
+        activeModal: 'unlock',
+        selectedPosition: null,
+        close: vi.fn(),
+      } as unknown as FarmStore);
     });
     renderWithProviders(createElement(UnlockModal));
     // Modal should not show Unlock header
@@ -197,13 +202,14 @@ describe('UnlockModal', () => {
   });
 
   it('handles successful unlock flow', async () => {
-    vi.mocked(unlockAssets).mockImplementation(async (args: Record<string, unknown>) => {
-      const onStep = args.onStep as ((s: string) => void) | undefined;
-      const onHash = args.onHash as ((h: string) => void) | undefined;
-      onStep?.('simulating');
-      onStep?.('signing');
-      onStep?.('submitting');
-      onHash?.('test-hash-abc');
+    vi.mocked(unlockAssets).mockImplementation(async (args: {
+      onStep?: UnlockAssetsCallbacks['onStep'];
+      onHash?: UnlockAssetsCallbacks['onHash'];
+    }) => {
+      args.onStep?.('simulating');
+      args.onStep?.('signing');
+      args.onStep?.('submitting');
+      args.onHash?.('test-hash-abc');
       return { success: true, hash: 'test-hash-abc', status: 'SUCCESS' };
     });
 
@@ -225,9 +231,10 @@ describe('UnlockModal', () => {
   });
 
   it('handles unlock error flow — result.success === false', async () => {
-    vi.mocked(unlockAssets).mockImplementation(async (args: Record<string, unknown>) => {
-      const onStep = args.onStep as ((s: string) => void) | undefined;
-      onStep?.('simulating');
+    vi.mocked(unlockAssets).mockImplementation(async (args: {
+      onStep?: UnlockAssetsCallbacks['onStep'];
+    }) => {
+      args.onStep?.('simulating');
       return {
         success: false,
         status: 'FAILED',
