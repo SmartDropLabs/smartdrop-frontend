@@ -1,4 +1,4 @@
-﻿import type { NextConfig } from "next";
+import type { NextConfig } from "next";
 import withBundleAnalyzer from "@next/bundle-analyzer";
 import { validateEnv } from "./src/config/validateEnv";
 
@@ -28,7 +28,7 @@ const backendApiOrigin = (() => {
 
 const CSP_POLICY = [
   "default-src 'self'",
-  "script-src 'self' 'unsafe-eval' 'unsafe-inline'",
+  "script-src 'self'",
   "style-src 'self' 'unsafe-inline'",
   `connect-src 'self' https://horizon.stellar.org https://horizon-testnet.stellar.org https://soroban-testnet.stellar.org https://soroban.stellar.org https://stellar.expert ${backendApiOrigin}`,
   "img-src 'self' data: https:",

@@ -26,6 +26,18 @@ const POLL_INTERVAL_MS = 5_000;
 // Backoff thresholds for transient errors before pausing
 const PAUSE_AFTER_FAILURES = 3;
 
+// Hoist the server instance to avoid creating a new one on every effect run (#414)
+let cachedRpcUrl: string | null = null;
+let cachedServer: SorobanEventsRpc | null = null;
+
+function getOrCreateServer(rpcOverride?: SorobanEventsRpc): SorobanEventsRpc {
+  if (rpcOverride) return rpcOverride;
+  if (cachedServer && cachedRpcUrl === sorobanRpcUrl) return cachedServer;
+  cachedRpcUrl = sorobanRpcUrl;
+  cachedServer = new rpc.Server(sorobanRpcUrl);
+  return cachedServer;
+}
+
 /**
  * Classify a getEvents error as "retention" (startLedger too old / range
  * invalid — must re-anchor) or "transient" (network blip, rate limit — retry
@@ -91,8 +103,7 @@ export function useSorobanEvents(
   useEffect(() => {
     if (!isConnected || !publicKey || contractIds.length === 0) return;
 
-    const server: SorobanEventsRpc =
-      rpcOverride ?? new rpc.Server(sorobanRpcUrl);
+    const server: SorobanEventsRpc = getOrCreateServer(rpcOverride);
 
     // Pre-encode each topic string to XDR base64 so getEvents can filter them
     const topicFilters = topics.map((t) => [
