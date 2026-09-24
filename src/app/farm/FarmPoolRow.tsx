@@ -151,6 +151,7 @@ export const FarmPoolRow = memo(function FarmPoolRow({
           bg="app.accent"
           color="app.onAccent"
           _hover={{ opacity: 0.9 }}
+          _focusVisible={{ outline: "2px solid app.accent", outlineOffset: "2px" }}
           onClick={() => onDeposit(farm)}
           isDisabled={isNetworkMismatch}
           w={{ base: "full", md: "auto" }}
