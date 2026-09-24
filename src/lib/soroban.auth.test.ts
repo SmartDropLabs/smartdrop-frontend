@@ -49,7 +49,7 @@ describe('validateSimulationAuth', () => {
           },
         ],
       }),
-    } as xdr.SorobanAuthorizationEntry;
+    } as unknown as xdr.SorobanAuthorizationEntry;
 
     const simResult = {
       result: {
