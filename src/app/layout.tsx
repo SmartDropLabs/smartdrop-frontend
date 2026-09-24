@@ -53,6 +53,9 @@ export default async function RootLayout({
   return (
     <html lang="en" className={inter.className} suppressHydrationWarning>
       <head>
+        <link rel="preconnect" href="https://horizon.stellar.org" />
+        <link rel="dns-prefetch" href="https://soroban-testnet.stellar.org" />
+        <link rel="dns-prefetch" href="https://stellar.expert" />
         {/* #404 — In server mode the middleware sets a nonce-bearing CSP header,
             so the static meta tag would duplicate/override it. Only render the
             meta tag in static-export mode where no middleware runs. */}

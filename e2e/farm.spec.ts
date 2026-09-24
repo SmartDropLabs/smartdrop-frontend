@@ -296,12 +296,8 @@ test.describe('Farm E2E', () => {
     const eightDaysMs = 8 * 24 * 60 * 60 * 1_000;
     await page.clock.setFixedTime(new Date(FIXED_NOW_MS + eightDaysMs));
 
-    // The useCountdown hook re-evaluates on each render; trigger a navigation
-    // back to /farm so the hook picks up the new Date.now()
-    await page.goto('/farm');
-    await page.waitForLoadState('networkidle');
-    await connectWallet(page);
-    await seedPosition(page, FIXED_NOW_MS - 60_000);
+    // The useCountdown hook re-evaluates on each render
+    await page.reload();
 
     // Unlock button should now be enabled
     const unlockBtn = page.getByRole('button', { name: /^unlock$/i }).first();
