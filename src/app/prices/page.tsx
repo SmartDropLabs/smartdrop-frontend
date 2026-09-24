@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Alert,
   AlertIcon,
@@ -27,10 +27,20 @@ function formatUsd(value: number | null) {
   });
 }
 
+/** Minimum time between lookups, so the Look up button cannot be spammed (#486). */
+const LOOKUP_COOLDOWN_MS = 2000;
+
 export default function PricesPage() {
   const [assetCode, setAssetCode] = useState("XLM");
   const [issuer, setIssuer] = useState("");
   const [submitted, setSubmitted] = useState({ assetCode: "XLM", issuer: "" });
+  const [coolingDown, setCoolingDown] = useState(false);
+
+  useEffect(() => {
+    if (!coolingDown) return;
+    const timer = setTimeout(() => setCoolingDown(false), LOOKUP_COOLDOWN_MS);
+    return () => clearTimeout(timer);
+  }, [coolingDown]);
 
   const { data, isLoading, isError, error, isFetching, refetch } = useQuery({
     queryKey: ["price", submitted.assetCode, submitted.issuer],
@@ -41,6 +51,8 @@ export default function PricesPage() {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (coolingDown || isFetching) return;
+    setCoolingDown(true);
     setSubmitted({ assetCode: assetCode.trim().toUpperCase(), issuer: issuer.trim() });
   };
 
@@ -107,7 +119,14 @@ export default function PricesPage() {
               _focus={{ boxShadow: "none", borderColor: "app.accent" }}
             />
           </Box>
-          <Button type="submit" bg="app.accent" color="app.onAccent" _hover={{ opacity: 0.9 }} isLoading={isFetching}>
+          <Button
+            type="submit"
+            bg="app.accent"
+            color="app.onAccent"
+            _hover={{ opacity: 0.9 }}
+            isLoading={isFetching}
+            isDisabled={coolingDown}
+          >
             Look up
           </Button>
         </Flex>

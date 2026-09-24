@@ -1,4 +1,5 @@
 import { backendApiUrl } from "@/config";
+import { readJsonWithLimit, ResponseTooLargeError } from "./safe-fetch";
 
 export class BackendApiError extends Error {
   status: number;
@@ -55,7 +56,12 @@ async function request<T>(
   if (apiKey) headers.set("Authorization", `Bearer ${apiKey}`);
 
   const res = await fetch(`${backendApiUrl}${path}`, { ...rest, headers });
-  const body = await res.json().catch(() => null);
+  // An oversized response is an error, not an empty body (#488).
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const body = await readJsonWithLimit<any>(res).catch((err) => {
+    if (err instanceof ResponseTooLargeError) throw err;
+    return null;
+  });
 
   if (!res.ok) {
     const message =

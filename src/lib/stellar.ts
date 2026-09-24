@@ -1,4 +1,5 @@
 import { horizonUrl } from '@/config';
+import { readJsonWithLimit } from './safe-fetch';
 
 export interface AccountBalance {
   asset_type: string;
@@ -36,7 +37,7 @@ export async function fetchHorizonAccount(
     );
   }
 
-  return (await response.json()) as HorizonAccount;
+  return readJsonWithLimit<HorizonAccount>(response);
 }
 
 /**
