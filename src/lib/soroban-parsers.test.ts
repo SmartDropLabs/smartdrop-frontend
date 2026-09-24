@@ -13,6 +13,7 @@ import {
   bigintToDisplayAmount,
   parsePoolEntry,
   parsePoolsFromNative,
+  parseUserPositionFromNative,
 } from './soroban-parsers';
 
 // ---------------------------------------------------------------------------
@@ -338,5 +339,129 @@ describe('parsePoolsFromNative – empty/degenerate input (#460)', () => {
     expect(result).toHaveLength(1);
     expect(warnSpy).toHaveBeenCalledTimes(3);
     warnSpy.mockRestore();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// parseUserPositionFromNative (#460) — previously had zero test coverage
+// ---------------------------------------------------------------------------
+
+describe('parseUserPositionFromNative', () => {
+  const POOL_ID = CONTRACT_A;
+  const USER = 'GUSERAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4';
+
+  it('returns null when given null/undefined', () => {
+    expect(parseUserPositionFromNative(null as unknown as Record<string, unknown>, POOL_ID, USER)).toBeNull();
+    expect(
+      parseUserPositionFromNative(undefined as unknown as Record<string, unknown>, POOL_ID, USER),
+    ).toBeNull();
+  });
+
+  it('returns null when given a non-object (e.g. a string or number)', () => {
+    expect(parseUserPositionFromNative('nope' as unknown as Record<string, unknown>, POOL_ID, USER)).toBeNull();
+    expect(parseUserPositionFromNative(5 as unknown as Record<string, unknown>, POOL_ID, USER)).toBeNull();
+  });
+
+  it('defaults every field when the native map is empty', () => {
+    const result = parseUserPositionFromNative({}, POOL_ID, USER);
+    expect(result).toEqual({
+      user: USER,
+      poolId: POOL_ID,
+      amount: '0.0000000',
+      lockedAt: 0,
+      credits: '0.0000000',
+      isLocked: false,
+      unlockableAt: 0,
+      boostAllocation: undefined,
+    });
+  });
+
+  it('parses a fully-populated position using canonical field names', () => {
+    const result = parseUserPositionFromNative(
+      {
+        locked_at: 1_000,
+        unlockable_at: 2_000,
+        amount: 50_000_000n,
+        credits: 10_000_000n,
+        is_locked: true,
+        boost_allocation: 25,
+      },
+      POOL_ID,
+      USER,
+    );
+    expect(result).toEqual({
+      user: USER,
+      poolId: POOL_ID,
+      amount: '5.0000000',
+      lockedAt: 1_000,
+      credits: '1.0000000',
+      isLocked: true,
+      unlockableAt: 2_000,
+      boostAllocation: 25,
+    });
+  });
+
+  it('falls back to alternate field names (timestamp, locked_amount, accrued_credits, boost)', () => {
+    const result = parseUserPositionFromNative(
+      {
+        timestamp: 1_500,
+        locked_amount: 20_000_000n,
+        accrued_credits: 5_000_000n,
+        boost: 10,
+      },
+      POOL_ID,
+      USER,
+    );
+    expect(result?.lockedAt).toBe(1_500);
+    expect(result?.amount).toBe('2.0000000');
+    expect(result?.credits).toBe('0.5000000');
+    expect(result?.boostAllocation).toBe(10);
+  });
+
+  it('derives unlockableAt from lockedAt + min_lock_period when no explicit unlock field is present', () => {
+    const result = parseUserPositionFromNative(
+      { locked_at: 1_000, min_lock_period: 604_800 },
+      POOL_ID,
+      USER,
+    );
+    expect(result?.unlockableAt).toBe(1_000 + 604_800);
+  });
+
+  it('derives unlockableAt via the lock_period alias when min_lock_period is absent', () => {
+    const result = parseUserPositionFromNative(
+      { locked_at: 1_000, lock_period: 604_800 },
+      POOL_ID,
+      USER,
+    );
+    expect(result?.unlockableAt).toBe(1_000 + 604_800);
+  });
+
+  it('unlockableAt stays 0 when there is no lock-period field to derive it from', () => {
+    const result = parseUserPositionFromNative({ locked_at: 1_000 }, POOL_ID, USER);
+    expect(result?.unlockableAt).toBe(0);
+  });
+
+  it('prefers explicit unlockable_at over a derived value even when min_lock_period is also present', () => {
+    const result = parseUserPositionFromNative(
+      { locked_at: 1_000, min_lock_period: 604_800, unlockable_at: 999_999 },
+      POOL_ID,
+      USER,
+    );
+    expect(result?.unlockableAt).toBe(999_999);
+  });
+
+  it('tolerates wrong-typed fields (string where bigint/number expected) instead of throwing', () => {
+    const result = parseUserPositionFromNative(
+      { amount: 'garbage', locked_at: 'also-garbage' },
+      POOL_ID,
+      USER,
+    );
+    expect(result?.amount).toBe('garbage');
+    expect(Number.isNaN(result?.lockedAt)).toBe(true);
+  });
+
+  it('is_locked explicitly false is respected rather than defaulted', () => {
+    const result = parseUserPositionFromNative({ is_locked: false }, POOL_ID, USER);
+    expect(result?.isLocked).toBe(false);
   });
 });
