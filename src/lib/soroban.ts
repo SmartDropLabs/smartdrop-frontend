@@ -1951,51 +1951,85 @@ export class SorobanService {
     return parseCreditsFromXdrResult(xdrResult);
   }
 
-  async getCreditVelocity(_windowHours: number = 24): Promise<string> {
+  /**
+   * Credits accrued across pools over the trailing `windowHours` window
+   * (issue #446).
+   *
+   * Instead of simulating `get_total_credits` on every pool (an all-time
+   * snapshot that ignored the window entirely), this scans `update_credits`
+   * events bounded by `windowHours` — plus an equal pre-window period used
+   * as a per-address baseline — and sums each address's net credit growth.
+   * Returns "0" when no factory is configured or no growth was observed.
+   */
+  async getCreditVelocity(windowHours: number = 24): Promise<string> {
     try {
       if (!this.factoryContract) {
         return "0";
       }
 
-      const pools = await this.getFactoryPools();
-      if (!pools || pools.length === 0) {
+      const poolIds = await this.getLeaderboardPoolIds();
+      if (poolIds.length === 0) {
         return "0";
       }
 
-      let totalVelocity = 0n;
-      for (const pool of pools) {
-        const poolContract = this.poolContracts.get(pool.id);
-        if (!poolContract) {
-          this.poolContracts.set(pool.id, new Contract(pool.contractAddress));
-        }
+      // ~5s per ledger. Scan the window plus an equal baseline period so
+      // addresses that last updated before the window still have a starting
+      // value to diff against.
+      const hours = Number.isFinite(windowHours) && windowHours > 0 ? windowHours : 24;
+      const ledgersPerWindow = Math.max(1, Math.ceil((hours * 3600) / 5));
+      const latest = await this.rpcServer.getLatestLedger();
+      const startLedger = Math.max(1, latest.sequence - ledgersPerWindow * 2);
+      const windowStartMs = Date.now() - hours * 3600 * 1000;
 
-        const resolvedContract = this.poolContracts.get(pool.id) || new Contract(pool.contractAddress);
-        const call = resolvedContract.call("get_total_credits");
+      const creditSym = xdr.ScVal.scvSymbol('update_credits').toXDR('base64');
+      const { events, truncated } = await getAllEvents(this.rpcServer, {
+        startLedger,
+        endLedger: latest.sequence,
+        filters: [
+          {
+            type: 'contract',
+            contractIds: poolIds,
+            topics: [[creditSym, '*']],
+          },
+        ],
+        limit: 1000,
+      });
 
-        const account = await this.getSimulationAccount();
-        const transaction = new TransactionBuilder(account, {
-          fee: BASE_FEE,
-          networkPassphrase,
-        })
-          .addOperation(call)
-          .setTimeout(30)
-          .build();
+      if (truncated) {
+        console.warn('[SmartDrop] getCreditVelocity: event results were truncated — velocity may be understated');
+      }
 
-        try {
-          const simulation = await this.rpcServer.simulateTransaction(transaction);
-          if (!("error" in simulation) && simulation.result?.retval) {
-            const { scValToNative } = await import('@stellar/stellar-sdk');
-            const value = scValToNative(simulation.result.retval);
-            if (typeof value === 'bigint') {
-              totalVelocity += value;
-            }
-          }
-        } catch {
-          continue;
+      // Per address: last value observed before the window opened, plus the
+      // first and last values observed inside it.
+      const baseline = new Map<string, number>();
+      const firstInWindow = new Map<string, number>();
+      const lastInWindow = new Map<string, number>();
+
+      for (const evt of events) {
+        if (!evt.inSuccessfulContractCall) continue;
+        const topics = (evt.topic as xdr.ScVal[]).map(scValToNative);
+        const action = topics[0] as string;
+        if (action !== 'update_credits') continue;
+        const address = String(topics[1] ?? '');
+        if (!address) continue;
+
+        const value = this.extractEventAmount(scValToNative(evt.value as xdr.ScVal));
+        const closedAt = Date.parse(evt.ledgerClosedAt);
+        if (closedAt < windowStartMs) {
+          baseline.set(address, value);
+        } else {
+          if (!firstInWindow.has(address)) firstInWindow.set(address, value);
+          lastInWindow.set(address, value);
         }
       }
 
-      return totalVelocity.toString();
+      let total = 0;
+      for (const [address, last] of lastInWindow) {
+        const start = baseline.get(address) ?? firstInWindow.get(address) ?? 0;
+        total += Math.max(0, last - start);
+      }
+
+      return String(Math.round(total));
     } catch (error) {
       console.error("Failed to calculate credit velocity:", error);
       return "0";
