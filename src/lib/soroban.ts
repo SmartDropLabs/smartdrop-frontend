@@ -1664,11 +1664,20 @@ export class SorobanService {
       const dailyMap = new Map<string, number>();
       let runningTvl = 0;
 
-      // Seed today and past N days so chart always has points
+      // Seed today and past N days so chart always has points. Use pure UTC
+      // day arithmetic (Date.UTC + millisecond math) rather than
+      // getDate()/setDate(), which operate in the server process's local
+      // timezone: on a "spring forward" DST transition day, subtracting a
+      // local calendar day can skip 23 hours instead of 24, producing a
+      // duplicate key here (collapsing two distinct days into one, since
+      // dailyMap is keyed by date string) — a real, verified gap in the
+      // chart. dateKey below is already a pure UTC slice of ledgerClosedAt,
+      // so seeding needs to match that exactly, with no DST dependency.
+      const now = new Date();
+      const todayUtcMs = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+      const MS_PER_DAY = 24 * 60 * 60 * 1000;
       for (let i = days - 1; i >= 0; i--) {
-        const d = new Date();
-        d.setDate(d.getDate() - i);
-        dailyMap.set(d.toISOString().slice(0, 10), 0);
+        dailyMap.set(new Date(todayUtcMs - i * MS_PER_DAY).toISOString().slice(0, 10), 0);
       }
 
       for (const evt of events) {

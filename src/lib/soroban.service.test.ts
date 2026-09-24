@@ -1428,6 +1428,30 @@ describe("SorobanService event-derived pool data", () => {
     );
   });
 
+  it("getPoolHistory seeds N distinct consecutive days even on a US DST 'spring forward' day (#452)", async () => {
+    // Reproduces the bug with local getDate()/setDate() arithmetic: on the
+    // day before a spring-forward transition, subtracting a local calendar
+    // day only moves the underlying instant by 23 hours, which can land on
+    // the same UTC date twice — collapsing two days into one dailyMap key
+    // and silently dropping a day from the chart.
+    const originalTz = process.env.TZ;
+    process.env.TZ = "America/New_York";
+    try {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date("2026-03-08T23:30:00.000Z"));
+      const { service, rpcServer } = makeService({ pool: false });
+      rpcServer.getLatestLedger.mockResolvedValue({ sequence: 200_000 });
+      rpcServer.getEvents.mockResolvedValue({ events: [], latestLedger: 200_000 });
+
+      const history = await service.getPoolHistory(POOL_CONTRACT_ID, 10);
+
+      expect(history).toHaveLength(10);
+      expect(new Set(history.map((h) => h.date)).size).toBe(10);
+    } finally {
+      process.env.TZ = originalTz;
+    }
+  });
+
   it("getPoolDepositors aggregates successful lock and unlock events by address", async () => {
     const otherUser = StrKey.encodeEd25519PublicKey(Buffer.alloc(32, 8));
     const { service, rpcServer } = makeService({ pool: false });
