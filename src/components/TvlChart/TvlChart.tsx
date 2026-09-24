@@ -108,10 +108,11 @@ export default function TvlChart({ poolId }: TvlChartProps) {
         />
         <Tooltip
           contentStyle={{
-            background: "#171717",
-            border: "1px solid #333",
+            background: "var(--chakra-colors-app-surface)",
+            border: "1px solid var(--chakra-colors-app-border)",
             borderRadius: "12px",
             fontSize: "12px",
+            color: "var(--chakra-colors-app-text)",
           }}
           labelFormatter={(label) =>
             new Date(String(label)).toLocaleDateString(undefined, {
