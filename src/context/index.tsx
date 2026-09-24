@@ -21,10 +21,11 @@ function ContextProvider({ children }: { children: ReactNode }) {
   });
 
   useEffect(() => {
-    if (
-      typeof window !== 'undefined' &&
-      (process.env.NODE_ENV !== 'production' || process.env.NEXT_PUBLIC_E2E === 'true')
-    ) {
+    // Expose the QueryClient only in non-production builds. E2E tests run
+    // against `next dev` (NODE_ENV=development), so the dev-only guard is
+    // sufficient — never expose it in production, even when NEXT_PUBLIC_E2E
+    // is set (#471).
+    if (typeof window !== 'undefined' && process.env.NODE_ENV !== 'production') {
       window.__queryClient = queryClient;
     }
   }, [queryClient]);

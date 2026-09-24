@@ -22,7 +22,7 @@ import { usePathname } from "next/navigation";
 import ThemeToggle from "@/components/ThemeToggle/ThemeToggle";
 import { usePlatformStats } from "@/hooks/useSorobanQuery";
 import { useToast } from "@/hooks/useToast";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 const MORE_LINKS = [
   { href: "/prices", label: "Prices" },

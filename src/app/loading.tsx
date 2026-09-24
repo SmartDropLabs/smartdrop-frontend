@@ -1,9 +1,9 @@
 "use client";
 
 import { usePathname } from "next/navigation";
-import { Box, Flex, Spinner, Text } from "@chakra-ui/react";
+import { Box, Flex, Spinner, Text, type BoxProps } from "@chakra-ui/react";
 
-function SkeletonBar({ w = "100%", h = "16px", delay = 0 }: { w?: string; h?: string; delay?: number }) {
+function SkeletonBar({ w = "100%", h = "16px", delay = 0 }: { w?: BoxProps["w"]; h?: BoxProps["h"]; delay?: number }) {
   return (
     <Box
       w={w}
