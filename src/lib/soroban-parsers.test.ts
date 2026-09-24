@@ -13,6 +13,7 @@ import {
   bigintToDisplayAmount,
   parsePoolEntry,
   parsePoolsFromNative,
+  parseUserPositionFromNative,
 } from './soroban-parsers';
 
 // ---------------------------------------------------------------------------
@@ -247,5 +248,220 @@ describe('parsePoolEntry – contractAddress field', () => {
     const result = parsePoolEntry(pool, 0);
     expect(result.contractAddress).toBe('');
     vi.restoreAllMocks();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// parsePoolEntry — edge cases: missing fields, wrong types, empty input (#460)
+// ---------------------------------------------------------------------------
+
+describe('parsePoolEntry – edge cases (#460)', () => {
+  it('defaults numeric/string fields when the entry has no matching fields at all', () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const result = parsePoolEntry({}, 5);
+    expect(result.id).toBe('5');
+    expect(result.contractAddress).toBe('');
+    expect(result.asset).toEqual({ code: 'XLM', issuer: undefined, isNative: true });
+    expect(result.dailyRate).toBe('0.0000000');
+    expect(result.minLockPeriod).toBe(0);
+    expect(result.totalLocked).toBe('0.0000000');
+    expect(result.totalUsers).toBe(0);
+    expect(result.isActive).toBe(true);
+    expect(result.createdAt).toBe(0);
+    vi.restoreAllMocks();
+  });
+
+  it('tolerates wrong-typed numeric fields instead of throwing (e.g. a string where a bigint is expected)', () => {
+    const pool = makePool({
+      daily_rate: 'not-a-bigint',
+      total_users: 'also-not-a-number',
+    });
+    const result = parsePoolEntry(pool, 0);
+    // bigintToDisplayAmount falls back to String(raw) for non-bigint input.
+    expect(result.dailyRate).toBe('not-a-bigint');
+    // Number('also-not-a-number') is NaN, which is the honest representation
+    // of an unparseable field rather than a silent throw.
+    expect(Number.isNaN(result.totalUsers)).toBe(true);
+  });
+
+  it('treats an empty-string asset issuer as no issuer (native asset)', () => {
+    const pool = makePool({ asset_issuer: '' });
+    const result = parsePoolEntry(pool, 0);
+    expect(result.asset.issuer).toBeUndefined();
+    expect(result.asset.isNative).toBe(true);
+  });
+
+  it('treats a zero-length Uint8Array issuer as no issuer', () => {
+    const pool = makePool({ asset_issuer: new Uint8Array(0) });
+    const result = parsePoolEntry(pool, 0);
+    expect(result.asset.issuer).toBeUndefined();
+  });
+
+  it('decodes a nested asset object over flat asset_* fields when both are present', () => {
+    const pool = makePool({
+      asset: { code: 'USDC', issuer: 'GISSUER', is_native: false },
+      asset_code: 'XLM',
+      asset_issuer: undefined,
+      is_native: true,
+    });
+    const result = parsePoolEntry(pool, 0);
+    expect(result.asset).toEqual({ code: 'USDC', issuer: 'GISSUER', isNative: false });
+  });
+
+  it('is_active explicitly false is respected rather than defaulted to true', () => {
+    const pool = makePool({ is_active: false });
+    const result = parsePoolEntry(pool, 0);
+    expect(result.isActive).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// parsePoolsFromNative — empty array input (#460)
+// ---------------------------------------------------------------------------
+
+describe('parsePoolsFromNative – empty/degenerate input (#460)', () => {
+  it('returns an empty array for an empty input array', () => {
+    expect(parsePoolsFromNative([])).toEqual([]);
+  });
+
+  it('skips array-typed entries (not a valid pool map) without throwing', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const result = parsePoolsFromNative([['not', 'a', 'map'], makePool({ contract_address: CONTRACT_A })]);
+    expect(result).toHaveLength(1);
+    expect(result[0].id).toBe(CONTRACT_A);
+    expect(String(warnSpy.mock.calls[0][0])).toMatch(/skipping malformed/);
+    warnSpy.mockRestore();
+  });
+
+  it('skips primitive (non-object) entries such as numbers or strings without throwing', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const result = parsePoolsFromNative([42, 'oops', undefined, makePool({ contract_address: CONTRACT_A })]);
+    expect(result).toHaveLength(1);
+    expect(warnSpy).toHaveBeenCalledTimes(3);
+    warnSpy.mockRestore();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// parseUserPositionFromNative (#460) — previously had zero test coverage
+// ---------------------------------------------------------------------------
+
+describe('parseUserPositionFromNative', () => {
+  const POOL_ID = CONTRACT_A;
+  const USER = 'GUSERAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4';
+
+  it('returns null when given null/undefined', () => {
+    expect(parseUserPositionFromNative(null as unknown as Record<string, unknown>, POOL_ID, USER)).toBeNull();
+    expect(
+      parseUserPositionFromNative(undefined as unknown as Record<string, unknown>, POOL_ID, USER),
+    ).toBeNull();
+  });
+
+  it('returns null when given a non-object (e.g. a string or number)', () => {
+    expect(parseUserPositionFromNative('nope' as unknown as Record<string, unknown>, POOL_ID, USER)).toBeNull();
+    expect(parseUserPositionFromNative(5 as unknown as Record<string, unknown>, POOL_ID, USER)).toBeNull();
+  });
+
+  it('defaults every field when the native map is empty', () => {
+    const result = parseUserPositionFromNative({}, POOL_ID, USER);
+    expect(result).toEqual({
+      user: USER,
+      poolId: POOL_ID,
+      amount: '0.0000000',
+      lockedAt: 0,
+      credits: '0.0000000',
+      isLocked: false,
+      unlockableAt: 0,
+      boostAllocation: undefined,
+    });
+  });
+
+  it('parses a fully-populated position using canonical field names', () => {
+    const result = parseUserPositionFromNative(
+      {
+        locked_at: 1_000,
+        unlockable_at: 2_000,
+        amount: 50_000_000n,
+        credits: 10_000_000n,
+        is_locked: true,
+        boost_allocation: 25,
+      },
+      POOL_ID,
+      USER,
+    );
+    expect(result).toEqual({
+      user: USER,
+      poolId: POOL_ID,
+      amount: '5.0000000',
+      lockedAt: 1_000,
+      credits: '1.0000000',
+      isLocked: true,
+      unlockableAt: 2_000,
+      boostAllocation: 25,
+    });
+  });
+
+  it('falls back to alternate field names (timestamp, locked_amount, accrued_credits, boost)', () => {
+    const result = parseUserPositionFromNative(
+      {
+        timestamp: 1_500,
+        locked_amount: 20_000_000n,
+        accrued_credits: 5_000_000n,
+        boost: 10,
+      },
+      POOL_ID,
+      USER,
+    );
+    expect(result?.lockedAt).toBe(1_500);
+    expect(result?.amount).toBe('2.0000000');
+    expect(result?.credits).toBe('0.5000000');
+    expect(result?.boostAllocation).toBe(10);
+  });
+
+  it('derives unlockableAt from lockedAt + min_lock_period when no explicit unlock field is present', () => {
+    const result = parseUserPositionFromNative(
+      { locked_at: 1_000, min_lock_period: 604_800 },
+      POOL_ID,
+      USER,
+    );
+    expect(result?.unlockableAt).toBe(1_000 + 604_800);
+  });
+
+  it('derives unlockableAt via the lock_period alias when min_lock_period is absent', () => {
+    const result = parseUserPositionFromNative(
+      { locked_at: 1_000, lock_period: 604_800 },
+      POOL_ID,
+      USER,
+    );
+    expect(result?.unlockableAt).toBe(1_000 + 604_800);
+  });
+
+  it('unlockableAt stays 0 when there is no lock-period field to derive it from', () => {
+    const result = parseUserPositionFromNative({ locked_at: 1_000 }, POOL_ID, USER);
+    expect(result?.unlockableAt).toBe(0);
+  });
+
+  it('prefers explicit unlockable_at over a derived value even when min_lock_period is also present', () => {
+    const result = parseUserPositionFromNative(
+      { locked_at: 1_000, min_lock_period: 604_800, unlockable_at: 999_999 },
+      POOL_ID,
+      USER,
+    );
+    expect(result?.unlockableAt).toBe(999_999);
+  });
+
+  it('tolerates wrong-typed fields (string where bigint/number expected) instead of throwing', () => {
+    const result = parseUserPositionFromNative(
+      { amount: 'garbage', locked_at: 'also-garbage' },
+      POOL_ID,
+      USER,
+    );
+    expect(result?.amount).toBe('garbage');
+    expect(Number.isNaN(result?.lockedAt)).toBe(true);
+  });
+
+  it('is_locked explicitly false is respected rather than defaulted', () => {
+    const result = parseUserPositionFromNative({ is_locked: false }, POOL_ID, USER);
+    expect(result?.isLocked).toBe(false);
   });
 });
