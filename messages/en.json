@@ -1,0 +1,35 @@
+{
+  "common": {
+    "loading": "Loading...",
+    "error": "An error occurred",
+    "retry": "Retry",
+    "cancel": "Cancel",
+    "confirm": "Confirm",
+    "close": "Close",
+    "back": "Back",
+    "next": "Next",
+    "save": "Save",
+    "delete": "Delete",
+    "edit": "Edit"
+  },
+  "nav": {
+    "home": "Home",
+    "farms": "Farms",
+    "contributors": "Contributors",
+    "connectWallet": "Connect Wallet"
+  },
+  "unlock": {
+    "title": "Unlock {symbol}",
+    "amountLocked": "Amount locked",
+    "timeRemaining": "Time remaining",
+    "availableToUnlock": "Available to unlock",
+    "amountToUnlock": "Amount to unlock (partial allowed)",
+    "unlockWithFreighter": "Unlock with Freighter",
+    "unlockConfirmed": "Unlock confirmed",
+    "minimumAmount": "Minimum unlock amount is 0.01 {symbol}.",
+    "amountExceeds": "Amount exceeds locked balance of {amount} {symbol}.",
+    "networkMismatch": "Switch Freighter to {network} to unlock.",
+    "connectWallet": "Connect your Freighter wallet to unlock.",
+    "lockPeriodNotElapsed": "Lock period has not elapsed yet."
+  }
+}

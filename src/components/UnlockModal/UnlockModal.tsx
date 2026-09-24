@@ -141,6 +141,7 @@ export default function UnlockModal() {
     }
     if (isNetworkMismatch) {
       setError(`Switch Freighter to ${stellarNetwork} to unlock.`);
+      setStep("error");
       return;
     }
     if (!selectedPoolContractId) {

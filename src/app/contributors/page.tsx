@@ -1,8 +1,49 @@
 import type { Metadata } from "next";
-import { Avatar, Box, Flex, Grid, HStack, Link as ChakraLink, Text } from "@chakra-ui/react";
+import { Suspense } from "react";
+import { Avatar, Box, Flex, Grid, HStack, Link as ChakraLink, Skeleton, SkeletonCircle, Stack, Text } from "@chakra-ui/react";
 import NextLink from "next/link";
 
 import contributorData from "@/data/contributors.json";
+
+function ContributorsSkeleton() {
+  return (
+    <Flex direction="column" align="center" px={{ base: 6, md: 16 }} py={10} gap={10}>
+      <Box w="100%" maxW="1100px">
+        <HStack spacing={2} mb={5}>
+          <Skeleton w="6px" h="6px" borderRadius="full" />
+          <Skeleton h="12px" w="120px" />
+        </HStack>
+        <Skeleton h={{ base: "40px", md: "48px" }} w="300px" mb={4} />
+        <Skeleton h="20px" w="400px" />
+      </Box>
+      <Grid
+        w="100%"
+        maxW="1100px"
+        templateColumns={{ base: "minmax(0, 1fr)", sm: "repeat(2, minmax(0, 1fr))", lg: "repeat(3, minmax(0, 1fr))" }}
+        gap={4}
+      >
+        {Array.from({ length: 6 }).map((_, i) => (
+          <Flex
+            key={i}
+            align="center"
+            gap={3}
+            p={4}
+            border="1px solid"
+            borderColor="app.border"
+            borderRadius="card"
+            bg="app.surface"
+          >
+            <SkeletonCircle size="48px" flexShrink={0} />
+            <Stack flex={1} spacing={2}>
+              <Skeleton h="16px" w="100px" />
+              <Skeleton h="12px" w="80px" />
+            </Stack>
+          </Flex>
+        ))}
+      </Grid>
+    </Flex>
+  );
+}
 
 export const metadata: Metadata = {
   title: "Contributors",
@@ -17,6 +58,7 @@ export default function ContributorsPage() {
   const totalContributions = sorted.reduce((sum, c) => sum + c.contributions, 0);
 
   return (
+    <Suspense fallback={<ContributorsSkeleton />}>
     <Flex direction="column" align="center" px={{ base: 6, md: 16 }} py={10} gap={10}>
       <Box w="100%" maxW="1100px">
         <HStack spacing={2} mb={5}>
@@ -118,5 +160,6 @@ export default function ContributorsPage() {
       </Grid>
       )}
     </Flex>
+    </Suspense>
   );
 }
