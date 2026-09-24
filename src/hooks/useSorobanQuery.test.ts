@@ -1,7 +1,7 @@
 import { createElement, type ReactNode } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { waitFor } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { renderHook, act } from "@/test/renderHook";
 import { sorobanService } from "@/lib/soroban";
 import {
@@ -272,13 +272,15 @@ describe("useSetBoost (#92)", () => {
       publicKey: TEST_PUBLIC_KEY,
       isConnected: true,
       walletApi: { signTransaction: vi.fn().mockResolvedValue("signed-xdr") },
+      networkName: "TESTNET",
+      isNetworkMismatch: false,
       connect: vi.fn(),
       disconnect: vi.fn(),
     });
 
     const { useToast } = await import("@chakra-ui/react");
     toastMock = vi.fn();
-    vi.mocked(useToast).mockReturnValue(toastMock);
+    vi.mocked(useToast).mockReturnValue(toastMock as unknown as ReturnType<typeof useToast>);
   });
 
   it("calls sorobanService.setBoost with correct arguments", async () => {
@@ -372,6 +374,8 @@ describe("useSetBoost (#92)", () => {
       publicKey: null,
       isConnected: false,
       walletApi: null,
+      networkName: null,
+      isNetworkMismatch: false,
       connect: vi.fn(),
       disconnect: vi.fn(),
     });
@@ -441,13 +445,15 @@ describe("useUnlockAssets (#138)", () => {
       publicKey: TEST_PUBLIC_KEY,
       isConnected: true,
       walletApi: { signTransaction: vi.fn().mockResolvedValue("signed-xdr") },
+      networkName: "TESTNET",
+      isNetworkMismatch: false,
       connect: vi.fn(),
       disconnect: vi.fn(),
     });
 
     const { useToast } = await import("@chakra-ui/react");
     toastMock = vi.fn();
-    vi.mocked(useToast).mockReturnValue(toastMock);
+    vi.mocked(useToast).mockReturnValue(toastMock as unknown as ReturnType<typeof useToast>);
   });
 
   it("invalidates the stellarBalance cache on success, matching useLockAssets", async () => {

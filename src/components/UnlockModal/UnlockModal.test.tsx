@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import UnlockModal from './UnlockModal';
-import { useFarmStore } from '@/store/farmStore';
+import { useFarmStore, type FarmStore } from '@/store/farmStore';
 import { useStellarWallet } from '@/context/StellarWalletContext';
 import { useUnlockAssetsFeePreview } from '@/hooks/useSorobanQuery';
 import { unlockAssets } from '@/lib/soroban';
@@ -97,23 +97,24 @@ describe('UnlockModal', () => {
     vi.clearAllMocks();
 
     // Default mock implementations
-    vi.mocked(useFarmStore).mockImplementation((selector: (state: Record<string, unknown>) => unknown) => {
+    vi.mocked(useFarmStore).mockImplementation((selector: (state: FarmStore) => unknown) => {
       const state = {
         activeModal: 'unlock',
         selectedPosition: mockPosition,
         close: vi.fn(),
-      };
+      } as unknown as FarmStore;
       return selector(state);
     });
 
     vi.mocked(useStellarWallet).mockReturnValue({
       publicKey: 'G_TEST_USER',
       walletApi: { signTransaction: vi.fn() } as never,
+      networkName: 'TESTNET',
       isNetworkMismatch: false,
       isConnected: true,
       connect: vi.fn(),
       disconnect: vi.fn(),
-    } as ReturnType<typeof useStellarWallet>);
+    } as unknown as ReturnType<typeof useStellarWallet>);
 
     vi.mocked(useUnlockAssetsFeePreview).mockReturnValue({
       data: { feePreview: '100' },
@@ -136,8 +137,12 @@ describe('UnlockModal', () => {
   });
 
   it('does not render modal content when position is null', () => {
-    vi.mocked(useFarmStore).mockImplementation((selector: (state: Record<string, unknown>) => unknown) => {
-      return selector({ activeModal: 'unlock', selectedPosition: null, close: vi.fn() });
+    vi.mocked(useFarmStore).mockImplementation((selector: (state: FarmStore) => unknown) => {
+      return selector({
+        activeModal: 'unlock',
+        selectedPosition: null,
+        close: vi.fn(),
+      } as unknown as FarmStore);
     });
     renderWithProviders(createElement(UnlockModal));
     // Modal should not show Unlock header
@@ -197,14 +202,14 @@ describe('UnlockModal', () => {
   });
 
   it('handles successful unlock flow', async () => {
-    vi.mocked(unlockAssets).mockImplementation(async (args: Record<string, unknown>) => {
+    vi.mocked(unlockAssets).mockImplementation(async (args) => {
       const onStep = args.onStep as ((s: string) => void) | undefined;
       const onHash = args.onHash as ((h: string) => void) | undefined;
       onStep?.('simulating');
       onStep?.('signing');
       onStep?.('submitting');
       onHash?.('test-hash-abc');
-      return { success: true, hash: 'test-hash-abc', status: 'SUCCESS' };
+      return { success: true, hash: 'test-hash-abc', status: 'SUCCESS' } as Awaited<ReturnType<typeof unlockAssets>>;
     });
 
     renderWithProviders(createElement(UnlockModal));
@@ -225,14 +230,14 @@ describe('UnlockModal', () => {
   });
 
   it('handles unlock error flow — result.success === false', async () => {
-    vi.mocked(unlockAssets).mockImplementation(async (args: Record<string, unknown>) => {
+    vi.mocked(unlockAssets).mockImplementation(async (args) => {
       const onStep = args.onStep as ((s: string) => void) | undefined;
       onStep?.('simulating');
       return {
         success: false,
         status: 'FAILED',
         error: 'Insufficient balance to cover this transaction. Please ensure your wallet has enough funds.',
-      };
+      } as Awaited<ReturnType<typeof unlockAssets>>;
     });
 
     renderWithProviders(createElement(UnlockModal));

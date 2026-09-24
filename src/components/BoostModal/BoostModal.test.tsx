@@ -21,7 +21,7 @@ const useSetBoostMock = vi.mocked(useSetBoost);
 
 const defaultWallet = {
   publicKey: "GA3CD2PYXOQCXW7ZVQW3MOA3JFZCE4F4IG2FD66I55TQASPCNKYYEFRN",
-  walletApi: {},
+  walletApi: {} as never,
   networkName: "TESTNET",
   isNetworkMismatch: false,
   isConnected: true,
@@ -47,7 +47,7 @@ beforeEach(() => {
     mutate: vi.fn(),
     isPending: false,
     reset: vi.fn(),
-  } as ReturnType<typeof useSetBoost> extends infer R ? R : never);
+  } as unknown as ReturnType<typeof useSetBoost>);
   useFarmStore.setState({
     selectedPosition: null,
     activeModal: "none",

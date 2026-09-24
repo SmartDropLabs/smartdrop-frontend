@@ -23,7 +23,7 @@ exports[`<PlatformStats /> Layout Component > matches baseline style design snap
             <dd
               class="chakra-stat__number css-okwwd4"
             >
-              42300000.0M XLM
+              $42,300,000
             </dd>
           </div>
         </dl>

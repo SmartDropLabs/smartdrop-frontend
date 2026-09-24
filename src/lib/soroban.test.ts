@@ -34,7 +34,7 @@ type InvokeContractOperation = {
 
 describe('buildLockAssetsTransaction', () => {
   it('builds a lock_assets contract call with a 7-decimal i128 amount', async () => {
-    const publicKey = StrKey.encodeEd25519PublicKey(new Uint8Array(32).fill(7));
+    const publicKey = StrKey.encodeEd25519PublicKey(Buffer.alloc(32, 7));
     const keypair = Keypair.fromPublicKey(publicKey);
     expect(keypair.publicKey()).toBe(publicKey);
     const account = new Account(publicKey, '42');
