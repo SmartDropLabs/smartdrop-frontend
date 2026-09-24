@@ -5,6 +5,14 @@
 
 :root {
   --navbar-height: 80px;
+  /* Scrollbar colours live here because two syntaxes need the same values:
+     the ::-webkit-* pseudo-elements below for Chromium, and the standard
+     scrollbar-color for Firefox. Hard-coding the hex twice is how they drift
+     apart, which is the bug in the first place. */
+  --scrollbar-thumb: #2a2f2d;
+  --scrollbar-thumb-hover: #3a413e;
+  --scrollbar-track: transparent;
+  --scrollbar-size: 10px;
 }
 
 * {
@@ -24,20 +32,30 @@
   background: rgba(74, 226, 146, 0.35);
 }
 
+/* Firefox ignores every ::-webkit-scrollbar rule below: it needs the standard
+   properties, and they are inherited, so one declaration on the root covers the
+   document. `scrollbar-width: thin` is the closest match to the 10px above.
+   Note that Firefox has no hover state for the thumb, so the hover colour stays
+   a Chromium-only refinement rather than something the two engines share. */
+html {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+}
+
 ::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
+  width: var(--scrollbar-size);
+  height: var(--scrollbar-size);
 }
 
 ::-webkit-scrollbar-track {
-  background: transparent;
+  background: var(--scrollbar-track);
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #2a2f2d;
+  background: var(--scrollbar-thumb);
   border-radius: 999px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #3a413e;
+  background: var(--scrollbar-thumb-hover);
 }
