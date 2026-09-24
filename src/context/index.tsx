@@ -9,9 +9,17 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import { type ReactNode, useEffect, useState } from "react";
 
+import { createE2ESeedApi, type E2ESeedApi } from "@/lib/e2eSeed";
+
 declare global {
   interface Window {
-    __queryClient?: QueryClient;
+    /**
+     * Seeding surface for the end-to-end specs. Exposed in development and when
+     * NEXT_PUBLIC_E2E is set, and deliberately not the raw QueryClient: the specs
+     * ask for the state they want instead of spelling out query keys, so renaming
+     * a key cannot break a test in a file that has nothing to do with it.
+     */
+    __e2e?: E2ESeedApi;
   }
 }
 
@@ -25,7 +33,7 @@ function ContextProvider({ children }: { children: ReactNode }) {
       typeof window !== 'undefined' &&
       (process.env.NODE_ENV !== 'production' || process.env.NEXT_PUBLIC_E2E === 'true')
     ) {
-      window.__queryClient = queryClient;
+      window.__e2e = createE2ESeedApi(queryClient);
     }
   }, [queryClient]);
 

@@ -182,18 +182,15 @@ function makeMockPosition(lockedAtMs: number, amount = '10.0000000') {
 
 async function seedPools(page: Page): Promise<void> {
   await page.evaluate((pool) => {
-    const qc = (window as any).__queryClient;
-    if (qc) qc.setQueryData(['pools'], [pool]);
+    window.__e2e?.seedPools([pool]);
   }, MOCK_POOL);
 }
 
 async function seedPosition(page: Page, lockedAtMs: number): Promise<void> {
   await page.evaluate(
     ({ pool, position, pubKey }) => {
-      const qc = (window as any).__queryClient;
-      if (!qc) return;
-      qc.setQueryData(['pools'], [pool]);
-      qc.setQueryData(['userPosition', 'all', pubKey], [{ pool, position }]);
+      window.__e2e?.seedPools([pool]);
+      window.__e2e?.seedPositions(pubKey, [{ pool, position }]);
     },
     { pool: MOCK_POOL, position: makeMockPosition(lockedAtMs), pubKey: TEST_PUBLIC_KEY },
   );
@@ -202,9 +199,7 @@ async function seedPosition(page: Page, lockedAtMs: number): Promise<void> {
 async function seedEmptyPosition(page: Page): Promise<void> {
   await page.evaluate(
     ({ pool, position, pubKey }) => {
-      const qc = (window as any).__queryClient;
-      if (!qc) return;
-      qc.setQueryData(['userPosition', 'all', pubKey], [{ pool, position }]);
+      window.__e2e?.seedPositions(pubKey, [{ pool, position }]);
     },
     { pool: MOCK_POOL, position: makeMockPosition(0, '0.0000000'), pubKey: TEST_PUBLIC_KEY },
   );

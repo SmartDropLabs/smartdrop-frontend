@@ -173,8 +173,7 @@ function makeMockPosition(lockedAtMs: number) {
 
 async function seedPools(page: Page): Promise<void> {
   await page.evaluate((pool) => {
-    const qc = (window as any).__queryClient;
-    if (qc) qc.setQueryData(['pools'], [pool]);
+    window.__e2e?.seedPools([pool]);
   }, MOCK_POOL);
 }
 
@@ -182,10 +181,8 @@ async function seedPosition(page: Page, lockedAtMs: number): Promise<void> {
   const pos = makeMockPosition(lockedAtMs);
   await page.evaluate(
     ({ pool, position, pubKey }) => {
-      const qc = (window as any).__queryClient;
-      if (!qc) return;
-      qc.setQueryData(['pools'], [pool]);
-      qc.setQueryData(['userPosition', 'all', pubKey], [{ pool, position }]);
+      window.__e2e?.seedPools([pool]);
+      window.__e2e?.seedPositions(pubKey, [{ pool, position }]);
     },
     { pool: MOCK_POOL, position: pos, pubKey: TEST_PUBLIC_KEY },
   );
@@ -350,8 +347,6 @@ test.describe('Farm E2E', () => {
     // After success, update cache to show 0 stake
     await page.evaluate(
       ({ pool, pubKey }) => {
-        const qc = (window as any).__queryClient;
-        if (!qc) return;
         const emptyPos = {
           user: pubKey,
           poolId: 'pool-xlm',
@@ -361,7 +356,7 @@ test.describe('Farm E2E', () => {
           isLocked: false,
           unlockableAt: 0,
         };
-        qc.setQueryData(['userPosition', 'all', pubKey], [{ pool, position: emptyPos }]);
+        window.__e2e?.seedPositions(pubKey, [{ pool, position: emptyPos }]);
       },
       { pool: MOCK_POOL, pubKey: TEST_PUBLIC_KEY },
     );
