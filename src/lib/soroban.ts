@@ -1323,7 +1323,8 @@ export class SorobanService {
 
   /**
    * Unlock assets from a pool
-   * @param amount - integer stroops as a string (already converted from display units by callers)
+   * @param amount - display units as a string, converted to stroops via
+   *   amountToStroops — the same contract lockAssets uses (issue #445)
    */
   async unlockAssets(
     poolId: string,
@@ -1357,7 +1358,7 @@ export class SorobanService {
       const call = poolContract.call(
         "unlock_assets",
         Address.fromString(userAddress).toScVal(),
-        nativeToScVal(BigInt(amount), { type: "i128" }),
+        nativeToScVal(amountToStroops(amount), { type: "i128" }),
       );
 
       const account = await this.rpcServer.getAccount(userAddress);
@@ -2133,11 +2134,12 @@ export const unlockAssets = async ({
   walletApi: FreighterWalletApi;
   isStillConnected?: () => boolean;
 } & UnlockAssetsCallbacks) => {
-  // Convert display-unit amount to integer stroops using the same validated
-  // helper lockAssets relies on (rejects malformed/decimal-precision input
-  // with a clear error instead of a raw NaN or BigInt() crash).
-  const stroops = amountToStroops(amount).toString();
-  return sorobanService.unlockAssets(poolContractId, publicKey, stroops, walletApi, {
+  // Validate the display-unit amount up front so malformed input is rejected
+  // before any wallet/RPC interaction. Both wrappers now pass display units
+  // straight through; the service converts with the same amountToStroops
+  // helper lockAssets uses (issue #445).
+  amountToStroops(amount);
+  return sorobanService.unlockAssets(poolContractId, publicKey, amount, walletApi, {
     onHash,
     onStep,
   }, isStillConnected);
