@@ -14,18 +14,12 @@ import {
 } from '@stellar/stellar-sdk';
 import { assertSponsorableInnerTransaction, RateLimiter } from './feeBumpGuard';
 
-// NOTE: the two cases that reach signature verification (`.skip`d below)
-// hit a pre-existing Vitest-only issue in this repo: `Transaction.hash()`
-// calls into @noble/hashes' sha256 with a Buffer produced via the npm
-// `buffer` polyfill package, and under Vite/Vitest's dependency
-// pre-bundling that Buffer fails @noble/hashes' `abytes` Uint8Array check
-// ("expected Uint8Array, got type=object") — confirmed independent of this
-// change: the identical stellar-sdk calls (Keypair construction, signing,
-// verification, tx.hash()) all succeed under plain `node -e` outside
-// Vite/Vitest, and Next.js API routes run under Node directly (not Vite),
-// so this does not affect the real route. Fixing Vitest's module
-// resolution for `buffer`/`@noble/*` is a separate, pre-existing
-// tooling gap outside the scope of this change.
+// These signature-verification cases previously ran under jsdom (Vitest 4
+// dropped environmentMatchGlobs), where the npm `buffer` polyfill's Buffer
+// fails @noble/hashes' Uint8Array instanceof check inside Transaction.hash().
+// vitest.config.ts now runs src/lib tests in the node environment, where
+// hash()/verify() behave exactly as they do under `next start`.
+
 function attachDummySignature(tx: { addDecoratedSignature: (sig: xdr.DecoratedSignature) => void }) {
   tx.addDecoratedSignature(
     new xdr.DecoratedSignature({
@@ -58,7 +52,7 @@ afterEach(() => {
 });
 
 describe('assertSponsorableInnerTransaction', () => {
-  it.skip('accepts a signed lock_assets call against a known pool (blocked by Vitest buffer/noble tooling gap, see note above)', () => {
+  it('accepts a signed lock_assets call against a known pool', () => {
     vi.spyOn(Keypair.prototype, 'verify').mockReturnValue(true);
     const tx = buildLockAssetsTx(POOL_ID);
     attachDummySignature(tx);
@@ -117,7 +111,7 @@ describe('assertSponsorableInnerTransaction', () => {
     );
   });
 
-  it.skip('rejects a transaction whose attached signature does not verify against its source (blocked by Vitest buffer/noble tooling gap, see note above)', () => {
+  it('rejects a transaction whose attached signature does not verify against its source', () => {
     vi.spyOn(Keypair.prototype, 'verify').mockReturnValue(false);
     const tx = buildLockAssetsTx(POOL_ID);
     attachDummySignature(tx);

@@ -11,7 +11,7 @@ import {
     normalizeError,
     withRetry
 } from "@/lib/error-handler";
-import { Box, Button, Text, useToast as useChakraToast } from "@chakra-ui/react";
+import { Box, Button, Text, useColorModeValue, useToast as useChakraToast } from "@chakra-ui/react";
 import { useCallback } from "react";
 
 export type NotificationType = "success" | "error" | "info" | "warning";
@@ -30,6 +30,13 @@ const DEFAULT_TOAST_OPTIONS: ToastOptions = {
 
 export function useToast() {
   const chakraToast = useChakraToast();
+
+  // Retry-button colors inside the error toast (issue #450). The toast is a
+  // solid Alert: light mode paints red.600 with white text, dark mode paints
+  // red.200 with near-black text — so a single hardcoded whiteAlpha pair can
+  // only ever match one of them. Derive both from the active color mode.
+  const retryBorderColor = useColorModeValue("whiteAlpha.600", "blackAlpha.400");
+  const retryHoverBg = useColorModeValue("whiteAlpha.200", "blackAlpha.100");
 
   /**
    * Show a success notification.
@@ -122,9 +129,9 @@ export function useToast() {
                 size="sm"
                 mt={2}
                 variant="outline"
-                borderColor="whiteAlpha.600"
+                borderColor={retryBorderColor}
                 color="inherit"
-                _hover={{ bg: "whiteAlpha.200" }}
+                _hover={{ bg: retryHoverBg }}
                 onClick={() => {
                   chakraToast.closeAll();
                   onRetry();
@@ -147,7 +154,7 @@ export function useToast() {
 
       return normalized;
     },
-    [chakraToast]
+    [chakraToast, retryBorderColor, retryHoverBg]
   );
 
   /**
