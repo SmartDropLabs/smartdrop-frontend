@@ -511,7 +511,7 @@ describe("soroban transaction builders", () => {
     );
   });
 
-  it("converts unlock display units to stroops before delegating", async () => {
+  it("passes display units through to the service unchanged (#445)", async () => {
     const walletApi = { signTransaction: vi.fn() };
     const unlockSpy = vi
       .spyOn(sorobanService, "unlockAssets")
@@ -529,14 +529,14 @@ describe("soroban transaction builders", () => {
     expect(unlockSpy).toHaveBeenCalledWith(
       "pool-xlm",
       USER_PUBLIC_KEY,
-      "12345678",
+      "1.2345678",
       walletApi,
       { onHash: undefined, onStep: undefined },
       undefined,
     );
   });
 
-  it("rejects a malformed unlock amount instead of delegating with NaN/garbage stroops", async () => {
+  it("rejects a malformed unlock amount instead of delegating garbage (#445)", async () => {
     const walletApi = { signTransaction: vi.fn() };
     const unlockSpy = vi
       .spyOn(sorobanService, "unlockAssets")
@@ -903,6 +903,38 @@ describe("SorobanService RPC writes", () => {
     });
     expect(walletApi.signTransaction).toHaveBeenCalledTimes(1);
     expect(rpcServer.sendTransaction).toHaveBeenCalledTimes(1);
+  });
+
+  it("unlockAssets converts display units to stroops before building the call (#445)", async () => {
+    const { service, rpcServer } = makeService();
+    rpcServer.simulateTransaction.mockResolvedValue({
+      error: "stop before signing",
+    });
+    const callSpy = vi.spyOn(Contract.prototype, "call");
+
+    const result = await service.unlockAssets(
+      POOL_ID,
+      USER_PUBLIC_KEY,
+      "1.5",
+      {
+        signTransaction: vi.fn(),
+      },
+    );
+
+    expect(result).toMatchObject({ success: false });
+    expect(callSpy).toHaveBeenCalledWith(
+      "unlock_assets",
+      expect.any(xdr.ScVal),
+      expect.any(xdr.ScVal),
+    );
+
+    const op = callSpy.mock.results[0].value as xdr.Operation;
+    const invokeContract = invokeContractFromOperation(op);
+    const [, amountArg] = invokeContract.args();
+
+    expect(invokeContract.functionName().toString()).toBe("unlock_assets");
+    expect(amountArg.switch()).toBe(xdr.ScValType.scvI128());
+    expect(scValToNative(amountArg)).toBe(15_000_000n);
   });
 
   it("unlockAssets throws when the pool is not registered", async () => {
