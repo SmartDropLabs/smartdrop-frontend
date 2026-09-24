@@ -1782,10 +1782,99 @@ describe("SorobanService leaderboard", () => {
     }
   });
 
-  it("getCreditVelocity currently returns the zero accumulator", async () => {
+  it("getCreditVelocity returns 0 when no factory is configured (#446)", async () => {
     const { service } = makeService({ pool: false });
 
     await expect(service.getCreditVelocity(12)).resolves.toBe("0");
+  });
+
+  it("getCreditVelocity sums per-address credit growth inside the window (#446)", async () => {
+    const otherUser = StrKey.encodeEd25519PublicKey(Buffer.alloc(32, 8));
+    const { service, rpcServer } = makeService({ factory: true, pool: false });
+    vi.spyOn(service, "getFactoryPools").mockResolvedValue([
+      {
+        id: "factory-pool",
+        contractAddress: POOL_CONTRACT_ID,
+        asset: { code: "XLM", isNative: true },
+        dailyRate: "0",
+        minLockPeriod: 0,
+        totalLocked: "0",
+        totalUsers: 0,
+        isActive: true,
+        createdAt: 1,
+      },
+    ]);
+    rpcServer.getLatestLedger.mockResolvedValue({ sequence: 200_000 });
+
+    const now = Date.now();
+    const hoursAgo = (h: number) => new Date(now - h * 3_600_000).toISOString();
+    rpcServer.getEvents.mockResolvedValue({
+      events: [
+        // Baseline: last update before the 24h window opened.
+        makeContractEvent({
+          action: "update_credits",
+          address: USER_PUBLIC_KEY,
+          value: { credits: 100 },
+          ledgerClosedAt: hoursAgo(30),
+        }),
+        // Inside the window: 100 → 180 ⇒ +80.
+        makeContractEvent({
+          action: "update_credits",
+          address: USER_PUBLIC_KEY,
+          value: { credits: 180 },
+          ledgerClosedAt: hoursAgo(10),
+        }),
+        // No pre-window baseline ⇒ no observed delta.
+        makeContractEvent({
+          action: "update_credits",
+          address: otherUser,
+          value: { credits: 50 },
+          ledgerClosedAt: hoursAgo(5),
+        }),
+        // Unrelated actions are ignored.
+        makeContractEvent({
+          action: "lock_assets",
+          address: USER_PUBLIC_KEY,
+          value: { amount: 300_000_000n },
+          ledgerClosedAt: hoursAgo(3),
+        }),
+        // Failed calls are ignored.
+        makeContractEvent({
+          action: "update_credits",
+          address: USER_PUBLIC_KEY,
+          value: { credits: 999 },
+          ledgerClosedAt: hoursAgo(1),
+          inSuccessfulContractCall: false,
+        }),
+      ],
+    });
+
+    await expect(service.getCreditVelocity(24)).resolves.toBe("80");
+  });
+
+  it("getCreditVelocity bounds the event scan by windowHours (#446)", async () => {
+    const { service, rpcServer } = makeService({ factory: true, pool: false });
+    vi.spyOn(service, "getFactoryPools").mockResolvedValue([
+      {
+        id: "factory-pool",
+        contractAddress: POOL_CONTRACT_ID,
+        asset: { code: "XLM", isNative: true },
+        dailyRate: "0",
+        minLockPeriod: 0,
+        totalLocked: "0",
+        totalUsers: 0,
+        isActive: true,
+        createdAt: 1,
+      },
+    ]);
+    rpcServer.getLatestLedger.mockResolvedValue({ sequence: 200_000 });
+    rpcServer.getEvents.mockResolvedValue({ events: [] });
+
+    await expect(service.getCreditVelocity(12)).resolves.toBe("0");
+    // 12h window + equal baseline = 2 × (12 × 3600 / 5) = 17_280 ledgers back.
+    expect(rpcServer.getEvents).toHaveBeenCalledWith(
+      expect.objectContaining({ startLedger: 182_720 }),
+    );
   });
 });
 
