@@ -21,10 +21,10 @@ function ContextProvider({ children }: { children: ReactNode }) {
   });
 
   useEffect(() => {
-    if (
-      typeof window !== 'undefined' &&
-      (process.env.NODE_ENV !== 'production' || process.env.NEXT_PUBLIC_E2E === 'true')
-    ) {
+    // Dev-only escape hatch for local debugging and Playwright specs that run
+    // `next dev` (NODE_ENV=development). Never expose the QueryClient in a
+    // production bundle — not even when NEXT_PUBLIC_E2E is set (issue #471).
+    if (typeof window !== 'undefined' && process.env.NODE_ENV !== 'production') {
       window.__queryClient = queryClient;
     }
   }, [queryClient]);
