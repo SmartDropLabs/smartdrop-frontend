@@ -44,7 +44,15 @@ export function OwnConnectButtonProvider({ children }: { children: ReactNode }) 
   const [count, setCount] = useState(0);
 
   const update = useCallback((delta: 1 | -1) => {
-    setCount((prev) => Math.max(0, prev + delta));
+    setCount((prev) => {
+      const next = prev + delta;
+      // Clamp to [0, ∞) and warn if we hit the floor unexpectedly
+      if (next < 0) {
+        console.warn("[OwnConnectButtonContext] count went negative; clamping to 0. This indicates a signal mismatch.");
+        return 0;
+      }
+      return next;
+    });
   }, []);
 
   return (
