@@ -29,9 +29,9 @@ function attachDummySignature(tx: { addDecoratedSignature: (sig: xdr.DecoratedSi
   );
 }
 
-const POOL_ID = StrKey.encodeContract(new Uint8Array(32).fill(1));
-const OTHER_CONTRACT_ID = StrKey.encodeContract(new Uint8Array(32).fill(2));
-const SOURCE_PUBKEY = StrKey.encodeEd25519PublicKey(new Uint8Array(32).fill(3));
+const POOL_ID = StrKey.encodeContract(Buffer.alloc(32, 1));
+const OTHER_CONTRACT_ID = StrKey.encodeContract(Buffer.alloc(32, 2));
+const SOURCE_PUBKEY = StrKey.encodeEd25519PublicKey(Buffer.alloc(32, 3));
 
 function buildLockAssetsTx(poolId: string) {
   const account = new Account(SOURCE_PUBKEY, '0');
@@ -65,7 +65,7 @@ describe('assertSponsorableInnerTransaction', () => {
     const tx = new TransactionBuilder(account, { fee: '100', networkPassphrase: Networks.TESTNET })
       .addOperation(
         Operation.payment({
-          destination: StrKey.encodeEd25519PublicKey(new Uint8Array(32).fill(4)),
+          destination: StrKey.encodeEd25519PublicKey(Buffer.alloc(32, 4)),
           asset: Asset.native(),
           amount: '1',
         }),
