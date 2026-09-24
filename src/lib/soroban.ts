@@ -881,6 +881,8 @@ export class SorobanService {
   // the same promise rather than each firing a separate RPC round trip.
   private inflightAccount: Map<string, Promise<Account>> = new Map();
   private static ACCOUNT_CACHE_TTL_MS = 3_000;
+  // Memoized lazy-init promise (issue #451) — see ensureInitialized().
+  private initPromise?: Promise<void>;
 
   constructor() {
     this.rpcServer = rpcServer;
@@ -980,6 +982,23 @@ export class SorobanService {
   }
 
   /**
+   * Lazily run `initialize()` on first use instead of at module import
+   * time (issue #451). The promise is memoized so concurrent callers
+   * share a single RPC round trip; a failure clears it so the next call
+   * can retry. `loadPoolContracts` already swallows factory/RPC errors,
+   * so this never rejects in practice.
+   */
+  private ensureInitialized(): Promise<void> {
+    if (!this.initPromise) {
+      this.initPromise = this.initialize().catch((err) => {
+        console.warn('SorobanService lazy initialization failed:', err);
+        this.initPromise = undefined;
+      });
+    }
+    return this.initPromise;
+  }
+
+  /**
    * Load all pool contracts from the factory
    */
   private async loadPoolContracts() {
@@ -1041,6 +1060,7 @@ export class SorobanService {
     poolId: string,
     userAddress: string
   ): Promise<UserPosition | null> {
+    await this.ensureInitialized();
     const poolContract = this.poolContracts.get(poolId);
     if (!poolContract) {
       console.warn(`Pool contract not found for ID: ${poolId}`);
@@ -1087,6 +1107,7 @@ export class SorobanService {
     poolId: string,
     userAddress: string
   ): Promise<string> {
+    await this.ensureInitialized();
     const poolContract = this.poolContracts.get(poolId);
     if (!poolContract) {
       console.warn(`Pool contract not found for ID: ${poolId}`);
@@ -2003,11 +2024,12 @@ export class SorobanService {
   }
 }
 
-// Export singleton instance
+// Export singleton instance.
+// NOTE: do NOT call initialize() here — a module-level RPC call runs at
+// import time (issue #451), which breaks tree-shaking, fails when the RPC
+// is unavailable during import, and surprises tests that only import this
+// module. Pool contracts are loaded lazily on first use instead.
 export const sorobanService = new SorobanService();
-
-// Initialize on import
-sorobanService.initialize();
 
 // Utility functions
 export const formatCredits = (credits: string): string => {
