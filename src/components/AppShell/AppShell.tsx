@@ -39,27 +39,21 @@ function LayoutWrapper({ children }: { children: React.ReactNode }) {
       minH="100vh"
       bg="app.bg"
       color="app.text"
+      // Reserve space for the floating connect CTA when disconnected so it
+      // doesn't cover the (always-visible) footer or the bottom of the page.
+      pb={{
+        base: !isConnected && !hasOwnConnectButton ? "88px" : 0,
+        md: 0,
+      }}
     >
       <Navbar />
       <RpcUnreachableBanner />
       <NetworkMismatchBanner />
-      {isConnected ? (
-        <>
-          <Box as="main" flex={1}>{children}</Box>
-          <Footer />
-        </>
-      ) : (
-        <>
-          <Box
-            as="main"
-            flex={1}
-            pb={{ base: hasOwnConnectButton ? 0 : "88px", md: 0 }}
-          >
-            {children}
-          </Box>
-          {!hasOwnConnectButton && <ConnectWalletButton />}
-        </>
-      )}
+      <Box as="main" flex={1}>
+        {children}
+      </Box>
+      <Footer />
+      {!isConnected && !hasOwnConnectButton && <ConnectWalletButton />}
     </Box>
   );
 }
