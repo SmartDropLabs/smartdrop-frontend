@@ -430,7 +430,7 @@ export default function UnlockModal() {
               </Flex>
 
               {!!amount && !amountValid && (
-                <Text fontSize="xs" color="#ff8080" role="alert">
+                <Text fontSize="xs" color="app.errorFg" role="alert">
                   {numericAmount < 0.01
                     ? `Minimum unlock amount is 0.01 ${position.symbol}.`
                     : numericAmount > position.lockedAmount

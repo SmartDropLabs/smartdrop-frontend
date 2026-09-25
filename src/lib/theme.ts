@@ -47,6 +47,14 @@ const theme = extendTheme({
       "app.feeWarnBg":     { default: "#fef3cd", _dark: "#2d2216" },
       "app.feeWarnFg":     { default: "#9a6b00", _dark: "#ffb86c" },
       "app.feeWarnBorder": { default: "#c9a84c", _dark: "#7c5c24" },
+      // Overlays — modal scrim (was hardcoded blackAlpha.600)
+      "app.overlay":       { default: "rgba(0, 0, 0, 0.6)", _dark: "rgba(0, 0, 0, 0.6)" },
+      // Retry action rendered inside the error toast. The toast paints
+      // red.600 + white text in light mode and red.200 + near-black text in
+      // dark mode, so the border/hover tint has to flip with the color mode
+      // (was whiteAlpha.600 / whiteAlpha.200 vs blackAlpha.400 / blackAlpha.100).
+      "app.toastRetryBorder": { default: "rgba(255, 255, 255, 0.6)", _dark: "rgba(0, 0, 0, 0.4)" },
+      "app.toastRetryHoverBg": { default: "rgba(255, 255, 255, 0.2)", _dark: "rgba(0, 0, 0, 0.1)" },
     },
   },
   styles: {

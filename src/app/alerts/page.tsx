@@ -138,16 +138,16 @@ export default function AlertsPage() {
           placeholder="Your smartdrop-backend API key"
           fontFamily="mono"
           fontSize="sm"
-          borderColor={apiKeyError ? "#ff8080" : "app.border"}
+          borderColor={apiKeyError ? "app.errorFg" : "app.border"}
           bg="app.inputBg"
           isInvalid={Boolean(apiKeyError)}
           aria-invalid={Boolean(apiKeyError)}
           aria-describedby="api-key-help"
-          _hover={{ borderColor: apiKeyError ? "#ff8080" : "app.accent" }}
-          _focus={{ boxShadow: "none", borderColor: apiKeyError ? "#ff8080" : "app.accent" }}
+          _hover={{ borderColor: apiKeyError ? "app.errorFg" : "app.accent" }}
+          _focus={{ boxShadow: "none", borderColor: apiKeyError ? "app.errorFg" : "app.accent" }}
         />
         {apiKeyError && (
-          <Text fontSize="xs" color="#ff8080" mt={2}>
+          <Text fontSize="xs" color="app.errorFg" mt={2}>
             {apiKeyError}
           </Text>
         )}
@@ -304,7 +304,7 @@ export default function AlertsPage() {
                       size="sm"
                       variant="outline"
                       borderColor="app.border"
-                      color="#ff8080"
+                      color="app.errorFg"
                       onClick={() => deleteMutation.mutate(alert.id)}
                       isLoading={deleteMutation.isPending && deleteMutation.variables === alert.id}
                     >

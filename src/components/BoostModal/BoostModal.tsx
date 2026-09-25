@@ -181,11 +181,11 @@ export default function BoostModal() {
                                 <Alert
                                     status="warning"
                                     borderRadius="2xl"
-                                    bg="#2a2412"
-                                    color="#f6c453"
+                                    bg="app.warningBg"
+                                    color="app.warningFg"
                                     fontSize="sm"
                                 >
-                                    <AlertIcon color="#f6c453" />
+                                    <AlertIcon color="app.warningFg" />
                                     You need to deposit to this pool before setting a boost allocation.
                                 </Alert>
                             )}
@@ -238,11 +238,11 @@ export default function BoostModal() {
                                 <Alert
                                     status="error"
                                     borderRadius="2xl"
-                                    bg="#2a1414"
-                                    color="#ff8080"
+                                    bg="app.errorBg"
+                                    color="app.errorFg"
                                     fontSize="sm"
                                 >
-                                    <AlertIcon color="#ff8080" />
+                                    <AlertIcon color="app.errorFg" />
                                     {error}
                                 </Alert>
                             )}

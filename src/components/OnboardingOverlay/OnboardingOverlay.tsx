@@ -77,7 +77,7 @@ export default function OnboardingOverlay() {
       trapFocus
       returnFocusOnClose
     >
-      <ModalOverlay backdropFilter="blur(5px)" bg="blackAlpha.600" />
+      <ModalOverlay backdropFilter="blur(5px)" bg="app.overlay" />
       <ModalContent
         bg="app.surface"
         color="app.text"

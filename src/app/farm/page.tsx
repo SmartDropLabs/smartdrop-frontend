@@ -274,12 +274,12 @@ function DepositModal({
                 </Text>
               </Box>
               {!!trimmedAmount && !amountValid && (
-                <Text fontSize="xs" color="#ff8080">
+                <Text fontSize="xs" color="app.errorFg">
                   Enter a positive amount with no more than 7 decimals.
                 </Text>
               )}
               {exceedsBalance && (
-                <Text fontSize="xs" color="#ff8080">
+                <Text fontSize="xs" color="app.errorFg">
                   Amount exceeds your Horizon XLM balance.
                 </Text>
               )}
