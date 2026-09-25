@@ -17,7 +17,18 @@ declare global {
 
 function ContextProvider({ children }: { children: ReactNode }) {
   const [queryClient] = useState(() => {
-    return new QueryClient();
+    return new QueryClient({
+      // Baseline caching defaults (issue #481). Every query now inherits a
+      // sane staleTime/gcTime instead of React Query's staleTime: 0 — hooks
+      // that need a different freshness window (5s/15s/60s) still override
+      // these per-query in useSorobanQuery.ts.
+      defaultOptions: {
+        queries: {
+          staleTime: 30_000,
+          gcTime: 5 * 60 * 1000,
+        },
+      },
+    });
   });
 
   useEffect(() => {

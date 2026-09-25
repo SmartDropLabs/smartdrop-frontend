@@ -352,8 +352,8 @@ export default function HistoryPage() {
           )}
 
           {truncated && (
-            <Alert status="warning" borderRadius="2xl" mt={4} bg="#2a2412" color="#f6c453" maxW="1000px" w="full">
-              <AlertIcon color="#f6c453" />
+            <Alert status="warning" borderRadius="2xl" mt={4} bg="app.warningBg" color="app.warningFg" maxW="1000px" w="full">
+              <AlertIcon color="app.warningFg" />
               <Text fontSize="sm">Some history may be missing — the result was truncated. Older transactions may not be shown.</Text>
             </Alert>
           )}

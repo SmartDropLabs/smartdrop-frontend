@@ -270,7 +270,7 @@ export default function WebhooksPage() {
                       size="sm"
                       variant="outline"
                       borderColor="app.border"
-                      color="#ff8080"
+                      color="app.errorFg"
                       onClick={() => handleDeleteClick(webhook.id)}
                       isLoading={deleteMutation.isPending && deleteMutation.variables === webhook.id}
                     >

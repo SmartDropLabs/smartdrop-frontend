@@ -444,7 +444,7 @@ export default function PoolDetailClient({ poolId }: { poolId: string }) {
                   _focus={{ boxShadow: "none", borderColor: "app.accent" }}
                 />
                 {rawAmount !== "0" && rawAmount !== "" && !amountValid && (
-                  <Text fontSize="xs" color="#ff8080">
+                  <Text fontSize="xs" color="app.errorFg">
                     Enter an amount greater than 0.
                   </Text>
                 )}
