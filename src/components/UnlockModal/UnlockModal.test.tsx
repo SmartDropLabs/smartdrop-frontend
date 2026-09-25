@@ -114,7 +114,7 @@ describe('UnlockModal', () => {
       isConnected: true,
       connect: vi.fn(),
       disconnect: vi.fn(),
-    } as ReturnType<typeof useStellarWallet>);
+    } as unknown as ReturnType<typeof useStellarWallet>);
 
     vi.mocked(useUnlockAssetsFeePreview).mockReturnValue({
       data: { feePreview: '100' },
@@ -239,7 +239,7 @@ describe('UnlockModal', () => {
         success: false,
         status: 'FAILED',
         error: 'Insufficient balance to cover this transaction. Please ensure your wallet has enough funds.',
-      };
+      } as Awaited<ReturnType<typeof unlockAssets>>;
     });
 
     renderWithProviders(createElement(UnlockModal));

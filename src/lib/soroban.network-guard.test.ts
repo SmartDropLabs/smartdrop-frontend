@@ -16,7 +16,12 @@ vi.mock("@stellar/stellar-sdk", async (importOriginal) => {
 });
 
 vi.mock("@/config", () => ({
+  factoryContractId: "",
+  horizonUrl: "https://horizon-testnet.stellar.org",
   networkPassphrase: "Test SDF Network ; September 2015",
+  sorobanRpcUrl: "https://soroban-testnet.stellar.org",
+  simulationAccount: "GBQ3WPTHKJ5XKWLOKUZJLZL2GVXR6RWQCXUVDQZWM7Q2YNLDRVGM5ZWJ",
+  stellarNetwork: "TESTNET",
   rpcServer: { simulateTransaction: vi.fn() },
   sorobanService: undefined,
 }));
@@ -31,7 +36,6 @@ import {
   xdr,
 } from "@stellar/stellar-sdk";
 import { SorobanService } from "./soroban";
-import { FreighterError } from "./error-handler";
 
 const POOL_CONTRACT_ID =
   "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4";
@@ -71,10 +75,10 @@ function makeService() {
     getEvents: vi.fn().mockResolvedValue({ events: [] }),
   };
 
-  assembleTransactionMock.mockImplementation((_tx: unknown, sim: unknown) => ({
-    build: () => ({
-      toXDR: () => "mock-xdr",
-    }),
+  // Passthrough: return the original transaction so TransactionBuilder.fromXDR
+  // receives valid XDR instead of a fake string (matches soroban.service.test.ts).
+  assembleTransactionMock.mockImplementation((transaction: unknown) => ({
+    build: () => transaction,
   }));
 
   const service = new SorobanService();
@@ -134,8 +138,8 @@ describe("SorobanService network passphrase guard", () => {
     expect(walletApi.signTransaction).toHaveBeenCalled();
   });
 
-  it("throws FreighterError when wallet network mismatches in lockAssets", async () => {
-    const { service } = makeService();
+  it("blocks signing when wallet network mismatches in lockAssets", async () => {
+    const { service, rpcServer } = makeService();
     const walletApi = {
       signTransaction: vi.fn(async (xdr: string) => xdr),
       getNetworkDetails: vi.fn(async () => ({
@@ -144,11 +148,17 @@ describe("SorobanService network passphrase guard", () => {
       })),
     };
 
-    await expect(
-      service.lockAssets(POOL_ID, USER_PUBLIC_KEY, "50000000", walletApi),
-    ).rejects.toThrow(FreighterError);
+    const result = await service.lockAssets(
+      POOL_ID,
+      USER_PUBLIC_KEY,
+      "50000000",
+      walletApi,
+    );
 
+    expect(result.success).toBe(false);
+    expect(result.error).toContain("Wallet network mismatch");
     expect(walletApi.signTransaction).not.toHaveBeenCalled();
+    expect(rpcServer.sendTransaction).not.toHaveBeenCalled();
   });
 
   it("throws FreighterError when wallet network mismatches in unlockAssets", async () => {
@@ -165,11 +175,17 @@ describe("SorobanService network passphrase guard", () => {
       })),
     };
 
-    await expect(
-      service.unlockAssets(POOL_ID, USER_PUBLIC_KEY, "50000000", walletApi),
-    ).rejects.toThrow(FreighterError);
+    const result = await service.unlockAssets(
+      POOL_ID,
+      USER_PUBLIC_KEY,
+      "50000000",
+      walletApi,
+    );
 
+    expect(result.success).toBe(false);
+    expect(result.error).toContain("Wallet network mismatch");
     expect(walletApi.signTransaction).not.toHaveBeenCalled();
+    expect(rpcServer.sendTransaction).not.toHaveBeenCalled();
   });
 
   it("throws FreighterError when wallet network mismatches in setBoost", async () => {
@@ -186,11 +202,17 @@ describe("SorobanService network passphrase guard", () => {
       })),
     };
 
-    await expect(
-      service.setBoost(POOL_ID, USER_PUBLIC_KEY, 50, walletApi),
-    ).rejects.toThrow(FreighterError);
+    const result = await service.setBoost(
+      POOL_ID,
+      USER_PUBLIC_KEY,
+      50,
+      walletApi,
+    );
 
+    expect(result.success).toBe(false);
+    expect(result.error).toContain("Wallet network mismatch");
     expect(walletApi.signTransaction).not.toHaveBeenCalled();
+    expect(rpcServer.sendTransaction).not.toHaveBeenCalled();
   });
 
   it("does not submit transaction when network guard rejects", async () => {
@@ -203,10 +225,14 @@ describe("SorobanService network passphrase guard", () => {
       })),
     };
 
-    await expect(
-      service.lockAssets(POOL_ID, USER_PUBLIC_KEY, "50000000", walletApi),
-    ).rejects.toThrow();
+    const result = await service.lockAssets(
+      POOL_ID,
+      USER_PUBLIC_KEY,
+      "50000000",
+      walletApi,
+    );
 
+    expect(result.success).toBe(false);
     expect(rpcServer.sendTransaction).not.toHaveBeenCalled();
   });
 });

@@ -1,7 +1,7 @@
 "use client";
 
 import { usePathname } from "next/navigation";
-import { Box, Flex, Spinner, Text } from "@chakra-ui/react";
+import { Box, Flex, Spinner, Text, type BoxProps } from "@chakra-ui/react";
 
 function SkeletonBar({
   w = "100%",
