@@ -161,7 +161,7 @@ describe("SorobanService network passphrase guard", () => {
     expect(rpcServer.sendTransaction).not.toHaveBeenCalled();
   });
 
-  it("blocks signing when wallet network mismatches in unlockAssets", async () => {
+  it("throws FreighterError when wallet network mismatches in unlockAssets", async () => {
     const { service, rpcServer } = makeService();
     rpcServer.simulateTransaction.mockResolvedValue({
       result: { auth: [makeAuthEntry("unlock_assets")] },
@@ -188,7 +188,7 @@ describe("SorobanService network passphrase guard", () => {
     expect(rpcServer.sendTransaction).not.toHaveBeenCalled();
   });
 
-  it("blocks signing when wallet network mismatches in setBoost", async () => {
+  it("throws FreighterError when wallet network mismatches in setBoost", async () => {
     const { service, rpcServer } = makeService();
     rpcServer.simulateTransaction.mockResolvedValue({
       result: { auth: [makeAuthEntry("set_boost")] },

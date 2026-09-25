@@ -4,7 +4,7 @@ import UnlockModal from './UnlockModal';
 import { useFarmStore, type FarmStore } from '@/store/farmStore';
 import { useStellarWallet } from '@/context/StellarWalletContext';
 import { useUnlockAssetsFeePreview } from '@/hooks/useSorobanQuery';
-import { unlockAssets } from '@/lib/soroban';
+import { unlockAssets, type UnlockAssetsCallbacks } from '@/lib/soroban';
 import { useCountdown } from '@/hooks/useCountdown';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ChakraProvider } from '@chakra-ui/react';
@@ -202,14 +202,15 @@ describe('UnlockModal', () => {
   });
 
   it('handles successful unlock flow', async () => {
-    vi.mocked(unlockAssets).mockImplementation(async (args) => {
-      const onStep = args.onStep as ((s: string) => void) | undefined;
-      const onHash = args.onHash as ((h: string) => void) | undefined;
-      onStep?.('simulating');
-      onStep?.('signing');
-      onStep?.('submitting');
-      onHash?.('test-hash-abc');
-      return { success: true, hash: 'test-hash-abc', status: 'SUCCESS' } as Awaited<ReturnType<typeof unlockAssets>>;
+    vi.mocked(unlockAssets).mockImplementation(async (args: {
+      onStep?: UnlockAssetsCallbacks['onStep'];
+      onHash?: UnlockAssetsCallbacks['onHash'];
+    }) => {
+      args.onStep?.('simulating');
+      args.onStep?.('signing');
+      args.onStep?.('submitting');
+      args.onHash?.('test-hash-abc');
+      return { success: true, hash: 'test-hash-abc', status: 'SUCCESS' };
     });
 
     renderWithProviders(createElement(UnlockModal));
@@ -230,9 +231,10 @@ describe('UnlockModal', () => {
   });
 
   it('handles unlock error flow — result.success === false', async () => {
-    vi.mocked(unlockAssets).mockImplementation(async (args) => {
-      const onStep = args.onStep as ((s: string) => void) | undefined;
-      onStep?.('simulating');
+    vi.mocked(unlockAssets).mockImplementation(async (args: {
+      onStep?: UnlockAssetsCallbacks['onStep'];
+    }) => {
+      args.onStep?.('simulating');
       return {
         success: false,
         status: 'FAILED',

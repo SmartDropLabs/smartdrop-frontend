@@ -34,6 +34,14 @@ export default defineConfig({
         'http://localhost:3000/__mock-leaderboard-api',
       NEXT_PUBLIC_MIN_LOCK_PERIOD_SECONDS: '604800',
       NEXT_PUBLIC_E2E: 'true',
+      // Network-level seeding for farm.spec (issue #475): getFactoryPools /
+      // getUserPosition short-circuit unless a factory contract and a funded
+      // simulation account are configured. Both are satisfied by the RPC
+      // mocks in e2e/farm.spec.ts (POOLS_XDR / POSITION_XDR / ACCOUNT_XDR).
+      NEXT_PUBLIC_FACTORY_CONTRACT_ID:
+        'CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM',
+      NEXT_PUBLIC_SIMULATION_ACCOUNT:
+        'GA3CD2PYXOQCXW7ZVQW3MOA3JFZCE4F4IG2FD66I55TQASPCNKYYEFRN',
     },
   },
 });

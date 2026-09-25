@@ -13,12 +13,13 @@ describe('<PlatformStats /> Layout Component', () => {
   it('matches baseline style design snapshot tests', () => {
     vi.spyOn(hooks, 'usePlatformStats').mockReturnValue({
       data: {
-        // getPlatformStats returns totalValueLocked already formatted via
-        // toLocaleString (currency USD), so the component must not re-format it.
-        tvl: '$42,300,000',
+        // Production-shaped values: getPlatformStats formats TVL with
+        // toLocaleString({ style: 'currency' }), and getCreditVelocity returns
+        // a raw credit-unit count that formatCredits scales for display.
+        tvl: '$3,500',
         activePools: 12,
         totalFarmers: 15450,
-        creditVelocity: '8500000000000'
+        creditVelocity: '8500000000000',
       },
       isLoading: false,
       isError: false,

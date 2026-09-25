@@ -21,7 +21,7 @@ const useSetBoostMock = vi.mocked(useSetBoost);
 
 const defaultWallet = {
   publicKey: "GA3CD2PYXOQCXW7ZVQW3MOA3JFZCE4F4IG2FD66I55TQASPCNKYYEFRN",
-  walletApi: {} as never,
+  walletApi: { signTransaction: vi.fn() },
   networkName: "TESTNET",
   isNetworkMismatch: false,
   isConnected: true,

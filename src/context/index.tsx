@@ -21,10 +21,9 @@ function ContextProvider({ children }: { children: ReactNode }) {
   });
 
   useEffect(() => {
-    // Expose the QueryClient only in non-production builds. E2E tests run
-    // against `next dev` (NODE_ENV=development), so the dev-only guard is
-    // sufficient — never expose it in production, even when NEXT_PUBLIC_E2E
-    // is set (#471).
+    // Dev-only escape hatch for local debugging and Playwright specs that run
+    // `next dev` (NODE_ENV=development). Never expose the QueryClient in a
+    // production bundle — not even when NEXT_PUBLIC_E2E is set (issue #471).
     if (typeof window !== 'undefined' && process.env.NODE_ENV !== 'production') {
       window.__queryClient = queryClient;
     }

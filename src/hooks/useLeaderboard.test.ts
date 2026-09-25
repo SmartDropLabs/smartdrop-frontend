@@ -22,7 +22,7 @@ const mockStakeEntries: LeaderboardEntry[] = [
   { address: "addr-stake", totalCredits: 10, totalStake: 999, boostUtilization: 0.9 },
 ];
 
-let fetchLeaderboardMock: ReturnType<typeof vi.fn<(...args: unknown[]) => Promise<unknown>>>;
+let fetchLeaderboardMock: ReturnType<typeof vi.fn<(...args: unknown[]) => unknown>>;
 
 vi.mock("./useLeaderboard", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./useLeaderboard")>();

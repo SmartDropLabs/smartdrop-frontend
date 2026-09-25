@@ -280,7 +280,7 @@ describe("useSetBoost (#92)", () => {
 
     const { useToast } = await import("@chakra-ui/react");
     toastMock = vi.fn();
-    vi.mocked(useToast).mockReturnValue(toastMock as unknown as ReturnType<typeof useToast>);
+    vi.mocked(useToast).mockReturnValue(toastMock as never);
   });
 
   it("calls sorobanService.setBoost with correct arguments", async () => {
@@ -453,7 +453,7 @@ describe("useUnlockAssets (#138)", () => {
 
     const { useToast } = await import("@chakra-ui/react");
     toastMock = vi.fn();
-    vi.mocked(useToast).mockReturnValue(toastMock as unknown as ReturnType<typeof useToast>);
+    vi.mocked(useToast).mockReturnValue(toastMock as never);
   });
 
   it("invalidates the stellarBalance cache on success, matching useLockAssets", async () => {

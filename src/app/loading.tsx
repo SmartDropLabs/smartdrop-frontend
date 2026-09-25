@@ -3,7 +3,15 @@
 import { usePathname } from "next/navigation";
 import { Box, Flex, Spinner, Text, type BoxProps } from "@chakra-ui/react";
 
-function SkeletonBar({ w = "100%", h = "16px", delay = 0 }: { w?: BoxProps["w"]; h?: BoxProps["h"]; delay?: number }) {
+function SkeletonBar({
+  w = "100%",
+  h = "16px",
+  delay = 0,
+}: {
+  w?: string | { base: string; md: string };
+  h?: string;
+  delay?: number;
+}) {
   return (
     <Box
       w={w}

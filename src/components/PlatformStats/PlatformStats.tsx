@@ -35,7 +35,7 @@ export const PlatformStats: React.FC<PlatformStatsProps> = ({ initialData }) => 
           <StatLabel color="app.muted">Total Value Locked</StatLabel>
           <Skeleton isLoaded={!isLoading || !!stats} startColor="app.border" endColor="app.surfaceHover">
             <StatNumber fontSize="2xl" fontWeight="extrabold" color="app.accent">
-              {stats ? stats.tvl : '—'}
+              {stats ? stats.tvl : '$0'}
             </StatNumber>
           </Skeleton>
         </Stat>
