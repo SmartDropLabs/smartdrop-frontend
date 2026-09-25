@@ -26,6 +26,7 @@ import {
 } from '@/config';
 import { ConfigError, FeeBumpError, FreighterError, SecurityError } from './error-handler';
 import { fetchAccountBalances, fetchHorizonAccount } from './stellar';
+import { readJsonWithLimit } from './safe-fetch';
 import {
   bigintToDisplayAmount,
   parsePoolsFromNative,
@@ -883,6 +884,7 @@ export class SorobanService {
   private static ACCOUNT_CACHE_TTL_MS = 3_000;
   // Memoized lazy-init promise (issue #451) — see ensureInitialized().
   private initPromise?: Promise<void>;
+  private factoryWarningLogged = false;
 
   constructor() {
     this.rpcServer = rpcServer;
@@ -976,7 +978,11 @@ export class SorobanService {
     if (factoryAddress) {
       this.factoryContract = new Contract(factoryAddress);
     }
-    
+
+    // Without a factory there are no pools to load; skip the call instead of
+    // logging a warning on every page load (#487).
+    if (!this.factoryContract) return;
+
     // Load existing pools
     await this.loadPoolContracts();
   }
@@ -1019,7 +1025,10 @@ export class SorobanService {
    */
   async getFactoryPools(): Promise<PoolInfo[]> {
     if (!this.factoryContract) {
-      console.warn('Factory contract not initialized; returning empty pool list');
+      if (!this.factoryWarningLogged) {
+        this.factoryWarningLogged = true;
+        console.warn('Factory contract not initialized; returning empty pool list');
+      }
       return [];
     }
 
@@ -1832,10 +1841,10 @@ export class SorobanService {
     const res = await fetch(url.toString(), { headers: { accept: 'application/json' } });
     if (!res.ok) throw new Error(`Leaderboard API responded ${res.status}`);
 
-    const data = (await res.json()) as {
+    const data = await readJsonWithLimit<{
       entries?: Array<Partial<LeaderboardRow>>;
       total?: number;
-    };
+    }>(res);
     const entries: LeaderboardRow[] = (data.entries ?? []).map((e) => ({
       address: String(e.address ?? ''),
       totalCredits: Number(e.totalCredits ?? 0),

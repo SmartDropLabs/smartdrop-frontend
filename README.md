@@ -156,7 +156,7 @@ npm run dev          # frontend only — on-chain pages work, backend pages show
 npm run dev:stack    # frontend + smartdrop-backend + an in-memory Redis, all in one command
 ```
 
-`dev:stack` (`scripts/dev-stack.sh`) expects [`smartdrop-backend`](https://github.com/Mainnet-ops/smartdrop-backend) cloned as a sibling directory (`../smartdrop-backend`), or point it elsewhere with `SMARTDROP_BACKEND_DIR=/path npm run dev:stack`. It needs no Docker or system Redis install — the first run installs a small in-memory Redis under `~/.smartdrop-dev/` and reuses it on every subsequent run, along with a persisted admin API key (printed on startup, needed for `/alerts`). Ctrl+C stops all three processes; logs land in `~/.smartdrop-dev/logs/`.
+`dev:stack` (`scripts/dev-stack.sh`) expects [`smartdrop-backend`](https://github.com/Mainnet-ops/smartdrop-backend) cloned as a sibling directory (`../smartdrop-backend`), or point it elsewhere with `SMARTDROP_BACKEND_DIR=/path npm run dev:stack`. It needs no Docker or system Redis install — the first run installs a small in-memory Redis under `~/.smartdrop-dev/` and reuses it on every subsequent run, along with a persisted admin API key (printed on startup, needed for `/alerts`). Ctrl+C stops all three processes; logs land in `~/.smartdrop-dev/logs/`. See [`docs/dev-stack.md`](docs/dev-stack.md) for what it does, when to use it, and troubleshooting.
 
 Open [http://localhost:3000](http://localhost:3000). Production: `npm run build` / `npm start`.
 
