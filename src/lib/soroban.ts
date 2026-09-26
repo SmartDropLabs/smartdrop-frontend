@@ -2113,6 +2113,11 @@ export const formatCredits = (credits: string): string => {
   return Number(formattedCredits) === 0 ? normalizedCredits : formattedCredits;
 };
 
+// #496 — one number formatter for the lock-time and asset-amount helpers, with
+// a fixed locale so both format numbers the same way for every user.
+const NUMBER_FORMAT = new Intl.NumberFormat('en-US', { maximumFractionDigits: 7 });
+const formatNumber = (value: number): string => NUMBER_FORMAT.format(value);
+
 export const formatLockTime = (timestamp: number): string => {
   const now = Date.now();
   const diff = timestamp - now;
@@ -2125,9 +2130,9 @@ export const formatLockTime = (timestamp: number): string => {
   const days = Math.floor(hours / 24);
   
   if (days > 0) {
-    return `${days} day${days > 1 ? 's' : ''} remaining`;
+    return `${formatNumber(days)} day${days > 1 ? 's' : ''} remaining`;
   } else if (hours > 0) {
-    return `${hours} hour${hours > 1 ? 's' : ''} remaining`;
+    return `${formatNumber(hours)} hour${hours > 1 ? 's' : ''} remaining`;
   } else {
     return 'Less than 1 hour';
   }
@@ -2135,7 +2140,7 @@ export const formatLockTime = (timestamp: number): string => {
 
 export const formatAssetAmount = (amount: string, asset: AssetInfo): string => {
   const num = parseFloat(amount);
-  return `${num.toLocaleString()} ${asset.code}`;
+  return `${formatNumber(num)} ${asset.code}`;
 };
 
 /** Convenience wrapper — call lock_assets on a pool and await on-chain confirmation. */

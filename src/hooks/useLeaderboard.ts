@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useState } from "react";
-import { sorobanService } from "@/lib/soroban";
 
 export type SortKey = "credits" | "stake";
 
@@ -21,7 +20,10 @@ export function fetchLeaderboard(
   sortKey: SortKey,
   search?: string
 ): Promise<{ entries: LeaderboardEntry[]; total: number }> {
-  return sorobanService.getLeaderboard(offset, limit, sortKey, search);
+  // #498 — loaded on first use rather than at import time.
+  return import("@/lib/soroban").then(({ sorobanService }) =>
+    sorobanService.getLeaderboard(offset, limit, sortKey, search),
+  );
 }
 
 export function useLeaderboard(publicKey: string | null) {

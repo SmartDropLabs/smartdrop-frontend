@@ -4,6 +4,7 @@ import ConnectWalletButton from "@/components/ConnectWalletButton/ConnectWalletB
 import Footer from "@/components/Footer/Footer";
 import Navbar from "@/components/Navbar/Navbar";
 import NetworkMismatchBanner from "@/components/NetworkMismatchBanner/NetworkMismatchBanner";
+import RefetchIndicator from "@/components/RefetchIndicator/RefetchIndicator";
 import RpcUnreachableBanner from "@/components/RpcUnreachableBanner/RpcUnreachableBanner";
 import ContextProvider from "@/context";
 import {
@@ -46,6 +47,7 @@ function LayoutWrapper({ children }: { children: React.ReactNode }) {
         md: 0,
       }}
     >
+      <RefetchIndicator />
       <Navbar />
       <RpcUnreachableBanner />
       <NetworkMismatchBanner />
