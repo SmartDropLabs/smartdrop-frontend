@@ -5,17 +5,14 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import {
-  getStellarBalance,
-  rpcServer,
-  simulateLockAssets,
-  simulateUnlockAssets,
-  sorobanService,
-  type UserPosition,
-  type TransactionResult,
-} from '@/lib/soroban';
+import type { UserPosition, TransactionResult } from '@/lib/soroban';
 import { useStellarWallet } from '@/context/StellarWalletContext';
 import { useToast } from '@chakra-ui/react';
+
+// #498 — the Soroban service is loaded on first use instead of when this module
+// is imported, so the RPC client is not created during app boot before any
+// query needs it.
+const loadSoroban = () => import('@/lib/soroban');
 
 // Query Keys
 export const QUERY_KEYS = {
@@ -32,7 +29,7 @@ export const QUERY_KEYS = {
 export const usePools = () => {
   return useQuery({
     queryKey: [QUERY_KEYS.POOLS],
-    queryFn: () => sorobanService.getFactoryPools(),
+    queryFn: async () => (await loadSoroban()).sorobanService.getFactoryPools(),
     staleTime: 30000, // 30 seconds
     gcTime: 5 * 60 * 1000, // 5 minutes
     refetchInterval: 60000, // 1 minute
@@ -50,7 +47,7 @@ export const usePools = () => {
 export const usePoolDepositors = (poolId: string, limit: number = 20) => {
   return useQuery({
     queryKey: ['poolDepositors', poolId, limit],
-    queryFn: () => sorobanService.getPoolDepositors(poolId, limit),
+    queryFn: async () => (await loadSoroban()).sorobanService.getPoolDepositors(poolId, limit),
     enabled: !!poolId,
     staleTime: 30000,
     gcTime: 5 * 60 * 1000,
@@ -67,7 +64,7 @@ export const useUserPosition = (poolId: string, enabled: boolean = true) => {
 
   return useQuery({
     queryKey: [QUERY_KEYS.USER_POSITION, poolId, publicKey],
-    queryFn: () => sorobanService.getUserPosition(poolId, publicKey!),
+    queryFn: async () => (await loadSoroban()).sorobanService.getUserPosition(poolId, publicKey!),
     enabled: enabled && !!publicKey && !!poolId,
     staleTime: 15000, // 15 seconds
     gcTime: 5 * 60 * 1000,
@@ -84,7 +81,7 @@ export const useUserCredits = (poolId: string, enabled: boolean = true) => {
 
   return useQuery({
     queryKey: [QUERY_KEYS.USER_CREDITS, poolId, publicKey],
-    queryFn: () => sorobanService.calculateUserCredits(poolId, publicKey!),
+    queryFn: async () => (await loadSoroban()).sorobanService.calculateUserCredits(poolId, publicKey!),
     enabled: enabled && !!publicKey && !!poolId,
     staleTime: 5000, // 5 seconds (credits change frequently)
     gcTime: 5 * 60 * 1000,
@@ -96,7 +93,7 @@ export const useUserCredits = (poolId: string, enabled: boolean = true) => {
 export const useStellarBalance = (publicKey?: string) => {
   return useQuery({
     queryKey: ['stellarBalance', publicKey],
-    queryFn: ({ signal }) => getStellarBalance(publicKey!, signal),
+    queryFn: async ({ signal }) => (await loadSoroban()).getStellarBalance(publicKey!, signal),
     enabled: !!publicKey,
     staleTime: 15000,
     gcTime: 5 * 60 * 1000,
@@ -152,8 +149,8 @@ export const useLockAssetsFeePreview = (args: {
       args.poolContractId,
       debouncedAmount,
     ],
-    queryFn: () =>
-      simulateLockAssets({
+    queryFn: async () =>
+      (await loadSoroban()).simulateLockAssets({
         publicKey: args.publicKey!,
         poolContractId: args.poolContractId!,
         amount: debouncedAmount,
@@ -203,8 +200,8 @@ export const useUnlockAssetsFeePreview = (args: {
       args.poolContractId,
       debouncedAmount,
     ],
-    queryFn: () =>
-      simulateUnlockAssets({
+    queryFn: async () =>
+      (await loadSoroban()).simulateUnlockAssets({
         publicKey: args.publicKey!,
         poolContractId: args.poolContractId!,
         amount: debouncedAmount,
@@ -250,6 +247,7 @@ export const useLockAssets = (options?: {
       if (!walletApi || !publicKey) {
         throw new Error('Wallet not connected. Please connect Freighter before depositing.');
       }
+      const { sorobanService } = await loadSoroban();
       const result = await sorobanService.lockAssets(
         poolId,
         publicKey,
@@ -324,6 +322,7 @@ export const useUnlockAssets = () => {
       if (!walletApi || !publicKey) {
         throw new Error('Wallet not connected');
       }
+      const { sorobanService } = await loadSoroban();
       return sorobanService.unlockAssets(
         poolId,
         publicKey,
@@ -404,6 +403,7 @@ export const useSetBoost = () => {
       if (!walletApi || !publicKey) {
         throw new Error('Wallet not connected');
       }
+      const { sorobanService } = await loadSoroban();
       return sorobanService.setBoost(poolId, publicKey, allocationPercentage, walletApi);
     },
     onSuccess: (result: TransactionResult, variables) => {
@@ -460,6 +460,7 @@ export const useAllUserPositions = () => {
     queryFn: async () => {
       if (!publicKey || !pools) return [];
 
+      const { sorobanService } = await loadSoroban();
       const positions = await Promise.allSettled(
         pools.map(pool => sorobanService.getUserPosition(pool.id, publicKey))
       );
@@ -490,6 +491,7 @@ export const useTotalUserCredits = () => {
     queryFn: async () => {
       if (!publicKey || !pools) return '0';
 
+      const { sorobanService } = await loadSoroban();
       const credits = await Promise.allSettled(
         pools.map(pool => sorobanService.calculateUserCredits(pool.id, publicKey))
       );
@@ -566,6 +568,7 @@ export function usePlatformStats(initialData?: UIPlatformStats) {
   return useQuery<UIPlatformStats>({
     queryKey: [QUERY_KEYS.PLATFORM_STATS],
     queryFn: async () => {
+      const { sorobanService } = await loadSoroban();
       const [stats, velocity] = await Promise.all([
         sorobanService.getPlatformStats(),
         sorobanService.getCreditVelocity(24)
@@ -599,7 +602,7 @@ export function usePlatformStats(initialData?: UIPlatformStats) {
 export function useRpcHealth() {
   const query = useQuery({
     queryKey: ['rpcHealth'],
-    queryFn: () => rpcServer.getHealth(),
+    queryFn: async () => (await loadSoroban()).rpcServer.getHealth(),
     staleTime: 15000,
     gcTime: 5 * 60 * 1000,
     refetchInterval: 30000,

@@ -10,7 +10,6 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from "recharts";
-import { sorobanService } from "@/lib/soroban";
 
 const ACCENT = "#4ae292";
 
@@ -34,8 +33,8 @@ export default function TvlChart({ poolId }: TvlChartProps) {
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    sorobanService
-      .getPoolHistory(poolId, 7)
+    import("@/lib/soroban")
+      .then(({ sorobanService }) => sorobanService.getPoolHistory(poolId, 7))
       .then((history) => {
         if (!cancelled) {
           setData(history);
