@@ -1355,6 +1355,8 @@ export class SorobanService {
    * Unlock assets from a pool
    * @param amount - display units as a string, converted to stroops via
    *   amountToStroops — the same contract lockAssets uses (issue #445)
+   * @param amountStroops - optional pre-converted stroops value to avoid
+   *   double-conversion when caller has already validated (issue #500)
    */
   async unlockAssets(
     poolId: string,
@@ -1363,6 +1365,7 @@ export class SorobanService {
     walletApi: FreighterWalletApi,
     callbacks?: UnlockAssetsCallbacks,
     isStillConnected?: () => boolean,
+    amountStroops?: bigint,
   ): Promise<TransactionResult> {
     const poolContract = this.resolvePoolContract(poolId);
 
@@ -1385,10 +1388,12 @@ export class SorobanService {
 
       callbacks?.onStep?.('simulating');
 
+      const stroops = amountStroops ?? amountToStroops(amount);
+
       const call = poolContract.call(
         "unlock_assets",
         Address.fromString(userAddress).toScVal(),
-        nativeToScVal(amountToStroops(amount), { type: "i128" }),
+        nativeToScVal(stroops, { type: "i128" }),
       );
 
       const account = await this.rpcServer.getAccount(userAddress);
@@ -2180,14 +2185,13 @@ export const unlockAssets = async ({
   isStillConnected?: () => boolean;
 } & UnlockAssetsCallbacks) => {
   // Validate the display-unit amount up front so malformed input is rejected
-  // before any wallet/RPC interaction. Both wrappers now pass display units
-  // straight through; the service converts with the same amountToStroops
-  // helper lockAssets uses (issue #445).
-  amountToStroops(amount);
+  // before any wallet/RPC interaction. Capture the converted stroops value
+  // to avoid double-conversion in the service (issue #500).
+  const stroops = amountToStroops(amount);
   return sorobanService.unlockAssets(poolContractId, publicKey, amount, walletApi, {
     onHash,
     onStep,
-  }, isStillConnected);
+  }, isStillConnected, stroops);
 };
 
 export const stellarExpertTxUrl = (hash: string, network: string) =>
