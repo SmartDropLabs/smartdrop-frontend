@@ -59,8 +59,6 @@ export function useLockFlow({
   // without making `execute` itself change identity every time step does.
   const stepRef = useRef(step);
   stepRef.current = step;
-  const walletApiRef = useRef(walletApi);
-  walletApiRef.current = walletApi;
 
   const reset = useCallback(() => {
     setStep("idle");
