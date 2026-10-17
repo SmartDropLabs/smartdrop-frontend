@@ -4,6 +4,7 @@ import {
     poolContractId,
     stellarNetwork,
 } from "@/config";
+import FieldError from "@/components/FieldError/FieldError";
 import TransactionConfirmModal from "@/components/TransactionConfirmModal/TransactionConfirmModal";
 import { useErrorHandler } from "@/context/ErrorContext";
 import { useStellarWallet } from "@/context/StellarWalletContext";
@@ -38,7 +39,7 @@ import {
     Spinner,
     Text,
 } from "@chakra-ui/react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 
 type UnlockStep =
   | "idle"
@@ -89,6 +90,15 @@ export default function UnlockModal() {
     numericAmount >= 0.01 &&
     !!position &&
     numericAmount <= position.lockedAmount;
+  const amountError =
+    !!amount && !amountValid && position
+      ? numericAmount < 0.01
+        ? `Minimum unlock amount is 0.01 ${position.symbol}.`
+        : numericAmount > position.lockedAmount
+          ? `Amount exceeds locked balance of ${position.lockedAmount} ${position.symbol}.`
+          : "Enter a valid amount."
+      : null;
+  const amountErrorId = useId();
 
   const feePreview = useUnlockAssetsFeePreview({
     publicKey,
@@ -400,6 +410,8 @@ export default function UnlockModal() {
                     value={amount}
                     onChange={(e) => setAmount(e.target.value)}
                     isDisabled={!canUnlock || isProcessing}
+                    isInvalid={Boolean(amountError)}
+                    aria-describedby={amountErrorId}
                     borderColor="app.border"
                     bg="app.inputBg"
                     color="app.text"
@@ -452,15 +464,7 @@ export default function UnlockModal() {
                 </Box>
               </Flex>
 
-              {!!amount && !amountValid && (
-                <Text fontSize="xs" color="app.errorFg" role="alert">
-                  {numericAmount < 0.01
-                    ? `Minimum unlock amount is 0.01 ${position.symbol}.`
-                    : numericAmount > position.lockedAmount
-                      ? `Amount exceeds locked balance of ${position.lockedAmount} ${position.symbol}.`
-                      : "Enter a valid amount."}
-                </Text>
-              )}
+              <FieldError id={amountErrorId} message={amountError} />
 
               {amountValid && (
                 <Box border="1px solid #303030" borderRadius="2xl" p={3}>

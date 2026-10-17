@@ -22,6 +22,7 @@ import {
   type Alert,
 } from "@/lib/backend";
 import { QueryErrorAlert } from "@/components/QueryErrorAlert/QueryErrorAlert";
+import FieldError from "@/components/FieldError/FieldError";
 
 export default function AlertsPage() {
   const toast = useToast();
@@ -142,15 +143,11 @@ export default function AlertsPage() {
           bg="app.inputBg"
           isInvalid={Boolean(apiKeyError)}
           aria-invalid={Boolean(apiKeyError)}
-          aria-describedby="api-key-help"
+          aria-describedby="api-key-error api-key-help"
           _hover={{ borderColor: apiKeyError ? "app.errorFg" : "app.accent" }}
           _focus={{ boxShadow: "none", borderColor: apiKeyError ? "app.errorFg" : "app.accent" }}
         />
-        {apiKeyError && (
-          <Text fontSize="xs" color="app.errorFg" mt={2}>
-            {apiKeyError}
-          </Text>
-        )}
+        <FieldError id="api-key-error" message={apiKeyError} mt={2} />
         <Text id="api-key-help" fontSize="xs" color="app.muted" mt={2}>
           This endpoint requires backend authentication. The key is only kept in this page&apos;s memory — it is never stored or sent anywhere except the backend API.
         </Text>

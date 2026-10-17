@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import NextLink from "next/link";
 import TransactionConfirmModal from "@/components/TransactionConfirmModal/TransactionConfirmModal";
+import FieldError from "@/components/FieldError/FieldError";
 import {
   Alert,
   AlertIcon,
@@ -209,6 +210,11 @@ export default function PoolDetailClient({ poolId }: { poolId: string }) {
 
   const displayAmount = parseFloat(rawAmount);
   const amountValid = Number.isFinite(displayAmount) && displayAmount > 0;
+  const amountError =
+    rawAmount !== "0" && rawAmount !== "" && !amountValid
+      ? "Enter an amount greater than 0."
+      : null;
+  const amountErrorId = useId();
   const isPending = isDepositPending(flow.step);
   const lockPeriodLabel = pool
     ? pool.minLockPeriod >= 86400
@@ -441,6 +447,8 @@ export default function PoolDetailClient({ poolId }: { poolId: string }) {
                   value={rawAmount}
                   onChange={(e) => setRawAmount(e.target.value)}
                   isDisabled={isPending}
+                  isInvalid={Boolean(amountError)}
+                  aria-describedby={amountErrorId}
                   borderRadius="2xl"
                   h="50px"
                   borderColor="app.border"
@@ -449,11 +457,7 @@ export default function PoolDetailClient({ poolId }: { poolId: string }) {
                   _hover={{ borderColor: "app.accent" }}
                   _focus={{ boxShadow: "none", borderColor: "app.accent" }}
                 />
-                {rawAmount !== "0" && rawAmount !== "" && !amountValid && (
-                  <Text fontSize="xs" color="app.errorFg">
-                    Enter an amount greater than 0.
-                  </Text>
-                )}
+                <FieldError id={amountErrorId} message={amountError} />
               </Flex>
 
               {isPending && (
