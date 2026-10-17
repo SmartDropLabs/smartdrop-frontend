@@ -31,4 +31,12 @@ describe('middleware CSP', () => {
     expect(response.headers.get('Content-Security-Policy')).toContain("frame-ancestors 'none'");
     expect(response.headers.get('X-Frame-Options')).toBe('DENY');
   });
+
+  it('forwards the nonce-bearing CSP on the request so Next.js nonces its inline scripts', () => {
+    const response = middleware(new NextRequest('https://example.com/'));
+    const csp = response.headers.get('Content-Security-Policy');
+    expect(response.headers.get('x-middleware-request-content-security-policy')).toBe(csp);
+    const nonce = response.headers.get('x-middleware-request-x-nonce');
+    expect(csp).toContain(`'nonce-${nonce}'`);
+  });
 });

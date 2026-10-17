@@ -1,6 +1,7 @@
 import type { NextConfig } from "next";
 import withBundleAnalyzer from "@next/bundle-analyzer";
 import { validateEnv } from "./src/config/validateEnv";
+import { buildCsp } from "./src/config/csp";
 
 const isStaticExport = process.env.NEXT_EXPORT === "true";
 
@@ -22,30 +23,16 @@ const basePath = raw.startsWith("/") ? raw : raw ? `/${raw}` : "";
  * When running in static-export mode the frontend hook falls back to querying
  * the Stellar Horizon API directly from the browser.
  */
-const backendApiOrigin = (() => {
-  try {
-    return new URL(
-      process.env.NEXT_PUBLIC_BACKEND_API_URL ?? "http://localhost:4000/api/v1"
-    ).origin;
-  } catch {
-    return "http://localhost:4000";
-  }
-})();
-
-const CSP_POLICY = [
-  "default-src 'self'",
-  "script-src 'self'",
-  "style-src 'self' 'unsafe-inline'",
-  `connect-src 'self' https://horizon.stellar.org https://horizon-testnet.stellar.org https://soroban-testnet.stellar.org https://soroban.stellar.org https://stellar.expert ${backendApiOrigin}`,
-  "img-src 'self' data: https:",
-  "font-src 'self'",
-  "frame-src 'none'",
-  "object-src 'none'",
-  "base-uri 'self'",
-  "form-action 'self'",
+// Static policy for the <meta> CSP rendered by src/app/layout.tsx in
+// static-export mode. Nonces can't work there (the HTML is generated once,
+// not per request), so `npm run build` runs
+// scripts/csp-hash-inline-scripts.mjs afterwards to add a sha256 hash for
+// every inline <script> to each exported page's script-src. In server mode
+// src/middleware.ts sends a nonce-based policy header instead.
+const CSP_POLICY = buildCsp({
   // Report CSP violations for monitoring (#589).
-  "report-uri /api/csp-report",
-].join("; ");
+  reportUri: "/api/csp-report",
+});
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,

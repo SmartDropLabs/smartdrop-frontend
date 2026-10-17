@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { applyApiCorsHeaders, guardApiRequest } from '@/lib/api-origin';
+import { buildCsp } from '@/config/csp';
 
 function generateNonce(): string {
   const bytes = new Uint8Array(16);
@@ -7,40 +8,16 @@ function generateNonce(): string {
   return btoa(String.fromCharCode(...bytes));
 }
 
-const backendApiOrigin = (() => {
-  try {
-    return new URL(
-      process.env.NEXT_PUBLIC_BACKEND_API_URL ?? "http://localhost:4000/api/v1"
-    ).origin;
-  } catch {
-    return "http://localhost:4000";
-  }
-})();
-
 // 'unsafe-eval' is only needed for Next.js dev-mode Fast Refresh (eval-based
 // source maps); production builds don't use eval anywhere, so it's dropped
-// outside development. 'unsafe-inline' stays in style-src for now — Chakra
-// UI/Emotion inject <style> tags at runtime with no nonce wired through, and
-// switching that to a nonce-based policy needs an Emotion cache configured
-// with this nonce (e.g. via @chakra-ui/next-js's CacheProvider), which isn't
-// set up in this app yet.
-function buildCsp(nonce: string): string {
-  const isDev = process.env.NODE_ENV !== 'production';
-  return [
-    "default-src 'self'",
-    `script-src 'self' 'nonce-${nonce}'${isDev ? " 'unsafe-eval'" : ''}`,
-    "style-src 'self' 'unsafe-inline'",
-    `connect-src 'self' https://horizon.stellar.org https://horizon-testnet.stellar.org https://soroban-testnet.stellar.org https://soroban.stellar.org https://stellar.expert ${backendApiOrigin}`,
-    "img-src 'self' data: https:",
-    "font-src 'self'",
-    "frame-src 'none'",
+// outside development.
+function buildNonceCsp(nonce: string): string {
+  return buildCsp({
+    nonce,
+    isDev: process.env.NODE_ENV !== 'production',
     // Clickjacking: no site (including this one) may embed the app (#508).
-    // Only honoured as a response header, not in the layout's <meta> CSP.
-    "frame-ancestors 'none'",
-    "object-src 'none'",
-    "base-uri 'self'",
-    "form-action 'self'",
-  ].join('; ');
+    frameAncestors: true,
+  });
 }
 
 // Note: this middleware previously also ran a next-intl locale middleware
@@ -57,10 +34,14 @@ export function middleware(request: NextRequest) {
   if (apiResponse) return apiResponse;
 
   const nonce = generateNonce();
-  const cspHeader = buildCsp(nonce);
+  const cspHeader = buildNonceCsp(nonce);
 
   const requestHeaders = new Headers(request.headers);
   requestHeaders.set('x-nonce', nonce);
+  // Next.js reads the nonce from the request's CSP header and stamps it on
+  // its own inline scripts (RSC payload, bootstrap); without this they'd be
+  // blocked by the response policy below.
+  requestHeaders.set('Content-Security-Policy', cspHeader);
 
   const response = NextResponse.next({
     request: { headers: requestHeaders },
