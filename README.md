@@ -81,6 +81,8 @@ This does not replace legal, compliance, or token-design work; it is a **mechani
 | `src/config/` | Stellar network, Horizon, Soroban RPC, optional factory contract id |
 | `src/data/contributors.json` | Live-synced contributor data (regenerate via the GitHub contributors API) |
 | `src/app/icon.svg` | Favicon / brand mark |
+| `public/sw.js` | Service worker: offline support and static-asset caching (see [Offline support](#offline-support)) |
+| `public/offline.html` | Fallback page served when offline and the page isn't cached |
 
 **Stack:** Next.js 15, React 19, TypeScript, Chakra UI, Tailwind CSS, **@stellar/freighter-api**, TanStack Query, Recharts. The app builds as a **static export** (`output: "export"`) so only the front end is shipped — no Node server.
 
@@ -148,6 +150,7 @@ NEXT_PUBLIC_STELLAR_NETWORK=TESTNET
 # NEXT_PUBLIC_MIN_LOCK_PERIOD_SECONDS=604800   # min lock before unlock (default 7 days)
 # NEXT_PUBLIC_BACKEND_API_URL=http://localhost:4000/api/v1   # smartdrop-backend, for /prices /airdrops /webhooks /alerts
 # API_ALLOWED_ORIGINS=https://partner.example   # extra origins allowed to call /api/* cross-origin (server-only; same-origin always allowed, #559)
+# NEXT_PUBLIC_ENABLE_SW=false                  # disable service worker registration in production builds (#528)
 ```
 
 Then, pick one:
@@ -160,6 +163,21 @@ npm run dev:stack    # frontend + smartdrop-backend + an in-memory Redis, all in
 `dev:stack` (`scripts/dev-stack.sh`) expects [`smartdrop-backend`](https://github.com/Mainnet-ops/smartdrop-backend) cloned as a sibling directory (`../smartdrop-backend`), or point it elsewhere with `SMARTDROP_BACKEND_DIR=/path npm run dev:stack`. It needs no Docker or system Redis install — the first run installs a small in-memory Redis under `~/.smartdrop-dev/` and reuses it on every subsequent run, along with a persisted admin API key (printed on startup, needed for `/alerts`). Ctrl+C stops all three processes; logs land in `~/.smartdrop-dev/logs/`. See [`docs/dev-stack.md`](docs/dev-stack.md) for what it does, when to use it, and troubleshooting.
 
 Open [http://localhost:3000](http://localhost:3000). Production: `npm run build` / `npm start`.
+
+### Offline support
+
+The app ships a service worker (`public/sw.js`, #528) registered by `ServiceWorkerRegistrar` in `AppShell`. It is **production-only**: `npm run dev` never registers it, because a caching worker would serve stale bundles and break HMR. Set `NEXT_PUBLIC_ENABLE_SW=false` to opt out of registration in a production build.
+
+| Request | Strategy |
+|---------|----------|
+| Page navigations | Network-first; offline, serve the last cached copy of the page, else `public/offline.html` |
+| Same-origin static assets (`/_next/static/*`, images, icons, fonts) | Stale-while-revalidate |
+| `/api/*`, non-GET requests, all cross-origin requests (Horizon, Soroban RPC, backend) | Never cached — balances, positions and transactions are always live |
+
+- **Updating:** bump `CACHE_VERSION` in `public/sw.js` when changing caching behaviour; old `smartdrop-*` caches are deleted on activate. The page cache is capped at 30 entries.
+- **Freshness:** `/sw.js` is served with `Cache-Control: no-cache` (`next.config.ts`) so worker updates reach users on their next visit.
+- **GitHub Pages:** the worker is registered at `<BASE_PATH>/sw.js` with a matching scope, so it works under `/smartdrop-frontend/`.
+- **Testing locally:** `npm run build && npm start`, open DevTools → **Application → Service Workers**, then tick **Offline** under **Network** and reload. Use **Unregister** / **Clear storage** there to reset.
 
 ### Soroban contracts
 
