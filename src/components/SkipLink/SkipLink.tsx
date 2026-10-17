@@ -1,6 +1,7 @@
 "use client";
 
 import { Link } from "@chakra-ui/react";
+import { memo } from "react";
 
 export const MAIN_CONTENT_ID = "main-content";
 
@@ -12,7 +13,7 @@ export const MAIN_CONTENT_ID = "main-content";
  * keyboard focus, so the next Tab would land back in the navbar. Focus the
  * target explicitly (it has tabIndex={-1}) so the skip actually takes effect.
  */
-export default function SkipLink() {
+function SkipLink() {
   return (
     <Link
       href={`#${MAIN_CONTENT_ID}`}
@@ -41,3 +42,7 @@ export default function SkipLink() {
     </Link>
   );
 }
+
+// Memoized: AppShell re-renders on every wallet / own-CTA change, and this
+// component doesn't depend on either.
+export default memo(SkipLink);

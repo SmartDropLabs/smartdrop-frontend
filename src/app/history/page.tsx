@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { memo, useEffect, useMemo, useState } from "react";
 import {
   Alert,
   AlertIcon,
@@ -77,7 +77,7 @@ function EmptyState({ children }: { children: React.ReactNode }) {
   );
 }
 
-function HistoryCard({ entry }: { entry: TxHistoryEntry }) {
+const HistoryCard = memo(function HistoryCard({ entry }: { entry: TxHistoryEntry }) {
   return (
     <Box
       w="100%"
@@ -134,7 +134,7 @@ function HistoryCard({ entry }: { entry: TxHistoryEntry }) {
       </VStack>
     </Box>
   );
-}
+});
 
 export default function HistoryPage() {
   // Chakra's `ssr` option is inverted from what the name suggests: `ssr: false`

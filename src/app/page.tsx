@@ -1,5 +1,5 @@
 "use client";
-import { useEffect } from "react";
+import { memo, useEffect } from "react";
 import {
   Flex,
   HStack,
@@ -37,9 +37,10 @@ const fadeInUp = {
 // A layer of slow-drifting, multi-hue gradient blobs plus a faint dot grid,
 // scoped to this page's own stacking context so it never touches the shared
 // AppShell chrome (nav/footer) that other routes' visual-regression
-// screenshots depend on.
+// screenshots depend on. Memoized so wallet / stats updates on the page
+// don't re-render the infinitely-animating orbs.
 
-function GradientOrb({
+const GradientOrb = memo(function GradientOrb({
   color,
   size,
   top,
@@ -82,9 +83,9 @@ function GradientOrb({
       transition={{ duration, delay, repeat: Infinity, ease: "easeInOut" }}
     />
   );
-}
+});
 
-function AmbientBackground() {
+const AmbientBackground = memo(function AmbientBackground() {
   return (
     <Box
       position="absolute"
@@ -133,7 +134,7 @@ function AmbientBackground() {
       />
     </Box>
   );
-}
+});
 
 // ── Icons ────────────────────────────────────────────────────────────────────
 // Small inline line icons — no new icon-package dependency for four glyphs.

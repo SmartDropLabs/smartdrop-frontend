@@ -12,7 +12,7 @@ import {
     withRetry
 } from "@/lib/error-handler";
 import { Box, Button, Text, useToast as useChakraToast } from "@chakra-ui/react";
-import { useCallback } from "react";
+import { useCallback, useMemo } from "react";
 
 export type NotificationType = "success" | "error" | "info" | "warning";
 
@@ -243,14 +243,20 @@ export function useToast() {
     [chakraToast, handleError]
   );
 
-  return {
-    success,
-    error,
-    info,
-    warning,
-    handleError,
-    withErrorHandling,
-  };
+  // Memoized so the returned object keeps its identity across renders —
+  // ErrorProvider hands it to every useErrorHandler() consumer via context,
+  // and a fresh object here would re-render all of them on each render.
+  return useMemo(
+    () => ({
+      success,
+      error,
+      info,
+      warning,
+      handleError,
+      withErrorHandling,
+    }),
+    [success, error, info, warning, handleError, withErrorHandling],
+  );
 }
 
 export type UseToastReturn = ReturnType<typeof useToast>;

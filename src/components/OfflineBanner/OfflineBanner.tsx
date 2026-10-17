@@ -1,7 +1,7 @@
 "use client";
 
 import { Alert, AlertIcon } from "@chakra-ui/react";
-import { useSyncExternalStore } from "react";
+import { memo, useSyncExternalStore } from "react";
 
 function subscribe(callback: () => void) {
   window.addEventListener("online", callback);
@@ -23,7 +23,7 @@ export function useOnlineStatus(): boolean {
 
 // Issue #528: tell the user plainly when the device is offline, instead of
 // leaving every query to fail with its own error.
-export default function OfflineBanner() {
+function OfflineBanner() {
   const isOnline = useOnlineStatus();
 
   if (isOnline) return null;
@@ -44,3 +44,7 @@ export default function OfflineBanner() {
     </Alert>
   );
 }
+
+// Memoized: AppShell re-renders on every wallet / own-CTA change, and this
+// component doesn't depend on either.
+export default memo(OfflineBanner);

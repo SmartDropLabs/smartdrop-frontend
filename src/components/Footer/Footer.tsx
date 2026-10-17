@@ -1,7 +1,8 @@
 import { Flex, Link as ChakraLink, Text } from "@chakra-ui/react";
 import NextLink from "next/link";
+import { memo } from "react";
 
-export default function Footer() {
+function Footer() {
   return (
     <Flex
       as="footer"
@@ -37,3 +38,7 @@ export default function Footer() {
     </Flex>
   );
 }
+
+// Memoized: AppShell re-renders on every wallet / own-CTA change, and this
+// component doesn't depend on either.
+export default memo(Footer);

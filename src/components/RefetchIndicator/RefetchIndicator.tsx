@@ -3,6 +3,7 @@
 import { keyframes } from "@emotion/react";
 import { Box } from "@chakra-ui/react";
 import { useIsFetching } from "@tanstack/react-query";
+import { memo } from "react";
 
 const slide = keyframes`
   0% { transform: translateX(-100%); }
@@ -16,7 +17,7 @@ const slide = keyframes`
  * this shows it is being updated. The animation is dropped for users who
  * prefer reduced motion, leaving a static bar.
  */
-export default function RefetchIndicator() {
+function RefetchIndicator() {
   const refetching =
     useIsFetching({ predicate: (query) => query.state.data !== undefined }) > 0;
 
@@ -44,3 +45,7 @@ export default function RefetchIndicator() {
     </Box>
   );
 }
+
+// Memoized: AppShell re-renders on every wallet / own-CTA change, and this
+// component doesn't depend on either.
+export default memo(RefetchIndicator);

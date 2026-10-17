@@ -35,7 +35,16 @@ type StellarWalletContextValue = {
   disconnect: () => void;
 };
 
+type StellarWalletActions = Pick<StellarWalletContextValue, "connect" | "disconnect">;
+
 const StellarWalletContext = createContext<StellarWalletContextValue | null>(
+  null
+);
+
+// connect/disconnect are stable callbacks, so components that only trigger
+// wallet actions read them from this context and skip the re-render that
+// every publicKey / networkName change causes for StellarWalletContext.
+const StellarWalletActionsContext = createContext<StellarWalletActions | null>(
   null
 );
 
@@ -423,10 +432,14 @@ export function StellarWalletProvider({ children }: { children: ReactNode }) {
     [publicKey, walletApi, networkName, isNetworkMismatch, connect, disconnect]
   );
 
+  const actions = useMemo(() => ({ connect, disconnect }), [connect, disconnect]);
+
   return (
-    <StellarWalletContext.Provider value={value}>
-      {children}
-    </StellarWalletContext.Provider>
+    <StellarWalletActionsContext.Provider value={actions}>
+      <StellarWalletContext.Provider value={value}>
+        {children}
+      </StellarWalletContext.Provider>
+    </StellarWalletActionsContext.Provider>
   );
 }
 
@@ -434,6 +447,20 @@ export function useStellarWallet() {
   const ctx = useContext(StellarWalletContext);
   if (!ctx) {
     throw new Error("useStellarWallet must be used within StellarWalletProvider");
+  }
+  return ctx;
+}
+
+/**
+ * Just the wallet actions. Unlike useStellarWallet(), consumers of this hook
+ * do not re-render when the connected account or network changes.
+ */
+export function useStellarWalletActions() {
+  const ctx = useContext(StellarWalletActionsContext);
+  if (!ctx) {
+    throw new Error(
+      "useStellarWalletActions must be used within StellarWalletProvider"
+    );
   }
   return ctx;
 }

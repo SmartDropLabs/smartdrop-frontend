@@ -16,13 +16,16 @@ import {
   useDisclosure,
 } from "@chakra-ui/react";
 import { ChevronDownIcon, HamburgerIcon } from "@chakra-ui/icons";
-import { useStellarWallet } from "@/context/StellarWalletContext";
+import {
+  useStellarWallet,
+  useStellarWalletActions,
+} from "@/context/StellarWalletContext";
 import NextLink from "next/link";
 import { usePathname } from "next/navigation";
 import ThemeToggle from "@/components/ThemeToggle/ThemeToggle";
 import { usePlatformStats } from "@/hooks/useSorobanQuery";
 import { useToast } from "@/hooks/useToast";
-import { useEffect, useState } from "react";
+import { memo, useCallback, useEffect, useState } from "react";
 
 const MORE_LINKS = [
   { href: "/prices", label: "Prices" },
@@ -49,7 +52,7 @@ function shortenStellarAddress(address: string) {
   return `${address.slice(0, 4)}…${address.slice(-4)}`;
 }
 
-function Logo() {
+const Logo = memo(function Logo() {
   return (
     <NextLink
       href="/"
@@ -68,9 +71,9 @@ function Logo() {
       </span>
     </NextLink>
   );
-}
+});
 
-function NavLink({
+const NavLink = memo(function NavLink({
   href,
   children,
   onClick,
@@ -95,9 +98,9 @@ function NavLink({
       {children}
     </NextLink>
   );
-}
+});
 
-function MoreMenu() {
+const MoreMenu = memo(function MoreMenu() {
   const pathname = usePathname();
   const isActive = MORE_LINKS.some((link) => isActiveRoute(pathname, link.href));
   return (
@@ -130,9 +133,9 @@ function MoreMenu() {
       </MenuList>
     </Menu>
   );
-}
+});
 
-function StatPill({ label, value, pulse = false }: { label: string; value: string; pulse?: boolean }) {
+const StatPill = memo(function StatPill({ label, value, pulse = false }: { label: string; value: string; pulse?: boolean }) {
   return (
     <div className="flex items-center gap-1.5 rounded-full border border-[color:var(--chakra-colors-app-border)] bg-[color:var(--chakra-colors-app-surface)] px-3 py-1 text-xs whitespace-nowrap">
       {pulse && (
@@ -142,7 +145,7 @@ function StatPill({ label, value, pulse = false }: { label: string; value: strin
       <span className="font-bold text-[color:var(--chakra-colors-app-text)]">{value}</span>
     </div>
   );
-}
+});
 
 function formatCount(value: number | undefined | null): string {
   return value || value === 0 ? value.toLocaleString() : "—";
@@ -152,12 +155,12 @@ function formatCount(value: number | undefined | null): string {
 // wallet pill used to be a plain, non-interactive display of the shortened
 // address, with the only disconnect affordance living in the separate
 // floating ConnectWalletButton. Fold both into a menu on the pill itself.
-function WalletMenu({ publicKey }: { publicKey: string }) {
-  const { disconnect } = useStellarWallet();
+const WalletMenu = memo(function WalletMenu({ publicKey }: { publicKey: string }) {
+  const { disconnect } = useStellarWalletActions();
   const [copied, setCopied] = useState(false);
-  const toast = useToast();
+  const { error: toastError } = useToast();
 
-  const handleCopy = async () => {
+  const handleCopy = useCallback(async () => {
     try {
       await navigator.clipboard.writeText(publicKey);
       setCopied(true);
@@ -166,9 +169,9 @@ function WalletMenu({ publicKey }: { publicKey: string }) {
       // navigator.clipboard is unavailable in non-secure/hardened contexts —
       // surface it instead of failing silently, and include the address so
       // the user can still copy it manually.
-      toast.error("Couldn't copy address", publicKey);
+      toastError("Couldn't copy address", publicKey);
     }
-  };
+  }, [publicKey, toastError]);
 
   return (
     <Menu placement="bottom-end">
@@ -201,7 +204,7 @@ function WalletMenu({ publicKey }: { publicKey: string }) {
       </MenuList>
     </Menu>
   );
-}
+});
 
 function MobileNavDrawer({
   isOpen,

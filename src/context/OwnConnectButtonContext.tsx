@@ -27,17 +27,17 @@ import {
   type ReactNode,
 } from "react";
 
-interface OwnConnectButtonContextValue {
-  /** Number of mounted subtrees that currently declare their own CTA. */
-  count: number;
-  /** Register (+1) or deregister (-1) a declaration. */
-  update: (delta: 1 | -1) => void;
-}
+// Count and updater live in separate contexts: pages that only signal (via
+// useOwnConnectButton) read the stable updater and so don't re-render each
+// time the count changes — only AppShell, which reads the count, does.
 
-const OwnConnectButtonContext = createContext<OwnConnectButtonContextValue>({
-  count: 0,
-  update: () => undefined,
-});
+/** Number of mounted subtrees that currently declare their own CTA. */
+const OwnConnectButtonCountContext = createContext(0);
+
+/** Register (+1) or deregister (-1) a declaration. */
+const OwnConnectButtonUpdateContext = createContext<(delta: 1 | -1) => void>(
+  () => undefined,
+);
 
 /** Provider — place once near the root (inside AppShell). */
 export function OwnConnectButtonProvider({ children }: { children: ReactNode }) {
@@ -56,9 +56,11 @@ export function OwnConnectButtonProvider({ children }: { children: ReactNode }) 
   }, []);
 
   return (
-    <OwnConnectButtonContext.Provider value={{ count, update }}>
-      {children}
-    </OwnConnectButtonContext.Provider>
+    <OwnConnectButtonUpdateContext.Provider value={update}>
+      <OwnConnectButtonCountContext.Provider value={count}>
+        {children}
+      </OwnConnectButtonCountContext.Provider>
+    </OwnConnectButtonUpdateContext.Provider>
   );
 }
 
@@ -68,8 +70,7 @@ export function OwnConnectButtonProvider({ children }: { children: ReactNode }) 
  * button.
  */
 export function useHasOwnConnectButton(): boolean {
-  const { count } = useContext(OwnConnectButtonContext);
-  return count > 0;
+  return useContext(OwnConnectButtonCountContext) > 0;
 }
 
 /**
@@ -91,7 +92,7 @@ export function useHasOwnConnectButton(): boolean {
  *   }, [showingOwnCTA, signal]);
  */
 export function useOwnConnectButton(): (active: boolean) => void {
-  const { update } = useContext(OwnConnectButtonContext);
+  const update = useContext(OwnConnectButtonUpdateContext);
   const activeRef = useRef(false);
 
   // Clean up on unmount no matter what

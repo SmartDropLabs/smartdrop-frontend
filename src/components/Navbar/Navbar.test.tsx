@@ -17,6 +17,7 @@ const walletMock = vi.hoisted(() => ({
 
 vi.mock("@/context/StellarWalletContext", () => ({
   useStellarWallet: vi.fn(() => walletMock),
+  useStellarWalletActions: vi.fn(() => walletMock),
 }));
 
 vi.mock("@/hooks/useSorobanQuery", () => ({

@@ -49,7 +49,7 @@ import {
   useToast,
 } from "@chakra-ui/react";
 import { useOwnConnectButton } from "@/context/OwnConnectButtonContext";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 const ACCENT = "#4AE292";
 
@@ -534,15 +534,17 @@ export default function Farm() {
     });
   }, [pools, userPositions]);
 
-  const handleDepositClick = (pool: LivePoolRow) => {
+  // Stable references so the memoized FarmPoolRow children
+  // don't receive a new callback on every wallet or query update.
+  const handleDepositClick = useCallback((pool: LivePoolRow) => {
     setSelectedFarm(pool);
     setIsDepositOpen(true);
-  };
+  }, []);
 
-  const handleDepositClose = () => {
+  const handleDepositClose = useCallback(() => {
     setIsDepositOpen(false);
     setSelectedFarm(null);
-  };
+  }, []);
 
   const hasPositions = myPositions.length > 0;
 
