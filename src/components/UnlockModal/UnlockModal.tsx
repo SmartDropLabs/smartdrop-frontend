@@ -9,6 +9,7 @@ import TransactionConfirmModal from "@/components/TransactionConfirmModal/Transa
 import { useErrorHandler } from "@/context/ErrorContext";
 import { useStellarWallet } from "@/context/StellarWalletContext";
 import { useCountdown } from "@/hooks/useCountdown";
+import { useDynamicFocusTrap } from "@/hooks/useDynamicFocusTrap";
 import { trackEvent } from "@/lib/analytics";
 import {
     stellarExpertTxUrl,
@@ -77,6 +78,9 @@ export default function UnlockModal() {
   const [txHash, setTxHash] = useState<string | null>(null);
   const [isConfirmOpen, setIsConfirmOpen] = useState(false);
   const amountInputRef = useRef<HTMLInputElement>(null);
+  // Callback-ref state (not useRef): ModalContent mounts inside a portal after
+  // the first effect pass, so the trap needs a re-render once it exists.
+  const [contentEl, setContentEl] = useState<HTMLElement | null>(null);
   const selectedPoolContractId = position?.contractAddress || poolContractId;
 
   const unlockAt = position ? unlockAvailableAt(position) : 0;
@@ -117,6 +121,10 @@ export default function UnlockModal() {
       setIsConfirmOpen(false);
     }
   }, [isUnlock, position]);
+
+  // Re-anchor focus inside the dialog when its content changes (form ↔ success
+  // view, controls disabling mid-transaction) so it can't fall back to <body>.
+  useDynamicFocusTrap(contentEl, isUnlock);
 
   const explorerUrl = useMemo(
     () => (txHash ? stellarExpertTxUrl(txHash, stellarNetwork.toLowerCase()) : null),
@@ -312,6 +320,7 @@ export default function UnlockModal() {
     >
       <ModalOverlay backdropFilter="blur(3px)" />
       <ModalContent
+        ref={setContentEl}
         bg="app.surface"
         color="app.text"
         borderRadius="3xl"

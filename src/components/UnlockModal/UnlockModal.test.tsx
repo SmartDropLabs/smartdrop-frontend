@@ -279,6 +279,33 @@ describe('UnlockModal', () => {
     expect(unlockAssets).not.toHaveBeenCalled();
   });
 
+  it('moves focus off a control that becomes disabled when the content changes', async () => {
+    const { rerender } = renderWithProviders(createElement(UnlockModal));
+    const dialog = screen.getByRole('dialog', { name: /Unlock XLM/i });
+    const unlockButton = screen.getByRole('button', { name: /Unlock with Freighter/i });
+    unlockButton.focus();
+    expect(document.activeElement).toBe(unlockButton);
+
+    // Lock period no longer elapsed → the amount controls and action disable
+    // underneath the focused button.
+    vi.mocked(useCountdown).mockReturnValue({
+      isElapsed: false,
+      remainingMs: 50000,
+      label: '1 hour remaining',
+    });
+    rerender(
+      createElement(ChakraProvider, null,
+        createElement(QueryClientProvider, { client: createQueryClient() }, createElement(UnlockModal))
+      )
+    );
+
+    await waitFor(() => {
+      expect(unlockButton).toHaveProperty('disabled', true);
+      expect(document.activeElement).not.toBe(unlockButton);
+      expect(dialog.contains(document.activeElement)).toBe(true);
+    });
+  });
+
   describe('Escape key (#516)', () => {
     function mockStore(close: () => void) {
       vi.mocked(useFarmStore).mockImplementation((selector: (state: FarmStore) => unknown) =>
