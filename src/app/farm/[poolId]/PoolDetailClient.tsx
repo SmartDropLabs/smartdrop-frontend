@@ -17,7 +17,6 @@ import {
   ModalHeader,
   ModalOverlay,
   Skeleton,
-  SkeletonText,
   Spinner,
   Table,
   Tbody,
@@ -83,13 +82,13 @@ function StatCard({
       <Text fontSize="xs" color="app.muted" fontWeight="medium">
         {label}
       </Text>
-      {loading ? (
-        <Skeleton height="24px" w="80%" borderRadius="md" startColor="app.border" endColor="app.surfaceHover" />
-      ) : (
+      {/* Wrapping the real Text (rather than a fixed-height bar) sizes the
+          skeleton to the value's actual line box, so nothing shifts on load. */}
+      <Skeleton isLoaded={!loading} w={loading ? "80%" : undefined} borderRadius="md" startColor="app.border" endColor="app.surfaceHover">
         <Text fontWeight="bold" fontSize="lg" color="app.text">
           {value}
         </Text>
-      )}
+      </Skeleton>
     </Flex>
   );
 }
@@ -264,9 +263,7 @@ export default function PoolDetailClient({ poolId }: { poolId: string }) {
 
       {/* Header */}
       <Flex w="full" justify="space-between" align="center" flexWrap="wrap" gap={4}>
-        {poolLoading ? (
-          <Skeleton height="40px" w="200px" borderRadius="xl" startColor="app.border" endColor="app.surfaceHover" />
-        ) : (
+        <Skeleton isLoaded={!poolLoading} w={poolLoading ? "200px" : undefined} borderRadius="xl" startColor="app.border" endColor="app.surfaceHover">
           <Text
             fontSize={{ base: "2xl", md: "3xl" }}
             fontWeight="extrabold"
@@ -274,9 +271,9 @@ export default function PoolDetailClient({ poolId }: { poolId: string }) {
             bgGradient="linear(to-r, app.text, app.accent)"
             bgClip="text"
           >
-            {pool?.asset.code ?? "Pool"} Pool
+            {poolLoading ? "Pool" : `${pool?.asset.code ?? "Pool"} Pool`}
           </Text>
-        )}
+        </Skeleton>
         <Flex align="center" gap={2}>
           {!poolLoading && (
             <ShareButton
@@ -336,10 +333,12 @@ export default function PoolDetailClient({ poolId }: { poolId: string }) {
             Your Earnings
           </Text>
           {creditsLoading || positionLoading ? (
-            <Flex direction="column" gap={2}>
-              {Array.from({ length: 3 }).map((_, i) => (
-                <Skeleton key={i} height="40px" borderRadius="md" />
-              ))}
+            // Same row of StatCards as the loaded state, so the section
+            // keeps its height and layout when earnings arrive.
+            <Flex gap={3} flexWrap="wrap">
+              <StatCard label="Daily Earnings" value="—" loading />
+              <StatCard label="Weekly Earnings" value="—" loading />
+              <StatCard label="Total Earnings" value="—" loading />
             </Flex>
           ) : userCredits ? (
             <Flex gap={3} flexWrap="wrap">
@@ -388,13 +387,7 @@ export default function PoolDetailClient({ poolId }: { poolId: string }) {
         <Text fontSize="sm" fontWeight="semibold" mb={4} color="app.muted" letterSpacing="wide" textTransform="uppercase">
           Top 20 Depositors
         </Text>
-        {depositorsLoading ? (
-          <Flex direction="column" gap={2}>
-            {Array.from({ length: 5 }).map((_, i) => (
-              <SkeletonText key={i} noOfLines={1} skeletonHeight="32px" borderRadius="md" />
-            ))}
-          </Flex>
-        ) : depositors.length === 0 ? (
+        {!depositorsLoading && depositors.length === 0 ? (
           <Text color="app.muted" fontSize="sm">
             No depositors yet.
           </Text>
@@ -410,7 +403,17 @@ export default function PoolDetailClient({ poolId }: { poolId: string }) {
                 </Tr>
               </Thead>
               <Tbody>
-                {depositors.map((d, i) => (
+                {/* Skeleton rows reuse the real table's cells (and its
+                    sm row height) so the list doesn't jump on load. */}
+                {depositorsLoading && Array.from({ length: 5 }).map((_, i) => (
+                  <Tr key={i}>
+                    <Td borderColor="app.border"><Skeleton h="16px" w="16px" borderRadius="md" /></Td>
+                    <Td borderColor="app.border"><Skeleton h="16px" w="88px" borderRadius="md" /></Td>
+                    <Td borderColor="app.border" isNumeric><Skeleton h="16px" w="56px" ml="auto" borderRadius="md" /></Td>
+                    <Td borderColor="app.border" isNumeric><Skeleton h="16px" w="56px" ml="auto" borderRadius="md" /></Td>
+                  </Tr>
+                ))}
+                {!depositorsLoading && depositors.map((d, i) => (
                   <Tr key={d.address} _hover={{ bg: "app.inputBg" }}>
                     <Td borderColor="app.border" color="app.muted">{i + 1}</Td>
                     <Td borderColor="app.border" fontFamily="mono" fontSize="xs">
