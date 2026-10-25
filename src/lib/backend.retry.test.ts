@@ -26,6 +26,10 @@ describe("isRetryableBackendError", () => {
     expect(isRetryableBackendError(new BackendApiError("unavailable", 503))).toBe(true);
   });
 
+  it("retries a 429 (rate limit exceeded)", () => {
+    expect(isRetryableBackendError(new BackendApiError("rate limited", 429))).toBe(true);
+  });
+
   it("retries a plain network failure (not a BackendApiError at all)", () => {
     expect(isRetryableBackendError(new TypeError("Failed to fetch"))).toBe(true);
   });
@@ -54,5 +58,13 @@ describe("backendQueryRetry", () => {
     expect(backendQueryRetry.retryDelay(1)).toBe(2000);
     expect(backendQueryRetry.retryDelay(2)).toBe(4000);
     expect(backendQueryRetry.retryDelay(10)).toBe(10_000); // capped
+  });
+
+  it("uses retryAfterSeconds for 429 rate limit errors when available", () => {
+    const rateLimitError = new BackendApiError("rate limited", 429, "RATE_LIMITED", 15);
+    expect(backendQueryRetry.retryDelay(0, rateLimitError)).toBe(15_000);
+
+    const hugeRateLimitError = new BackendApiError("rate limited", 429, "RATE_LIMITED", 60);
+    expect(backendQueryRetry.retryDelay(0, hugeRateLimitError)).toBe(30_000); // capped at 30s
   });
 });
