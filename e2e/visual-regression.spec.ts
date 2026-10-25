@@ -90,17 +90,45 @@ function trackConsoleErrors(page: Page) {
 // exactly). Playwright's `mask` option didn't visibly cover it -- the host
 // element's own layout box doesn't necessarily bound its shadow content --
 // so hide it outright before each screenshot instead.
+// The overlay is hidden by injecting a rule of our own rather than by writing
+// display:none onto each portal, and that is what makes the state reversible:
+// restoring is deleting a node we created, so no per-element style is destroyed
+// and there is nothing to remember. Two things fall out of it. Portals that mount
+// *after* this call are covered too -- the dev runtime mounts the badge well after
+// hydration, and the previous per-element loop only caught the ones that existed
+// at that moment. And `!important` holds against the overlay's own inline styles.
+const DEV_OVERLAY_STYLE_ID = "e2e-hide-dev-overlay";
+
 async function hideDevOverlay(page: Page): Promise<void> {
-  await page.evaluate(() => {
-    document.querySelectorAll("nextjs-portal").forEach((el) => {
-      (el as HTMLElement).style.display = "none";
-    });
-  });
+  await page.evaluate((id) => {
+    if (document.getElementById(id)) return;
+    const style = document.createElement("style");
+    style.id = id;
+    style.textContent = "nextjs-portal { display: none !important; }";
+    document.head.appendChild(style);
+  }, DEV_OVERLAY_STYLE_ID);
+}
+
+// The other half of hideDevOverlay, and the reason this issue exists: a test that
+// throws before its last screenshot used to leave the page with the overlay
+// hidden, and nothing put it back. Failing to hide the badge is a diff a reviewer
+// can see; failing to *restore* it is silent.
+async function restoreDevOverlay(page: Page): Promise<void> {
+  await page.evaluate((id) => {
+    document.getElementById(id)?.remove();
+  }, DEV_OVERLAY_STYLE_ID);
 }
 
 test.describe("visual regression coverage", () => {
   test.beforeEach(async ({ page }) => {
     await installVisualStabilityHooks(page);
+  });
+
+  test.afterEach(async ({ page }) => {
+    // afterEach runs even when the test threw, so the overlay is restored whether
+    // or not the test reached its final screenshot.
+    if (page.isClosed()) return;
+    await restoreDevOverlay(page);
   });
 
   test("unknown routes render the 404 page and recover back home", async ({ page }) => {
