@@ -27,10 +27,14 @@ function formatUsd(value: number | null) {
   });
 }
 
+type TimeRange = "1D" | "1W" | "1M" | "1Y";
+const TIME_RANGES: TimeRange[] = ["1D", "1W", "1M", "1Y"];
+
 export default function PricesPage() {
   const [assetCode, setAssetCode] = useState("XLM");
   const [issuer, setIssuer] = useState("");
   const [submitted, setSubmitted] = useState({ assetCode: "XLM", issuer: "" });
+  const [timeRange, setTimeRange] = useState<TimeRange>("1D");
 
   const { data, isLoading, isError, error, isFetching, refetch } = useQuery({
     queryKey: ["price", submitted.assetCode, submitted.issuer],
@@ -154,6 +158,25 @@ export default function PricesPage() {
                 {data.is_stale ? "Stale" : "Fresh"}
               </Badge>
             </HStack>
+
+            <HStack spacing={1} mb={4}>
+              {TIME_RANGES.map((range) => (
+                <Button
+                  key={range}
+                  size="xs"
+                  variant={timeRange === range ? "solid" : "ghost"}
+                  bg={timeRange === range ? "app.accent" : undefined}
+                  color={timeRange === range ? "app.onAccent" : "app.muted"}
+                  _hover={{ bg: timeRange === range ? "app.accent" : "app.border", opacity: 0.9 }}
+                  borderRadius="md"
+                  onClick={() => setTimeRange(range)}
+                  aria-pressed={timeRange === range}
+                >
+                  {range}
+                </Button>
+              ))}
+            </HStack>
+
             <Text fontSize="4xl" fontWeight="extrabold" color="app.accent" mb={2}>
               {formatUsd(data.price_usd)}
             </Text>
