@@ -16,9 +16,10 @@ import {
   useHasOwnConnectButton,
 } from "@/context/OwnConnectButtonContext";
 import { useStellarWallet } from "@/context/StellarWalletContext";
+import { recordRecentPage } from "@/lib/recentPages";
 import { Box } from "@chakra-ui/react";
 import { usePathname } from "next/navigation";
-import { buildRouteBreadcrumbs } from "./routeBreadcrumbs";
+import { useEffect } from "react";
 
 // Routes where the page itself always renders an inline Connect Wallet button
 // in the disconnected state — no dynamic condition, just pathname matching.
@@ -30,6 +31,11 @@ function LayoutWrapper({ children }: { children: React.ReactNode }) {
   const { isConnected } = useStellarWallet();
   const pathname = usePathname();
 
+  // Keep the landing visit's utm_* params for share links built later (#752).
+  useEffect(() => {
+    rememberUtmParams();
+  }, [pathname]);
+
   // Pages signal a dynamic own-CTA via context (e.g. /farm, /farm/[poolId]).
   const hasContextCTA = useHasOwnConnectButton();
 
@@ -38,9 +44,10 @@ function LayoutWrapper({ children }: { children: React.ReactNode }) {
 
   const hasOwnConnectButton = hasContextCTA || hasStaticCTA;
 
-  // Breadcrumb trail for nested routes (#786); null for top-level pages and
-  // for routes that render their own trail.
-  const breadcrumbs = buildRouteBreadcrumbs(pathname);
+  // Feeds the 404 page's "recently visited" suggestions (#784).
+  useEffect(() => {
+    if (pathname) recordRecentPage(pathname);
+  }, [pathname]);
 
   return (
     <Box

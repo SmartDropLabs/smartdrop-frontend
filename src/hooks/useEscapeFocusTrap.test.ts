@@ -1,12 +1,12 @@
 import { renderHook, act } from '@testing-library/react';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { useDynamicFocusTrap } from './useDynamicFocusTrap';
+import { useEscapeFocusTrap } from './useEscapeFocusTrap';
 
 function pressKey(key: string) {
   document.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }));
 }
 
-describe('useDynamicFocusTrap', () => {
+describe('useEscapeFocusTrap', () => {
   let onClose: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
@@ -19,7 +19,7 @@ describe('useDynamicFocusTrap', () => {
     trigger.focus();
     expect(document.activeElement).toBe(trigger);
 
-    renderHook(() => useDynamicFocusTrap({ active: true, onClose }));
+    renderHook(() => useEscapeFocusTrap({ active: true, onClose }));
 
     act(() => pressKey('Escape'));
 
@@ -30,7 +30,7 @@ describe('useDynamicFocusTrap', () => {
   });
 
   it('does not attach a listener when inactive', () => {
-    renderHook(() => useDynamicFocusTrap({ active: false, onClose }));
+    renderHook(() => useEscapeFocusTrap({ active: false, onClose }));
 
     act(() => pressKey('Escape'));
 

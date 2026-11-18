@@ -1,10 +1,10 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
-import { Avatar, Box, Flex, Grid, HStack, Link as ChakraLink, Skeleton, SkeletonCircle, Stack, Text } from "@chakra-ui/react";
+import { Box, Flex, Grid, HStack, Link as ChakraLink, Skeleton, SkeletonCircle, Stack, Text } from "@chakra-ui/react";
 import NextLink from "next/link";
 
 import contributorData from "@/data/contributors.json";
-import { safeHttpUrl } from "@/lib/sanitize";
+import { ContributorsGrid } from "./ContributorsGrid";
 
 // Heights mirror the loaded page's line boxes (font size × 1.5 body line
 // height) so swapping in real content doesn't shift the layout.
@@ -105,65 +105,7 @@ export default function ContributorsPage() {
           </Text>
         </Flex>
       ) : (
-      <Grid
-        w="100%"
-        maxW="1100px"
-        templateColumns={{ base: "minmax(0, 1fr)", sm: "repeat(2, minmax(0, 1fr))", lg: "repeat(3, minmax(0, 1fr))" }}
-        gap={4}
-      >
-        {sorted.map((c, i) => (
-          <ChakraLink
-            key={c.login}
-            as={NextLink}
-            href={
-              safeHttpUrl(c.html_url, ["github.com"]) ??
-              `https://github.com/${encodeURIComponent(c.login)}`
-            }
-            target="_blank"
-            rel="noreferrer"
-            minW={0}
-            _hover={{ textDecoration: "none" }}
-          >
-            <Flex
-              align="center"
-              gap={3}
-              p={4}
-              minW={0}
-              border="1px solid"
-              borderColor="app.border"
-              borderRadius="card"
-              bg="app.surface"
-              boxShadow="card"
-              transition="all 0.2s ease"
-              _hover={{ borderColor: "app.borderHover", boxShadow: "cardHover", transform: "translateY(-2px)" }}
-            >
-              <Avatar src={safeHttpUrl(c.avatar_url, ["avatars.githubusercontent.com"])} name={c.login} size="md" flexShrink={0} />
-              <Box minW={0} flex={1}>
-                <Text fontWeight="semibold" color="app.text" isTruncated>
-                  @{c.login}
-                </Text>
-                <Text fontSize="sm" color="app.muted">
-                  {c.contributions} commit{c.contributions === 1 ? "" : "s"}
-                </Text>
-              </Box>
-              {i < 3 && (
-                <Box
-                  flexShrink={0}
-                  fontSize="xs"
-                  fontWeight="bold"
-                  color="app.onAccent"
-                  bg="app.accent"
-                  borderRadius="full"
-                  px={2}
-                  py={0.5}
-                >
-                  #{i + 1}
-                </Box>
-              )}
-            </Flex>
-          </ChakraLink>
-        ))}
-      </Grid>
+      <ContributorsGrid contributors={sorted} />
       )}
     </Flex>
     </Suspense>

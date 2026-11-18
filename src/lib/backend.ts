@@ -1,5 +1,6 @@
 import { backendApiUrl } from "@/config";
 import { readJsonWithLimit, ResponseTooLargeError } from "./safe-fetch";
+import { jitteredBackoff } from "./backoff";
 
 export class BackendApiError extends Error {
   status: number;
@@ -43,7 +44,7 @@ export function isRetryableBackendError(error: unknown): boolean {
 export const backendQueryRetry = {
   retry: (failureCount: number, error: unknown) =>
     failureCount < 2 && isRetryableBackendError(error),
-  retryDelay: (attemptIndex: number) => Math.min(1000 * 2 ** attemptIndex, 10_000),
+  retryDelay: (attemptIndex: number) => jitteredBackoff(attemptIndex, { maxMs: 10_000 }),
 } as const;
 
 const DEFAULT_TIMEOUT = 20_000;
@@ -181,6 +182,28 @@ export function deleteWebhook(id: string): Promise<{ deleted: boolean }> {
 
 export function testWebhook(id: string): Promise<{ delivery: { id: string; status?: string } }> {
   return request(`/webhooks/${encodeURIComponent(id)}/test`, { method: "POST" });
+}
+
+/** One delivery attempt record, as returned by `GET /webhooks/:id/deliveries` (#778). */
+export type WebhookDelivery = {
+  id: string;
+  webhook_id: string;
+  event_id: string | null;
+  event_type: string;
+  status: string;
+  attempts: number;
+  last_error: string | null;
+  last_attempt_at: string | null;
+  next_retry_at: string | null;
+  response_status: number | null;
+  created_at: string;
+};
+
+export function listWebhookDeliveries(
+  id: string,
+  limit = 20,
+): Promise<{ deliveries: WebhookDelivery[] }> {
+  return request(`/webhooks/${encodeURIComponent(id)}/deliveries?limit=${limit}`);
 }
 
 // ---------- Alerts (require an API key) ----------

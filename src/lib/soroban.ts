@@ -27,6 +27,7 @@ import {
 import { ConfigError, FeeBumpError, FreighterError, SecurityError } from './error-handler';
 import { fetchAccountBalances, fetchHorizonAccount } from './stellar';
 import { readJsonWithLimit } from './safe-fetch';
+import { getRpcServer } from './rpc-pool';
 import {
   bigintToDisplayAmount,
   parsePoolsFromNative,
@@ -66,7 +67,7 @@ export interface LeaderboardPage {
 }
 
 // Initialize Soroban RPC Server
-export const rpcServer = new rpc.Server(sorobanRpcUrl);
+export const rpcServer = getRpcServer(sorobanRpcUrl);
 
 export interface BoostConfig {
   multiplier: number;
@@ -241,10 +242,13 @@ async function requestFeeBump(innerTxXdr: string): Promise<string> {
   }
 
   const resData = (await response.json().catch(() => null)) as
-    | { feeBumpTxXdr?: string }
+    | { feeBumpTxXdr?: string; warning?: string }
     | null;
   if (!resData?.feeBumpTxXdr) {
     throw new FeeBumpError('Sponsor API returned invalid response', response.status);
+  }
+  if (resData.warning) {
+    console.warn(`[FeeBump] ${resData.warning}`);
   }
   return resData.feeBumpTxXdr;
 }
@@ -2249,6 +2253,11 @@ export const unlockAssets = async ({
 // value can't add path segments or a query to the explorer URL (#527).
 export const stellarExpertTxUrl = (hash: string, network: string) =>
   `https://stellar.expert/explorer/${encodeURIComponent(network)}/tx/${encodeURIComponent(hash)}`;
+
+// Public account page for an address (#775) — the closest thing to a user
+// profile SmartDrop has. Encoded for the same reason as the tx URL above.
+export const stellarExpertAccountUrl = (address: string, network: string) =>
+  `https://stellar.expert/explorer/${encodeURIComponent(network)}/account/${encodeURIComponent(address)}`;
 
 /**
  * Compute live-preview values for a partial unlock.

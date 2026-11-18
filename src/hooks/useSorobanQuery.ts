@@ -8,8 +8,8 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import type { UserPosition, TransactionResult } from '@/lib/soroban';
 import { useStellarWallet } from '@/context/StellarWalletContext';
 import { useToast } from '@chakra-ui/react';
-import { normalizeError } from '@/lib/error-handler';
-import { readPersistedQuery, writePersistedQuery } from '@/lib/queryPersistence';
+import { jitteredBackoff } from '@/lib/backoff';
+import { dedupeQuery } from '@/lib/dedupe-query';
 
 // #498 — the Soroban service is loaded on first use instead of when this module
 // is imported, so the RPC client is not created during app boot before any
@@ -32,6 +32,13 @@ export const STALE_TIME = {
   USER_DATA: 15_000,
   STATS: 60_000,
 } as const;
+
+// In-flight dedupe keys (#757): one pool's position/credits read is shared by
+// the per-pool hook and the all-pools hook while a call is in flight.
+const userPositionKey = (poolId: string, publicKey: string) =>
+  `userPosition:${poolId}:${publicKey}`;
+const userCreditsKey = (poolId: string, publicKey: string) =>
+  `userCredits:${poolId}:${publicKey}`;
 
 /**
  * React Query `retry` callback: retry only transient failures (network/RPC
@@ -88,7 +95,7 @@ export const usePools = () => {
     gcTime: 5 * 60 * 1000, // 5 minutes
     refetchInterval: 60000, // 1 minute
     retry: shouldRetry,
-    retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 30000),
+    retryDelay: (attemptIndex) => jitteredBackoff(attemptIndex, { maxMs: 30_000 }),
   });
   usePersistedQueryCache(POOLS_QUERY_KEY, QUERY_KEYS.POOLS, query.data, query.dataUpdatedAt);
   return query;
@@ -120,7 +127,12 @@ export const useUserPosition = (poolId: string, enabled: boolean = true) => {
 
   return useQuery({
     queryKey: [QUERY_KEYS.USER_POSITION, poolId, publicKey],
-    queryFn: async () => (await loadSoroban()).sorobanService.getUserPosition(poolId, publicKey!),
+    queryFn: async () => {
+      const { sorobanService } = await loadSoroban();
+      return dedupeQuery(userPositionKey(poolId, publicKey!), () =>
+        sorobanService.getUserPosition(poolId, publicKey!),
+      );
+    },
     enabled: enabled && !!publicKey && !!poolId,
     staleTime: STALE_TIME.USER_DATA,
     gcTime: 5 * 60 * 1000,
@@ -137,7 +149,12 @@ export const useUserCredits = (poolId: string, enabled: boolean = true) => {
 
   return useQuery({
     queryKey: [QUERY_KEYS.USER_CREDITS, poolId, publicKey],
-    queryFn: async () => (await loadSoroban()).sorobanService.calculateUserCredits(poolId, publicKey!),
+    queryFn: async () => {
+      const { sorobanService } = await loadSoroban();
+      return dedupeQuery(userCreditsKey(poolId, publicKey!), () =>
+        sorobanService.calculateUserCredits(poolId, publicKey!),
+      );
+    },
     enabled: enabled && !!publicKey && !!poolId,
     staleTime: STALE_TIME.USER_DATA,
     gcTime: 5 * 60 * 1000,
@@ -571,7 +588,11 @@ export const useAllUserPositions = () => {
 
       const { sorobanService } = await loadSoroban();
       const positions = await Promise.allSettled(
-        pools.map(pool => sorobanService.getUserPosition(pool.id, publicKey))
+        pools.map(pool =>
+          dedupeQuery(userPositionKey(pool.id, publicKey), () =>
+            sorobanService.getUserPosition(pool.id, publicKey),
+          ),
+        )
       );
 
       return positions
@@ -602,7 +623,11 @@ export const useTotalUserCredits = () => {
 
       const { sorobanService } = await loadSoroban();
       const credits = await Promise.allSettled(
-        pools.map(pool => sorobanService.calculateUserCredits(pool.id, publicKey))
+        pools.map(pool =>
+          dedupeQuery(userCreditsKey(pool.id, publicKey), () =>
+            sorobanService.calculateUserCredits(pool.id, publicKey),
+          ),
+        )
       );
 
       const totalCredits = credits.reduce((total, result) => {

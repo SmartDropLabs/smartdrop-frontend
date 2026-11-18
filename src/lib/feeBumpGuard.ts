@@ -12,6 +12,27 @@ import { Address, Keypair, StrKey, Transaction } from '@stellar/stellar-sdk';
 export const SPONSORABLE_FUNCTIONS = new Set(['lock_assets', 'unlock_assets']);
 
 /**
+ * Fee-bump total, in stroops, above which a sponsored fee bump is flagged as
+ * unusually high (#753): 1 XLM, far above what a single lock/unlock call
+ * normally costs. The bump fee is derived from the caller-supplied inner
+ * transaction's fee, so an inflated inner fee is the case this catches.
+ */
+export const HIGH_FEE_BUMP_STROOPS = 10_000_000;
+
+/** True when `feeStroops` exceeds HIGH_FEE_BUMP_STROOPS (#753). */
+export function isHighFeeBump(feeStroops: number | string): boolean {
+  const fee = Number(feeStroops);
+  return Number.isFinite(fee) && fee > HIGH_FEE_BUMP_STROOPS;
+}
+
+/** User-facing warning for an unusually high fee bump, or null (#753). */
+export function highFeeBumpWarning(feeStroops: number | string): string | null {
+  if (!isHighFeeBump(feeStroops)) return null;
+  const xlm = Number(feeStroops) / 10_000_000;
+  return `This fee bump is unusually high (${xlm} XLM). Please double-check the transaction before submitting.`;
+}
+
+/**
  * Throws if `innerTx` is not exactly one invokeHostFunction call to
  * `lock_assets`/`unlock_assets` on one of `knownPoolContractIds`, or if it
  * isn't already validly signed by its own declared source account.

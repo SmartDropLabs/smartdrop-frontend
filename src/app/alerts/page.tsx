@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Badge,
   Box,
@@ -30,12 +30,23 @@ export default function AlertsPage() {
   const queryClient = useQueryClient();
   const [apiKey, setApiKey] = useState("");
   const [asset, setAsset] = useState("");
+  // The prices page links here as /alerts?asset=CODE (#776). Read it after
+  // mount (not in the initializer) so server and client render the same.
+  useEffect(() => {
+    const prefill = new URLSearchParams(window.location.search).get("asset");
+    if (prefill && /^[A-Za-z0-9]{1,12}$/.test(prefill)) setAsset(prefill.toUpperCase());
+  }, []);
   const [type, setType] = useState<Alert["type"]>("above");
   const [thresholdUsd, setThresholdUsd] = useState("");
   const [webhookUrl, setWebhookUrl] = useState("");
   const [webhookSecret, setWebhookSecret] = useState("");
   const [selectedAlerts, setSelectedAlerts] = useState<Set<string>>(new Set());
   const [readAlerts, setReadAlerts] = useState<Set<string>>(new Set());
+  // Notification preferences (#780): `repeat` is sent to the backend with the
+  // alert (fire on every threshold crossing vs. only the first); `hideRead`
+  // is a view preference for this page.
+  const [repeat, setRepeat] = useState(false);
+  const [hideRead, setHideRead] = useState(false);
 
   // Backend API keys are opaque bearer tokens with no documented format —
   // validate the one thing we can: it must be non-trivial-length, non-blank
@@ -64,6 +75,7 @@ export default function AlertsPage() {
         threshold_usd: Number(thresholdUsd),
         webhook_url: webhookUrl.trim(),
         webhook_secret: webhookSecret,
+        repeat,
       }),
     onSuccess: () => {
       toast({ title: "Alert created", status: "success", duration: 4000 });
@@ -257,6 +269,21 @@ export default function AlertsPage() {
                   _focus={{ boxShadow: "none", borderColor: "app.accent" }}
                 />
               </Box>
+              <Box>
+                <Text fontSize="sm" color="app.muted" mb={2}>Notification preference</Text>
+                <Checkbox
+                  isChecked={repeat}
+                  onChange={(e) => setRepeat(e.target.checked)}
+                  colorScheme="teal"
+                >
+                  <Text fontSize="sm">Notify every time the threshold is crossed</Text>
+                </Checkbox>
+                <Text fontSize="xs" color="app.muted" mt={1}>
+                  {repeat
+                    ? "The webhook fires on each crossing."
+                    : "The webhook fires once, the first time the threshold is crossed."}
+                </Text>
+              </Box>
               <Button
                 type="submit"
                 alignSelf="flex-start"
@@ -306,19 +333,30 @@ export default function AlertsPage() {
                   >
                     <Text fontSize="sm" color="app.muted">Select all</Text>
                   </Checkbox>
-                  {selectedAlerts.size > 0 && (
-                    <Button
-                      size="sm"
-                      bg="app.accent"
-                      color="app.onAccent"
-                      _hover={{ opacity: 0.9 }}
-                      onClick={markAllAsRead}
+                  <HStack spacing={3}>
+                    <Checkbox
+                      isChecked={hideRead}
+                      onChange={(e) => setHideRead(e.target.checked)}
+                      colorScheme="teal"
                     >
-                      Mark {selectedAlerts.size} as read
-                    </Button>
-                  )}
+                      <Text fontSize="sm" color="app.muted">Hide read alerts</Text>
+                    </Checkbox>
+                    {selectedAlerts.size > 0 && (
+                      <Button
+                        size="sm"
+                        bg="app.accent"
+                        color="app.onAccent"
+                        _hover={{ opacity: 0.9 }}
+                        onClick={markAllAsRead}
+                      >
+                        Mark {selectedAlerts.size} as read
+                      </Button>
+                    )}
+                  </HStack>
                 </HStack>
-                {data.data.map((alert) => (
+                {data.data
+                  .filter((alert) => !(hideRead && readAlerts.has(alert.id)))
+                  .map((alert) => (
                   <Flex
                     key={alert.id}
                     justify="space-between"
@@ -344,6 +382,9 @@ export default function AlertsPage() {
                         <HStack>
                           <Text fontWeight="semibold">{alert.asset}</Text>
                           <Badge borderRadius="full" px={2}>{alert.type}</Badge>
+                          <Badge colorScheme={alert.repeat ? "teal" : "gray"} borderRadius="full" px={2}>
+                            {alert.repeat ? "Repeats" : "Once"}
+                          </Badge>
                           {readAlerts.has(alert.id) && (
                             <Badge colorScheme="gray" borderRadius="full" px={2}>Read</Badge>
                           )}

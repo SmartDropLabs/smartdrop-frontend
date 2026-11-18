@@ -31,6 +31,7 @@ import {
   backendQueryRetry,
 } from "@/lib/backend";
 import { QueryErrorAlert } from "@/components/QueryErrorAlert/QueryErrorAlert";
+import { DeliveryHistory } from "./DeliveryHistory";
 
 export default function WebhooksPage() {
   const toast = useToast();
@@ -40,7 +41,11 @@ export default function WebhooksPage() {
   const [selectedEvents, setSelectedEvents] = useState<string[]>([]);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [webhookToDelete, setWebhookToDelete] = useState<string | null>(null);
+  const [historyOpen, setHistoryOpen] = useState<Record<string, boolean>>({});
   const cancelRef = useRef(null);
+
+  const toggleHistory = (webhookId: string) =>
+    setHistoryOpen((prev) => ({ ...prev, [webhookId]: !prev[webhookId] }));
 
   const { data, isLoading, isError, error, isFetching, refetch } = useQuery({
     queryKey: ["webhooks"],
@@ -89,7 +94,10 @@ export default function WebhooksPage() {
 
   const testMutation = useMutation({
     mutationFn: testWebhook,
-    onSuccess: () => toast({ title: "Test ping sent", status: "success", duration: 4000 }),
+    onSuccess: (_data, webhookId) => {
+      toast({ title: "Test ping sent", status: "success", duration: 4000 });
+      queryClient.invalidateQueries({ queryKey: ["webhook-deliveries", webhookId] });
+    },
     onError: (err) =>
       toast({
         title: "Test ping failed",
@@ -270,6 +278,15 @@ export default function WebhooksPage() {
                       size="sm"
                       variant="outline"
                       borderColor="app.border"
+                      onClick={() => toggleHistory(webhook.id)}
+                      aria-expanded={Boolean(historyOpen[webhook.id])}
+                    >
+                      {historyOpen[webhook.id] ? "Hide history" : "History"}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      borderColor="app.border"
                       color="app.errorFg"
                       onClick={() => handleDeleteClick(webhook.id)}
                       isLoading={deleteMutation.isPending && deleteMutation.variables === webhook.id}
@@ -278,6 +295,12 @@ export default function WebhooksPage() {
                     </Button>
                   </HStack>
                 </Flex>
+                {historyOpen[webhook.id] && (
+                  <Box mt={4}>
+                    <Text fontSize="sm" fontWeight="semibold" mb={1}>Recent deliveries</Text>
+                    <DeliveryHistory webhookId={webhook.id} />
+                  </Box>
+                )}
               </Box>
             ))}
           </Flex>

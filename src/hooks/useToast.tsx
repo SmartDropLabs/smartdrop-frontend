@@ -16,10 +16,18 @@ import { useCallback, useMemo } from "react";
 
 export type NotificationType = "success" | "error" | "info" | "warning";
 
-interface ToastOptions {
+export type ToastPosition =
+  | "top"
+  | "top-right"
+  | "top-left"
+  | "bottom"
+  | "bottom-right"
+  | "bottom-left";
+
+export interface ToastOptions {
   duration?: number;
   isClosable?: boolean;
-  position?: "top" | "top-right" | "top-left" | "bottom" | "bottom-right" | "bottom-left";
+  position?: ToastPosition;
 }
 
 const DEFAULT_TOAST_OPTIONS: ToastOptions = {
@@ -40,8 +48,23 @@ const TOAST_CONTAINER_STYLE = {
   flexDirection: "column-reverse" as const,
 };
 
-export function useToast() {
+/**
+ * `defaults` override the built-in options for every toast this hook shows
+ * (#759) — e.g. `useToast({ position: "top" })` on a page whose bottom-right
+ * corner holds primary actions. Per-call `options` still win over both.
+ */
+export function useToast(defaults: ToastOptions = {}) {
   const chakraToast = useChakraToast();
+  const { duration, isClosable, position } = defaults;
+  const base = useMemo<ToastOptions>(
+    () => ({
+      ...DEFAULT_TOAST_OPTIONS,
+      ...(duration !== undefined && { duration }),
+      ...(isClosable !== undefined && { isClosable }),
+      ...(position !== undefined && { position }),
+    }),
+    [duration, isClosable, position],
+  );
 
   // Retry button inside the error toast (issues #450 and #478). The toast is a
   // solid Alert: light mode paints red.600 with white text, dark mode paints
@@ -58,12 +81,12 @@ export function useToast() {
         title,
         description,
         status: "success",
-        ...DEFAULT_TOAST_OPTIONS,
+        ...base,
         ...options,
         containerStyle: TOAST_CONTAINER_STYLE,
       });
     },
-    [chakraToast]
+    [chakraToast, base]
   );
 
   /**
@@ -75,12 +98,12 @@ export function useToast() {
         title,
         description,
         status: "error",
-        ...DEFAULT_TOAST_OPTIONS,
+        ...base,
         ...options,
         containerStyle: TOAST_CONTAINER_STYLE,
       });
     },
-    [chakraToast]
+    [chakraToast, base]
   );
 
   /**
@@ -92,12 +115,12 @@ export function useToast() {
         title,
         description,
         status: "info",
-        ...DEFAULT_TOAST_OPTIONS,
+        ...base,
         ...options,
         containerStyle: TOAST_CONTAINER_STYLE,
       });
     },
-    [chakraToast]
+    [chakraToast, base]
   );
 
   /**
@@ -109,12 +132,12 @@ export function useToast() {
         title,
         description,
         status: "warning",
-        ...DEFAULT_TOAST_OPTIONS,
+        ...base,
         ...options,
         containerStyle: TOAST_CONTAINER_STYLE,
       });
     },
-    [chakraToast]
+    [chakraToast, base]
   );
 
   /**
@@ -125,9 +148,15 @@ export function useToast() {
    * itself, so the user can re-attempt the same operation without manually
    * dismissing the toast and re-triggering the flow from scratch. Omit it
    * for errors that genuinely aren't retryable (e.g. validation failures).
+   * `options` (e.g. `position`) override the hook defaults for this toast (#759).
    */
   const handleError = useCallback(
-    (error: unknown, context?: string, onRetry?: () => void) => {
+    (
+      error: unknown,
+      context?: string,
+      onRetry?: () => void,
+      options: ToastOptions = {},
+    ) => {
       const normalized = normalizeError(error, context);
       errorLogger.log(normalized, context);
 
@@ -135,8 +164,9 @@ export function useToast() {
         chakraToast({
           title: "Error",
           status: "error",
-          ...DEFAULT_TOAST_OPTIONS,
+          ...base,
           duration: 8000,
+          ...options,
           containerStyle: TOAST_CONTAINER_STYLE,
           description: (
             <Box>
@@ -163,15 +193,16 @@ export function useToast() {
           title: "Error",
           description: normalized.userMessage,
           status: "error",
-          ...DEFAULT_TOAST_OPTIONS,
+          ...base,
           duration: 6000, // Slightly longer for errors
+          ...options,
           containerStyle: TOAST_CONTAINER_STYLE,
         });
       }
 
       return normalized;
     },
-    [chakraToast]
+    [chakraToast, base]
   );
 
   /**
@@ -203,7 +234,7 @@ export function useToast() {
             status: "info",
             duration: null, // Don't auto-close while loading
             isClosable: false,
-            ...DEFAULT_TOAST_OPTIONS,
+            ...base,
             ...toastOptions,
             containerStyle: TOAST_CONTAINER_STYLE,
           })
@@ -224,7 +255,7 @@ export function useToast() {
             title: "Success",
             description: successMessage,
             status: "success",
-            ...DEFAULT_TOAST_OPTIONS,
+            ...base,
             ...toastOptions,
             containerStyle: TOAST_CONTAINER_STYLE,
           });
@@ -240,7 +271,7 @@ export function useToast() {
         return null;
       }
     },
-    [chakraToast, handleError]
+    [chakraToast, base, handleError]
   );
 
   // Memoized so the returned object keeps its identity across renders —

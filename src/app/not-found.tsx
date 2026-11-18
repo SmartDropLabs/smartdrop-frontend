@@ -3,12 +3,29 @@
 import { Button, Flex, Input, InputGroup, InputRightElement, Text } from "@chakra-ui/react";
 import NextLink from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { forgetRecentPage, getRecentPages, type RecentPage } from "@/lib/recentPages";
 import LegacyPathRedirect from "./LegacyPathRedirect";
 
 export default function NotFound() {
   const router = useRouter();
   const [query, setQuery] = useState("");
+  const [recentPages, setRecentPages] = useState<RecentPage[]>([]);
+
+  // #784 — suggest recently visited pages. Read after mount (storage is
+  // client-only) and leave out the URL that just 404'd. AppShell records the
+  // pathname in its own effect, which runs after this one, so the removal is
+  // queued as a microtask to run once that recording has happened.
+  useEffect(() => {
+    // Recorded paths come from usePathname(), which excludes the basePath
+    // (GitHub Pages export); window.location includes it.
+    const basePath = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
+    const raw = window.location.pathname;
+    const withoutBase = basePath && raw.startsWith(basePath) ? raw.slice(basePath.length) : raw;
+    const current = withoutBase.replace(/\/+$/, "") || "/";
+    setRecentPages(getRecentPages().filter((p) => p.path !== current));
+    queueMicrotask(() => forgetRecentPage(current));
+  }, []);
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
@@ -74,6 +91,22 @@ export default function NotFound() {
           </InputRightElement>
         </InputGroup>
       </form>
+      {recentPages.length > 0 && (
+        <nav aria-label="Recently visited pages">
+          <Text color="app.muted" fontSize="sm" mb={2}>
+            Recently visited
+          </Text>
+          <Flex as="ul" listStyleType="none" gap={2} wrap="wrap" justify="center">
+            {recentPages.map((page) => (
+              <li key={page.path}>
+                <Button as={NextLink} href={page.path} size="sm" variant="outline">
+                  {page.label}
+                </Button>
+              </li>
+            ))}
+          </Flex>
+        </nav>
+      )}
       <Button as={NextLink} href="/" colorScheme="green" bg="app.accent" mt={2}>
         Back to home
       </Button>

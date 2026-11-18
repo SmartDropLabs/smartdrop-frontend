@@ -46,11 +46,15 @@ import {
   ModalHeader,
   ModalOverlay,
   Spinner,
+  Switch,
   Text,
   useToast,
 } from "@chakra-ui/react";
 import { useOwnConnectButton } from "@/context/OwnConnectButtonContext";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { formatCompactUsd } from "@/lib/format";
+import { loadAutoClaim, nextAutoClaim, promptKey, saveAutoClaim } from "@/lib/autoClaim";
+import { useFarmStore } from "@/store/farmStore";
 
 const ACCENT = "#4AE292";
 
@@ -503,7 +507,7 @@ export default function Farm() {
       earned: position?.credits ?? "-",
       stake: position?.amount ?? "-",
       dailyRate: pool.dailyRate,
-      totalStakedLiquidity: `$${Number(pool.totalLocked).toLocaleString()}`,
+      totalStakedLiquidity: formatCompactUsd(pool.totalLocked),
       symbol: pool.asset.code,
       lockedAmount: position?.amount ? Number(position.amount) : 0,
       lockedAt: position?.lockedAt ?? 0,
@@ -526,7 +530,7 @@ export default function Farm() {
         earned: position?.credits ?? "-",
         stake: position?.amount ?? "-",
         dailyRate: pool.dailyRate,
-        totalStakedLiquidity: `$${Number(pool.totalLocked).toLocaleString()}`,
+        totalStakedLiquidity: formatCompactUsd(pool.totalLocked),
         symbol: pool.asset.code,
         lockedAmount: position?.amount ? Number(position.amount) : 0,
         lockedAt: position?.lockedAt ?? 0,
@@ -550,6 +554,29 @@ export default function Farm() {
   }, []);
 
   const hasPositions = myPositions.length > 0;
+
+  // Opt-in auto-claim prompt (#772). It only surfaces a claim prompt while
+  // this page is open; claiming still goes through openClaim and the user's
+  // own signature. See src/lib/autoClaim.ts for scope.
+  const [autoClaim, setAutoClaim] = useState(false);
+  useEffect(() => {
+    // Read after mount so server and first client render agree.
+    setAutoClaim(loadAutoClaim());
+  }, []);
+  const activeModal = useFarmStore((s) => s.activeModal);
+  const openClaim = useFarmStore((s) => s.openClaim);
+  const [prompted, setPrompted] = useState<ReadonlySet<string>>(() => new Set());
+  const autoClaimTarget = nextAutoClaim(myPositions, {
+    enabled: autoClaim,
+    isConnected,
+    isNetworkMismatch,
+    modalOpen: activeModal !== "none",
+    prompted,
+  });
+  const settleAutoClaim = (position: FarmPosition, claim: boolean) => {
+    setPrompted((previous) => new Set(previous).add(promptKey(position)));
+    if (claim) openClaim(position);
+  };
 
   return (
     <Flex direction="column" align="center" gap={6} px={{ base: 4, md: 8 }} py={6}>
@@ -640,6 +667,39 @@ export default function Farm() {
         </Alert>
       ) : (
         <Flex direction="column" gap={3} w="full" maxW="1200px">
+          <Flex direction="column" align="flex-end" gap={1}>
+            <Switch
+              isChecked={autoClaim}
+              onChange={(event) => {
+                setAutoClaim(event.target.checked);
+                saveAutoClaim(event.target.checked);
+              }}
+            >
+              Auto-claim when claimable
+            </Switch>
+            <Text fontSize="xs" color="app.muted">
+              Prompts you while this page is open. Each claim still needs your signature.
+            </Text>
+          </Flex>
+          {autoClaimTarget && (
+            <Alert status="success" borderRadius="2xl" gap={3} flexWrap="wrap" role="status">
+              <AlertIcon />
+              <Text flex="1">
+                Rewards are ready to claim on {autoClaimTarget.name} ({autoClaimTarget.earned}).
+              </Text>
+              <Button size="sm" borderRadius="2xl" onClick={() => settleAutoClaim(autoClaimTarget, true)}>
+                Claim now
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                borderRadius="2xl"
+                onClick={() => settleAutoClaim(autoClaimTarget, false)}
+              >
+                Dismiss
+              </Button>
+            </Alert>
+          )}
           {myPositions.map((position) => (
             <EarningRow key={position.id} position={position} />
           ))}

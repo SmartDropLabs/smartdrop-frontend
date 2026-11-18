@@ -10,6 +10,7 @@ import {
     useContext,
     useEffect,
     useMemo,
+    useRef,
     useState,
     type ReactNode,
 } from "react";
@@ -104,42 +105,28 @@ async function withFreighterConnectTimeout<T>(
 export const NETWORK_MISMATCH_POLL_MS = 3_000;
 
 /**
- * Remembers that this browser connected a wallet, so the next page load can
- * reconnect silently (#789). Holds no key material — only a flag. Set on a
- * successful connect(), cleared by an explicit disconnect() or when Freighter
- * reports site access was revoked.
+ * Cross-tab wallet sync (#758). Connecting or disconnecting in one tab is
+ * announced on this channel so every other open tab follows, instead of each
+ * tab needing its own reconnect. BroadcastChannel never delivers a message
+ * back to the tab that sent it, and received messages are applied with the
+ * plain state setters, so a message is never re-broadcast.
  */
-export const WALLET_AUTOCONNECT_STORAGE_KEY = "smartdrop:wallet:autoconnect";
+export const WALLET_SYNC_CHANNEL = "smartdrop-wallet";
 
-function rememberWallet() {
-  try {
-    window.localStorage.setItem(WALLET_AUTOCONNECT_STORAGE_KEY, "1");
-  } catch {
-    // Storage blocked: the user just reconnects manually next visit.
-  }
-}
-
-function forgetWallet() {
-  try {
-    window.localStorage.removeItem(WALLET_AUTOCONNECT_STORAGE_KEY);
-  } catch {
-    // ignore
-  }
-}
-
-function isWalletRemembered() {
-  try {
-    return window.localStorage.getItem(WALLET_AUTOCONNECT_STORAGE_KEY) === "1";
-  } catch {
-    return false;
-  }
-}
+export type WalletSyncMessage =
+  | { type: "connected"; publicKey: string }
+  | { type: "disconnected" };
 
 export function StellarWalletProvider({ children }: { children: ReactNode }) {
   const [publicKey, setPublicKey] = useState<string | null>(null);
   const [walletApi, setWalletApi] = useState<FreighterWalletApi | null>(null);
   const [networkName, setNetworkName] = useState<string | null>(null);
   const toast = useErrorHandler();
+  const syncChannelRef = useRef<BroadcastChannel | null>(null);
+
+  const announce = useCallback((message: WalletSyncMessage) => {
+    syncChannelRef.current?.postMessage(message);
+  }, []);
 
   const refreshNetworkDetails = useCallback(
     async (freighterModule?: FreighterModule, deadlineMs?: number) => {
@@ -212,7 +199,7 @@ export function StellarWalletProvider({ children }: { children: ReactNode }) {
         await refreshNetworkDetails(freighter, deadlineMs);
         setPublicKey(access.address);
         setWalletApi(signingApi);
-        rememberWallet();
+        announce({ type: "connected", publicKey: access.address });
         return;
       }
 
@@ -246,12 +233,12 @@ export function StellarWalletProvider({ children }: { children: ReactNode }) {
         await refreshNetworkDetails(freighter, deadlineMs);
         setPublicKey(access.address);
         setWalletApi(signingApi);
-        rememberWallet();
+        announce({ type: "connected", publicKey: access.address });
       } else {
         await refreshNetworkDetails(freighter, deadlineMs);
         setPublicKey(addr.address);
         setWalletApi(signingApi);
-        rememberWallet();
+        announce({ type: "connected", publicKey: addr.address });
       }
     } catch (error) {
       // Re-throw FreighterErrors as-is
@@ -264,13 +251,50 @@ export function StellarWalletProvider({ children }: { children: ReactNode }) {
         error instanceof Error ? error.message : "Failed to connect wallet"
       );
     }
-  }, [refreshNetworkDetails]);
+  }, [refreshNetworkDetails, announce]);
 
   const clearWalletState = useCallback(() => {
     setPublicKey(null);
     setWalletApi(null);
     setNetworkName(null);
-  }, []);
+    announce({ type: "disconnected" });
+  }, [announce]);
+
+  // Follow connects/disconnects made in other tabs (#758). The address that
+  // arrives is re-checked against Freighter by the health check and watcher
+  // below, so a stale or wrong announcement is corrected within seconds.
+  useEffect(() => {
+    if (typeof BroadcastChannel === "undefined") return undefined;
+
+    const channel = new BroadcastChannel(WALLET_SYNC_CHANNEL);
+    syncChannelRef.current = channel;
+    channel.onmessage = (event: MessageEvent<WalletSyncMessage>) => {
+      const message = event.data;
+      if (message?.type === "disconnected") {
+        setPublicKey(null);
+        setWalletApi(null);
+        setNetworkName(null);
+        return;
+      }
+      if (message?.type === "connected" && typeof message.publicKey === "string") {
+        void (async () => {
+          try {
+            const freighter = await import("@stellar/freighter-api");
+            setWalletApi(freighter as unknown as FreighterWalletApi);
+            setPublicKey(message.publicKey);
+            await refreshNetworkDetails(freighter);
+          } catch {
+            // Freighter unavailable in this tab — stay disconnected here.
+          }
+        })();
+      }
+    };
+
+    return () => {
+      channel.close();
+      syncChannelRef.current = null;
+    };
+  }, [refreshNetworkDetails]);
 
   // An explicit disconnect also forgets the wallet, so the next visit does
   // not silently reconnect an account the user chose to disconnect (#789).

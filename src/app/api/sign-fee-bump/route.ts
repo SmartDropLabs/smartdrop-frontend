@@ -2,7 +2,11 @@ import { NextResponse } from 'next/server';
 import { Keypair, TransactionBuilder, Transaction } from '@stellar/stellar-sdk';
 import { buildFeeBumpTransaction, sorobanService } from '@/lib/soroban';
 import { networkPassphrase } from '@/config';
-import { assertSponsorableInnerTransaction, feeBumpRateLimiter } from '@/lib/feeBumpGuard';
+import {
+  assertSponsorableInnerTransaction,
+  feeBumpRateLimiter,
+  highFeeBumpWarning,
+} from '@/lib/feeBumpGuard';
 
 async function handlePost(request: Request) {
   try {
@@ -91,12 +95,21 @@ async function handlePost(request: Request) {
       networkPassphrase,
     );
 
+    // Flag an unusually high bump fee (#753): it's derived from the
+    // caller-supplied inner fee, so log it for the operator and pass a
+    // warning back to the client.
+    const warning = highFeeBumpWarning(feeBumpTx.fee);
+    if (warning) {
+      console.warn('[SignFeeBump] Unusually high fee bump:', feeBumpTx.fee, 'stroops');
+    }
+
     // Sign the outer fee-bump envelope
     feeBumpTx.sign(sponsorKeypair);
 
     // Return the completed fee-bump transaction XDR
     return NextResponse.json({
       feeBumpTxXdr: feeBumpTx.toEnvelope().toXDR('base64'),
+      ...(warning ? { warning } : {}),
     });
   } catch (error: unknown) {
     // Never return this error's message to the client: an unanticipated
