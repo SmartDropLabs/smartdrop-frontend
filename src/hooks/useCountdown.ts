@@ -27,23 +27,42 @@ function formatRemaining(ms: number): string {
 }
 
 /**
- * Ticks once per second toward `unlockAtMs` (a Unix epoch in ms). The timer
- * stops once the target is reached to avoid needless re-renders.
+ * Ticks toward `unlockAtMs` (a Unix epoch in ms) using a self-rescheduling
+ * setTimeout so each tick fires at the next whole-second boundary rather than
+ * drifting when the tab is backgrounded (#721).  setInterval accumulates
+ * skipped ticks in throttled background tabs; setTimeout scheduled from the
+ * *actual* remaining time corrects itself immediately when the tab is
+ * foregrounded again.
  */
 export function useCountdown(unlockAtMs: number): Countdown {
   const [now, setNow] = useState(() => Date.now());
 
   useEffect(() => {
-    if (Date.now() >= unlockAtMs) {
-      setNow(Date.now());
+    const current = Date.now();
+    if (current >= unlockAtMs) {
+      setNow(current);
       return;
     }
-    const id = setInterval(() => {
-      const current = Date.now();
-      setNow(current);
-      if (current >= unlockAtMs) clearInterval(id);
-    }, 1000);
-    return () => clearInterval(id);
+
+    let handle: ReturnType<typeof setTimeout>;
+
+    function schedule() {
+      const remaining = unlockAtMs - Date.now();
+      if (remaining <= 0) {
+        setNow(Date.now());
+        return;
+      }
+      // Fire at the next whole-second boundary so the display ticks cleanly,
+      // but clamp to at least 50 ms to avoid a spin-loop near zero.
+      const delay = Math.max(50, remaining % 1000 || 1000);
+      handle = setTimeout(() => {
+        setNow(Date.now());
+        schedule();
+      }, delay);
+    }
+
+    schedule();
+    return () => clearTimeout(handle);
   }, [unlockAtMs]);
 
   const remainingMs = Math.max(0, unlockAtMs - now);
