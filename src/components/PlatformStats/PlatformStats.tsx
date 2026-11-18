@@ -9,6 +9,17 @@ interface PlatformStatsProps {
   initialData?: UIPlatformStats;
 }
 
+const PlatformStatsSkeleton: React.FC = () => (
+  <SimpleGrid columns={{ base: 2, md: 4 }} spacing={5} mb={8} width="100%">
+    {Array.from({ length: 4 }).map((_, i) => (
+      <Box key={i} {...cardProps}>
+        <Skeleton height="16px" width="60%" mb={3} startColor="app.border" endColor="app.surfaceHover" />
+        <Skeleton height="32px" width="80%" startColor="app.border" endColor="app.surfaceHover" />
+      </Box>
+    ))}
+  </SimpleGrid>
+);
+
 const cardProps = {
   p: 5,
   borderWidth: '1px',
@@ -23,6 +34,8 @@ const cardProps = {
 export const PlatformStats: React.FC<PlatformStatsProps> = ({ initialData }) => {
   const { data, isLoading } = usePlatformStats(initialData);
   const stats = data || initialData;
+
+  if (isLoading && !stats) return <PlatformStatsSkeleton />;
 
   return (
     <SimpleGrid columns={{ base: 2, md: 4 }} spacing={5} mb={8} width="100%">
