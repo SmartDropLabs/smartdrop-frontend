@@ -78,10 +78,19 @@ export function useTableKeyboardNav(rowCount: number, colCount: number) {
     }
   }, [rowCount, colCount]);
 
+  // Roving tabindex: only the active cell is in the tab sequence (tabIndex 0);
+  // all others are removed from it (tabIndex -1) so Tab skips the whole grid.
+  const getTabIndex = useCallback(
+    (row: number, col: number) =>
+      row === activeCell.row && col === activeCell.col ? 0 : -1,
+    [activeCell]
+  );
+
   return {
     tableRef,
     activeCell,
     handleKeyDown,
     focusCell,
+    getTabIndex,
   };
 }
