@@ -1,5 +1,6 @@
 import { backendApiUrl } from "@/config";
 import { readJsonWithLimit, ResponseTooLargeError } from "./safe-fetch";
+import { jitteredBackoff } from "./backoff";
 
 export class BackendApiError extends Error {
   status: number;
@@ -43,7 +44,7 @@ export function isRetryableBackendError(error: unknown): boolean {
 export const backendQueryRetry = {
   retry: (failureCount: number, error: unknown) =>
     failureCount < 2 && isRetryableBackendError(error),
-  retryDelay: (attemptIndex: number) => Math.min(1000 * 2 ** attemptIndex, 10_000),
+  retryDelay: (attemptIndex: number) => jitteredBackoff(attemptIndex, { maxMs: 10_000 }),
 } as const;
 
 const DEFAULT_TIMEOUT = 20_000;

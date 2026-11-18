@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { BackendApiError, isRetryableBackendError, backendQueryRetry } from "./backend";
 
 describe("isRetryableBackendError", () => {
@@ -50,9 +50,18 @@ describe("backendQueryRetry", () => {
   });
 
   it("produces an increasing, bounded backoff delay", () => {
+    vi.spyOn(Math, "random").mockReturnValue(0);
     expect(backendQueryRetry.retryDelay(0)).toBe(1000);
     expect(backendQueryRetry.retryDelay(1)).toBe(2000);
     expect(backendQueryRetry.retryDelay(2)).toBe(4000);
     expect(backendQueryRetry.retryDelay(10)).toBe(10_000); // capped
+    vi.restoreAllMocks();
+  });
+
+  it("adds up to 10% jitter so simultaneous failures don't retry in lockstep (#756)", () => {
+    vi.spyOn(Math, "random").mockReturnValue(0.5);
+    expect(backendQueryRetry.retryDelay(1)).toBe(2100);
+    expect(backendQueryRetry.retryDelay(10)).toBe(10_500);
+    vi.restoreAllMocks();
   });
 });

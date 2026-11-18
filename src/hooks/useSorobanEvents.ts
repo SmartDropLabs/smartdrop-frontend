@@ -6,6 +6,7 @@ import { rpc, xdr, scValToNative } from "@stellar/stellar-sdk";
 import { useStellarWallet } from "@/context/StellarWalletContext";
 import { QUERY_KEYS } from "@/hooks/useSorobanQuery";
 import { sorobanRpcUrl } from "@/config";
+import { getRpcServer } from "@/lib/rpc-pool";
 
 export interface SorobanEventsRpc {
   getLatestLedger(): Promise<{ sequence: number }>;
@@ -26,16 +27,11 @@ const POLL_INTERVAL_MS = 5_000;
 // Backoff thresholds for transient errors before pausing
 const PAUSE_AFTER_FAILURES = 3;
 
-// Hoist the server instance to avoid creating a new one on every effect run (#414)
-let cachedRpcUrl: string | null = null;
-let cachedServer: SorobanEventsRpc | null = null;
-
+// One shared client per RPC URL (#414, #754): the same instance soroban.ts
+// uses, instead of a second client for the same endpoint.
 function getOrCreateServer(rpcOverride?: SorobanEventsRpc): SorobanEventsRpc {
   if (rpcOverride) return rpcOverride;
-  if (cachedServer && cachedRpcUrl === sorobanRpcUrl) return cachedServer;
-  cachedRpcUrl = sorobanRpcUrl;
-  cachedServer = new rpc.Server(sorobanRpcUrl);
-  return cachedServer;
+  return getRpcServer(sorobanRpcUrl);
 }
 
 /**
