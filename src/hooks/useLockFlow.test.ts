@@ -134,3 +134,76 @@ describe("useLockFlow execute identity across step changes (#396)", () => {
     expect(lockAssetsMock).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("useLockFlow optimistic position update (#762)", () => {
+  const positionKey = ["userPosition", "pool-1", "GABC"];
+  const position = {
+    user: "GABC",
+    poolId: "pool-1",
+    amount: "100",
+    lockedAt: 0,
+    credits: "0",
+    isLocked: false,
+    unlockableAt: 0,
+  };
+  const stableWalletApi = {} as never;
+
+  function renderFlow() {
+    return renderHook(
+      () =>
+        useLockFlow({
+          poolId: "pool-1",
+          symbol: "XLM",
+          publicKey: "GABC",
+          walletApi: stableWalletApi,
+        }),
+      { wrapper },
+    );
+  }
+
+  afterEach(() => {
+    testQueryClient.clear();
+  });
+
+  it("adds the deposit to the cached position before the ledger confirms", async () => {
+    testQueryClient.setQueryData(positionKey, position);
+    lockAssetsMock.mockImplementation(() => new Promise(() => {}));
+    const { result } = renderFlow();
+
+    act(() => {
+      void result.current.execute(25);
+    });
+
+    await waitFor(() => {
+      expect(testQueryClient.getQueryData(positionKey)).toMatchObject({
+        amount: "125",
+        isLocked: true,
+      });
+    });
+  });
+
+  it("rolls the position back when the deposit definitively fails", async () => {
+    testQueryClient.setQueryData(positionKey, position);
+    lockAssetsMock.mockResolvedValue({ success: false, status: "FAILED", error: "boom" });
+    const { result } = renderFlow();
+
+    await act(async () => {
+      await result.current.execute(25);
+    });
+
+    expect(result.current.step).toBe("error");
+    expect(testQueryClient.getQueryData(positionKey)).toEqual(position);
+  });
+
+  it("keeps the optimistic position when confirmation times out", async () => {
+    testQueryClient.setQueryData(positionKey, position);
+    lockAssetsMock.mockResolvedValue({ success: false, status: "TIMEOUT", error: "slow" });
+    const { result } = renderFlow();
+
+    await act(async () => {
+      await result.current.execute(25);
+    });
+
+    expect(testQueryClient.getQueryData(positionKey)).toMatchObject({ amount: "125" });
+  });
+});

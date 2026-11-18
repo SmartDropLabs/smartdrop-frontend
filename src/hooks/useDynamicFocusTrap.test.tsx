@@ -70,4 +70,45 @@ describe("useDynamicFocusTrap", () => {
     expect(getFirstTabbable(container)?.textContent).toBe("D");
     container.remove();
   });
+
+  // #764 — with nested trapped dialogs, only the topmost one owns focus.
+  function Nested({ innerOpen, outerKey = "a" }: { innerOpen: boolean; outerKey?: string }) {
+    const [outer, setOuter] = useState<HTMLElement | null>(null);
+    const [inner, setInner] = useState<HTMLElement | null>(null);
+    useDynamicFocusTrap(outer);
+    useDynamicFocusTrap(inner, innerOpen);
+    return (
+      <>
+        <div ref={setOuter} role="dialog" aria-label="Outer" tabIndex={-1}>
+          <button key={outerKey} type="button">
+            Outer action
+          </button>
+        </div>
+        {innerOpen && (
+          <div ref={setInner} role="dialog" aria-label="Inner" tabIndex={-1}>
+            <button type="button">Confirm</button>
+          </div>
+        )}
+      </>
+    );
+  }
+
+  it("restores lost focus into the topmost nested dialog, not the outer one", async () => {
+    const { rerender } = render(<Nested innerOpen />);
+    screen.getByText("Outer action").focus();
+
+    // Remount the focused outer button so focus is lost to <body>.
+    rerender(<Nested innerOpen outerKey="b" />);
+
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByText("Confirm")));
+  });
+
+  it("hands focus back to the outer dialog when the nested one closes", async () => {
+    const { rerender } = render(<Nested innerOpen />);
+    screen.getByText("Confirm").focus();
+
+    rerender(<Nested innerOpen={false} />);
+
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByText("Outer action")));
+  });
 });
