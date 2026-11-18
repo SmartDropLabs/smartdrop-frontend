@@ -2,7 +2,7 @@ import { Suspense } from "react";
 import type { Metadata } from "next";
 import { poolContractId } from "@/config";
 import { sorobanService } from "@/lib/soroban";
-import { generatePoolSlug, extractPoolIdFromSlug } from "@/lib/pool-slugs";
+import { extractPoolIdFromSlug, generateUniquePoolSlugs } from "@/lib/pool-slugs";
 import PoolDetailClient from "./PoolDetailClient";
 
 export const revalidate = 60;
@@ -12,7 +12,8 @@ export async function generateStaticParams() {
 
   try {
     const pools = await sorobanService.getFactoryPools();
-    const params = pools.map((pool) => ({ poolId: generatePoolSlug(pool) }));
+    const slugs = generateUniquePoolSlugs(pools);
+    const params = [...new Set(slugs.values())].map((poolId) => ({ poolId }));
     return params.length > 0 ? params : fallbackParams;
   } catch {
     // RPC unreachable at build time — fall back to CSR via revalidate

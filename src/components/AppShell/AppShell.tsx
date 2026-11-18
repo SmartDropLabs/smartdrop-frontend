@@ -7,6 +7,7 @@ import NetworkMismatchBanner from "@/components/NetworkMismatchBanner/NetworkMis
 import OfflineBanner from "@/components/OfflineBanner/OfflineBanner";
 import RefetchIndicator from "@/components/RefetchIndicator/RefetchIndicator";
 import RpcUnreachableBanner from "@/components/RpcUnreachableBanner/RpcUnreachableBanner";
+import ServiceWorkerRegistrar from "@/components/ServiceWorkerRegistrar/ServiceWorkerRegistrar";
 import SkipLink, { MAIN_CONTENT_ID } from "@/components/SkipLink/SkipLink";
 import ContextProvider from "@/context";
 import {
@@ -14,8 +15,10 @@ import {
   useHasOwnConnectButton,
 } from "@/context/OwnConnectButtonContext";
 import { useStellarWallet } from "@/context/StellarWalletContext";
+import { rememberUtmParams } from "@/lib/share-url";
 import { Box } from "@chakra-ui/react";
 import { usePathname } from "next/navigation";
+import { useEffect } from "react";
 
 // Routes where the page itself always renders an inline Connect Wallet button
 // in the disconnected state — no dynamic condition, just pathname matching.
@@ -26,6 +29,11 @@ const STATIC_OWN_CONNECT_ROUTES = ["/history"];
 function LayoutWrapper({ children }: { children: React.ReactNode }) {
   const { isConnected } = useStellarWallet();
   const pathname = usePathname();
+
+  // Keep the landing visit's utm_* params for share links built later (#752).
+  useEffect(() => {
+    rememberUtmParams();
+  }, [pathname]);
 
   // Pages signal a dynamic own-CTA via context (e.g. /farm, /farm/[poolId]).
   const hasContextCTA = useHasOwnConnectButton();

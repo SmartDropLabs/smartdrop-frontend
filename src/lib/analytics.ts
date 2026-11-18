@@ -41,12 +41,76 @@ async function hashPublicKey(publicKey: string): Promise<string> {
   }
 }
 
+type QueuedEvent = { name: string; payload: AnalyticsProps };
+
+/** Flush as soon as this many events are queued (#750). */
+export const ANALYTICS_BATCH_SIZE = 10;
+/** Otherwise flush this long after the first queued event (#750). */
+export const ANALYTICS_FLUSH_INTERVAL_MS = 5000;
+
+let eventQueue: QueuedEvent[] = [];
+let flushTimer: ReturnType<typeof setTimeout> | null = null;
+let unloadListenerAttached = false;
+
+/**
+ * Sends every queued event to the analytics provider in one pass and empties
+ * the queue (#750). Called automatically on batch size, on the flush
+ * interval, and when the page is hidden, so queued events aren't lost on
+ * navigation; exported for tests and for callers that must flush now.
+ */
+export function flushAnalytics(): void {
+  if (flushTimer !== null) {
+    clearTimeout(flushTimer);
+    flushTimer = null;
+  }
+  if (typeof window === "undefined" || eventQueue.length === 0) return;
+
+  const batch = eventQueue;
+  eventQueue = [];
+  const w = window as AnalyticsWindow;
+
+  try {
+    if (typeof w.gtag === "function") {
+      for (const { name, payload } of batch) w.gtag("event", name, payload);
+    } else if (Array.isArray(w.dataLayer)) {
+      w.dataLayer.push(...batch.map(({ name, payload }) => ({ event: name, ...payload })));
+    }
+    if (process.env.NODE_ENV !== "production") {
+      console.debug(`[analytics] flushed ${batch.length} event(s)`, batch);
+    }
+  } catch {
+    // Analytics must never break the app.
+  }
+}
+
+function attachUnloadFlush(): void {
+  if (unloadListenerAttached) return;
+  unloadListenerAttached = true;
+  window.addEventListener("pagehide", flushAnalytics);
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden") flushAnalytics();
+  });
+}
+
+/** Test seam: drops queued events and any pending flush. */
+export function resetAnalyticsQueue(): void {
+  eventQueue = [];
+  if (flushTimer !== null) {
+    clearTimeout(flushTimer);
+    flushTimer = null;
+  }
+}
+
 /**
  * Tracks an analytics event with optional sanitization of sensitive data.
- * 
+ *
  * If a `publicKey` property is present, it will be hashed using SHA-256
  * before sending to analytics providers for privacy protection.
- * 
+ *
+ * Events are queued and sent in batches (#750) — on reaching
+ * ANALYTICS_BATCH_SIZE, after ANALYTICS_FLUSH_INTERVAL_MS, or when the page
+ * is hidden — instead of one provider call per event.
+ *
  * @param name - Event name
  * @param props - Event properties (publicKey will be auto-hashed if present)
  */
@@ -54,25 +118,18 @@ export async function trackEvent(name: string, props: AnalyticsProps = {}): Prom
   if (typeof window === "undefined") return;
 
   const sanitized = { ...props };
-  
+
   // Hash public key if present (async operation)
   if ("publicKey" in sanitized && typeof sanitized.publicKey === "string") {
     sanitized.publicKey = await hashPublicKey(sanitized.publicKey as string);
   }
 
-  const payload = { ...sanitized, timestamp: Date.now() };
-  const w = window as AnalyticsWindow;
+  eventQueue.push({ name, payload: { ...sanitized, timestamp: Date.now() } });
+  attachUnloadFlush();
 
-  try {
-    if (typeof w.gtag === "function") {
-      w.gtag("event", name, payload);
-    } else if (Array.isArray(w.dataLayer)) {
-      w.dataLayer.push({ event: name, ...payload });
-    }
-    if (process.env.NODE_ENV !== "production") {
-      console.debug("[analytics] " + name, payload);
-    }
-  } catch {
-    // Analytics must never break the app.
+  if (eventQueue.length >= ANALYTICS_BATCH_SIZE) {
+    flushAnalytics();
+  } else if (flushTimer === null) {
+    flushTimer = setTimeout(flushAnalytics, ANALYTICS_FLUSH_INTERVAL_MS);
   }
 }

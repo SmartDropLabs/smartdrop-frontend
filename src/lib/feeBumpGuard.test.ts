@@ -12,7 +12,13 @@ import {
   nativeToScVal,
   xdr,
 } from '@stellar/stellar-sdk';
-import { assertSponsorableInnerTransaction, RateLimiter } from './feeBumpGuard';
+import {
+  assertSponsorableInnerTransaction,
+  HIGH_FEE_BUMP_STROOPS,
+  highFeeBumpWarning,
+  isHighFeeBump,
+  RateLimiter,
+} from './feeBumpGuard';
 
 // These signature-verification cases previously ran under jsdom (Vitest 4
 // dropped environmentMatchGlobs), where the npm `buffer` polyfill's Buffer
@@ -164,5 +170,23 @@ describe('RateLimiter', () => {
     const now = 1_000_000;
     expect(limiter.tryConsume('a', now)).toBe(true);
     expect(limiter.tryConsume('b', now)).toBe(true);
+  });
+});
+
+describe('high fee bump warning (#753)', () => {
+  it('flags fees above the threshold', () => {
+    expect(isHighFeeBump(HIGH_FEE_BUMP_STROOPS + 1)).toBe(true);
+    expect(isHighFeeBump(String(HIGH_FEE_BUMP_STROOPS * 5))).toBe(true);
+  });
+
+  it('does not flag normal fees, the threshold itself, or junk', () => {
+    expect(isHighFeeBump(200)).toBe(false);
+    expect(isHighFeeBump(HIGH_FEE_BUMP_STROOPS)).toBe(false);
+    expect(isHighFeeBump('not-a-number')).toBe(false);
+  });
+
+  it('builds a user-facing warning in XLM only when the fee is high', () => {
+    expect(highFeeBumpWarning(200)).toBeNull();
+    expect(highFeeBumpWarning(25_000_000)).toContain('2.5 XLM');
   });
 });
