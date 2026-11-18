@@ -15,6 +15,16 @@ import {
 import { useStellarWallet } from '@/context/StellarWalletContext';
 import { useToast } from '@chakra-ui/react';
 
+// Skip retrying 4xx errors — they indicate a client mistake that won't resolve
+// on its own. Only retry transient failures (network errors, 5xx).
+function shouldRetry(failureCount: number, error: unknown): boolean {
+  if (error != null && typeof (error as { status?: unknown }).status === 'number') {
+    const status = (error as { status: number }).status;
+    if (status >= 400 && status < 500) return false;
+  }
+  return failureCount < 3;
+}
+
 // Query Keys
 export const QUERY_KEYS = {
   POOLS: 'pools',
@@ -33,7 +43,7 @@ export const usePools = () => {
     queryFn: () => sorobanService.getFactoryPools(),
     staleTime: 30000, // 30 seconds
     refetchInterval: 60000, // 1 minute
-    retry: 3,
+    retry: shouldRetry,
     retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 30000),
   });
 };
@@ -51,7 +61,7 @@ export const usePoolDepositors = (poolId: string, limit: number = 20) => {
     enabled: !!poolId,
     staleTime: 30000,
     refetchInterval: 60000,
-    retry: 2,
+    retry: shouldRetry,
   });
 };
 
@@ -67,7 +77,7 @@ export const useUserPosition = (poolId: string, enabled: boolean = true) => {
     enabled: enabled && !!publicKey && !!poolId,
     staleTime: 15000, // 15 seconds
     refetchInterval: 30000, // 30 seconds
-    retry: 2,
+    retry: shouldRetry,
   });
 };
 
@@ -83,7 +93,7 @@ export const useUserCredits = (poolId: string, enabled: boolean = true) => {
     enabled: enabled && !!publicKey && !!poolId,
     staleTime: 5000, // 5 seconds (credits change frequently)
     refetchInterval: 10000, // 10 seconds
-    retry: 2,
+    retry: shouldRetry,
   });
 };
 
@@ -93,7 +103,7 @@ export const useStellarBalance = (publicKey?: string) => {
     queryFn: () => getStellarBalance(publicKey!),
     enabled: !!publicKey,
     staleTime: 15000,
-    retry: 2,
+    retry: shouldRetry,
   });
 };
 
@@ -158,7 +168,7 @@ export const useLockAssetsFeePreview = (args: {
       Number.isFinite(numericAmount) &&
       numericAmount > 0,
     staleTime: 10000,
-    retry: 1,
+    retry: shouldRetry,
   });
 
   return { ...query, isFetching: query.isFetching || isDebouncing };
