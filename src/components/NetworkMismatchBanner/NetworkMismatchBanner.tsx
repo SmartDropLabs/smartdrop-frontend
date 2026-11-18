@@ -2,7 +2,7 @@
 
 import { stellarNetwork } from "@/config";
 import { useStellarWallet } from "@/context/StellarWalletContext";
-import { Alert, AlertIcon } from "@chakra-ui/react";
+import { Alert, AlertIcon, Text } from "@chakra-ui/react";
 
 export default function NetworkMismatchBanner() {
   const { isNetworkMismatch, networkName } = useStellarWallet();
@@ -18,10 +18,15 @@ export default function NetworkMismatchBanner() {
       borderRadius={0}
       justifyContent="center"
       color="app.text"
+      role="alert"
+      aria-label={`Network mismatch: Freighter is set to ${networkName}. Switch to ${stellarNetwork} to use SmartDrop.`}
     >
       <AlertIcon />
-      Freighter is set to {networkName}. Switch to {stellarNetwork} to use
-      SmartDrop.
+      Freighter is set to{" "}
+      <Text as="strong" mx={1}>{networkName}</Text>.
+      Switch to{" "}
+      <Text as="strong" mx={1}>{stellarNetwork}</Text>
+      {" "}to use SmartDrop.
     </Alert>
   );
 }
