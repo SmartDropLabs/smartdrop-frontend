@@ -6,9 +6,10 @@ import { useRouter } from "next/navigation";
 /**
  * The old `/leaderbord` typo URL (issue #227) used to be a dedicated route,
  * but the misspelled `leaderbord/` directory was removed for consistency
- * (#444). The shared 404 page renders this component to send those requests
- * to `/leaderboard` — works in both server mode and the static export,
- * where middleware and next.config redirects never run.
+ * (#444). In server mode next.config.ts answers `/leaderbord` with a real 301
+ * (#785), so this never runs there. The static export (GitHub Pages) has no
+ * server to send a status code, so the shared 404 page renders this component
+ * as the client-side fallback to send those requests to `/leaderboard`.
  */
 export default function LegacyPathRedirect() {
   const router = useRouter();
