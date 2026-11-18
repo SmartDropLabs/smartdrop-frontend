@@ -2250,6 +2250,11 @@ export const unlockAssets = async ({
 export const stellarExpertTxUrl = (hash: string, network: string) =>
   `https://stellar.expert/explorer/${encodeURIComponent(network)}/tx/${encodeURIComponent(hash)}`;
 
+// Public account page for an address (#775) — the closest thing to a user
+// profile SmartDrop has. Encoded for the same reason as the tx URL above.
+export const stellarExpertAccountUrl = (address: string, network: string) =>
+  `https://stellar.expert/explorer/${encodeURIComponent(network)}/account/${encodeURIComponent(address)}`;
+
 /**
  * Compute live-preview values for a partial unlock.
  * All arguments and return values are in display units (not stroops).

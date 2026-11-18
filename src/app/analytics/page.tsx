@@ -1,10 +1,13 @@
 "use client";
 
 import { usePageTitle } from "@/hooks/usePageTitle";
+import { downloadCsv, toCsv, type CsvColumn } from "@/lib/csv";
 import {
   Box,
+  Button,
   Card,
   CardBody,
+  Flex,
   Grid,
   Heading,
   Progress,
@@ -36,6 +39,16 @@ const MOCK_POOLS = [
   { name: "XLM Pool", staked: "32,000", rewards: "890", apr: "13.8%", tvl: "$32,000" },
   { name: "AQUA Pool", staked: "28,000", rewards: "780", apr: "14.1%", tvl: "$28,000" },
   { name: "yXLM Pool", staked: "20,000", rewards: "520", apr: "10.5%", tvl: "$20,000" },
+];
+
+type PoolRow = (typeof MOCK_POOLS)[number];
+
+const POOL_CSV_COLUMNS: CsvColumn<PoolRow>[] = [
+  { header: "Pool", value: (p) => p.name },
+  { header: "Staked", value: (p) => p.staked },
+  { header: "Rewards", value: (p) => p.rewards },
+  { header: "APR", value: (p) => p.apr },
+  { header: "TVL", value: (p) => p.tvl },
 ];
 
 export default function AnalyticsPage() {
@@ -100,9 +113,18 @@ export default function AnalyticsPage() {
 
       <Card mb={8}>
         <CardBody>
-          <Heading size="md" mb={4}>
-            Pool Performance
-          </Heading>
+          <Flex justify="space-between" align="center" mb={4} gap={3} wrap="wrap">
+            <Heading size="md">Pool Performance</Heading>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() =>
+                downloadCsv("smartdrop-pool-performance.csv", toCsv(MOCK_POOLS, POOL_CSV_COLUMNS))
+              }
+            >
+              Export CSV
+            </Button>
+          </Flex>
           <Table variant="simple">
             <Thead>
               <Tr>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Badge,
   Box,
@@ -30,6 +30,12 @@ export default function AlertsPage() {
   const queryClient = useQueryClient();
   const [apiKey, setApiKey] = useState("");
   const [asset, setAsset] = useState("");
+  // The prices page links here as /alerts?asset=CODE (#776). Read it after
+  // mount (not in the initializer) so server and client render the same.
+  useEffect(() => {
+    const prefill = new URLSearchParams(window.location.search).get("asset");
+    if (prefill && /^[A-Za-z0-9]{1,12}$/.test(prefill)) setAsset(prefill.toUpperCase());
+  }, []);
   const [type, setType] = useState<Alert["type"]>("above");
   const [thresholdUsd, setThresholdUsd] = useState("");
   const [webhookUrl, setWebhookUrl] = useState("");

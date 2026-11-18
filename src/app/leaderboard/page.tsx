@@ -6,6 +6,7 @@ import {
   Flex,
   HStack,
   Input,
+  Link,
   Select,
   Skeleton,
   Spinner,
@@ -24,6 +25,8 @@ import { useLiveAnnouncer } from "@/hooks/useLiveAnnouncer";
 import LiveRegion from "@/components/LiveRegion/LiveRegion";
 import CopyAddressButton from "@/components/CopyAddressButton/CopyAddressButton";
 import ShareButton from "@/components/ShareButton/ShareButton";
+import { stellarNetwork } from "@/config";
+import { stellarExpertAccountUrl } from "@/lib/soroban";
 
 const LEADERBOARD_TABLE_ID = "leaderboard-table";
 
@@ -324,9 +327,16 @@ export default function LeaderboardPage() {
                       </Td>
                       <Td py={4}>
                         <Flex align="center" gap={2}>
-                          <Text fontFamily="mono" color="app.text">
+                          <Link
+                            href={stellarExpertAccountUrl(entry.address, stellarNetwork.toLowerCase())}
+                            isExternal
+                            fontFamily="mono"
+                            color="app.text"
+                            _hover={{ color: "app.accent", textDecoration: "underline" }}
+                            aria-label={`View profile for ${entry.address} on Stellar Expert (opens in a new tab)`}
+                          >
                             {truncate(entry.address)}
-                          </Text>
+                          </Link>
                           <CopyAddressButton address={entry.address} />
                           <ShareButton
                             url={shareUrl}

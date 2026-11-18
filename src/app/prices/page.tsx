@@ -13,6 +13,7 @@ import {
   Spinner,
   Text,
 } from "@chakra-ui/react";
+import NextLink from "next/link";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { getPrice, backendQueryRetry } from "@/lib/backend";
 import { QueryErrorAlert } from "@/components/QueryErrorAlert/QueryErrorAlert";
@@ -205,6 +206,19 @@ export default function PricesPage() {
             <Text fontSize="xs" color="app.muted" mt={4}>
               Sources attempted: {data.sources_attempted.join(", ") || "none"}
             </Text>
+            {/* Price alerts live on /alerts; prefill it with this asset (#776). */}
+            <Button
+              as={NextLink}
+              href={`/alerts?asset=${encodeURIComponent(data.asset_code)}`}
+              size="sm"
+              mt={4}
+              variant="outline"
+              borderColor="app.border"
+              color="app.text"
+              _hover={{ borderColor: "app.accent", color: "app.accent" }}
+            >
+              Set price alert for {data.asset_code}
+            </Button>
           </Box>
         ) : (
           <Flex
