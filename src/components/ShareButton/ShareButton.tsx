@@ -33,7 +33,20 @@ export default function ShareButton({
   size?: "2xs" | "xs" | "sm";
 }) {
   const [copied, setCopied] = useState(false);
-  const networkUrl = buildShareUrl(url);
+  const shareUrl = (() => {
+    try {
+      const base = new URL(url, window.location.href);
+      // Merge current page query params into the share URL so filter/pagination state is preserved.
+      const currentParams = new URLSearchParams(window.location.search);
+      currentParams.forEach((value, key) => {
+        if (!base.searchParams.has(key)) base.searchParams.set(key, value);
+      });
+      return base.toString();
+    } catch {
+      return `${window.location.origin}${window.location.pathname}${window.location.search}`;
+    }
+  })();
+  const networkUrl = buildShareUrl(shareUrl);
 
   const handleCopy = async () => {
     try {
