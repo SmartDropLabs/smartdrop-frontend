@@ -1,5 +1,6 @@
 "use client";
 
+import Breadcrumbs from "@/components/Breadcrumbs/Breadcrumbs";
 import ConnectWalletButton from "@/components/ConnectWalletButton/ConnectWalletButton";
 import Footer from "@/components/Footer/Footer";
 import Navbar from "@/components/Navbar/Navbar";
@@ -77,6 +78,11 @@ function LayoutWrapper({ children }: { children: React.ReactNode }) {
         flex={1}
         _focus={{ outline: "none" }}
       >
+        {breadcrumbs && (
+          <Box px={{ base: 4, md: 8 }} pt={4}>
+            <Breadcrumbs items={breadcrumbs} />
+          </Box>
+        )}
         {children}
       </Box>
       <Footer />

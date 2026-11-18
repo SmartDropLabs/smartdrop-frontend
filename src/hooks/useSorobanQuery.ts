@@ -41,11 +41,55 @@ const userCreditsKey = (poolId: string, publicKey: string) =>
   `userCredits:${poolId}:${publicKey}`;
 
 /**
+ * React Query `retry` callback: retry only transient failures (network/RPC
+ * hiccups), at most 3 times. Deterministic errors (validation, contract
+ * reverts) fail immediately instead of being retried with backoff.
+ */
+export function shouldRetry(failureCount: number, error: unknown): boolean {
+  return failureCount < 3 && normalizeError(error).isTransient;
+}
+
+/**
+ * Restores a public query's last-known data from localStorage after mount
+ * and writes fresh results back (#788), so a refresh shows the previous pools
+ * and stats instantly instead of an empty loading state. Seeding happens in an
+ * effect, not via `initialData`, so the first client render matches the
+ * server render (no hydration mismatch); the restored entry keeps its original
+ * timestamp, so `staleTime` still triggers a background refetch.
+ */
+export function usePersistedQueryCache<T>(
+  queryKey: readonly unknown[],
+  storageKey: string,
+  data: T | undefined,
+  dataUpdatedAt: number,
+): void {
+  const queryClient = useQueryClient();
+  const queryKeyRef = useRef(queryKey);
+  queryKeyRef.current = queryKey;
+
+  useEffect(() => {
+    if (queryClient.getQueryData(queryKeyRef.current) !== undefined) return;
+    const entry = readPersistedQuery<T>(storageKey);
+    if (entry) {
+      queryClient.setQueryData(queryKeyRef.current, entry.data, { updatedAt: entry.savedAt });
+    }
+  }, [queryClient, storageKey]);
+
+  useEffect(() => {
+    if (data !== undefined && dataUpdatedAt > 0) {
+      writePersistedQuery(storageKey, data, dataUpdatedAt);
+    }
+  }, [storageKey, data, dataUpdatedAt]);
+}
+
+const POOLS_QUERY_KEY = [QUERY_KEYS.POOLS] as const;
+
+/**
  * Hook to fetch all available farming pools
  */
 export const usePools = () => {
-  return useQuery({
-    queryKey: [QUERY_KEYS.POOLS],
+  const query = useQuery({
+    queryKey: POOLS_QUERY_KEY,
     queryFn: async () => (await loadSoroban()).sorobanService.getFactoryPools(),
     staleTime: STALE_TIME.POOLS,
     gcTime: 5 * 60 * 1000, // 5 minutes
@@ -53,6 +97,8 @@ export const usePools = () => {
     retry: shouldRetry,
     retryDelay: (attemptIndex) => jitteredBackoff(attemptIndex, { maxMs: 30_000 }),
   });
+  usePersistedQueryCache(POOLS_QUERY_KEY, QUERY_KEYS.POOLS, query.data, query.dataUpdatedAt);
+  return query;
 };
 
 /**
@@ -652,9 +698,11 @@ export interface UIPlatformStats {
   onlineUsers?: number;
 }
 
+const PLATFORM_STATS_QUERY_KEY = [QUERY_KEYS.PLATFORM_STATS] as const;
+
 export function usePlatformStats(initialData?: UIPlatformStats) {
-  return useQuery<UIPlatformStats>({
-    queryKey: [QUERY_KEYS.PLATFORM_STATS],
+  const query = useQuery<UIPlatformStats>({
+    queryKey: PLATFORM_STATS_QUERY_KEY,
     queryFn: async () => {
       const { sorobanService } = await loadSoroban();
       const [stats, velocity] = await Promise.all([
@@ -678,6 +726,13 @@ export function usePlatformStats(initialData?: UIPlatformStats) {
     refetchInterval: 120000, // Re-checks the blockchain automatically every 2 minutes
     initialData: initialData
   });
+  usePersistedQueryCache(
+    PLATFORM_STATS_QUERY_KEY,
+    QUERY_KEYS.PLATFORM_STATS,
+    query.data,
+    query.dataUpdatedAt,
+  );
+  return query;
 }
 
 /**

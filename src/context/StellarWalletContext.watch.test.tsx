@@ -93,6 +93,9 @@ function emit(params: Parameters<WatchCallback>[0]) {
 
 describe("StellarWalletContext external wallet changes (#539)", () => {
   beforeEach(() => {
+    // connect() now remembers the wallet for auto-reconnect (#789); start
+    // each test with no remembered wallet so mounts stay disconnected.
+    window.localStorage.clear();
     vi.useFakeTimers({
       toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval", "Date"],
     });

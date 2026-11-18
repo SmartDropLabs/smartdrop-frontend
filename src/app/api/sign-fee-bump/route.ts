@@ -137,6 +137,31 @@ function withSecureCookies(response: NextResponse): NextResponse {
   return response;
 }
 
+/**
+ * One structured line per request (#787): id, outcome status and latency.
+ * Deliberately omits the body, XDR, caller IP and anything derived from the
+ * sponsor secret — this route handles signing material, so the log must be
+ * safe to ship to any log sink. An inbound `x-request-id` is reused so the
+ * line can be matched to the client/proxy log for the same call.
+ */
+export function logFeeBumpRequest(entry: {
+  requestId: string;
+  status: number;
+  durationMs: number;
+}): void {
+  const line = JSON.stringify({ route: '/api/sign-fee-bump', ...entry });
+  if (entry.status >= 500) {
+    console.error('[SignFeeBump] request', line);
+  } else {
+    console.info('[SignFeeBump] request', line);
+  }
+}
+
 export async function POST(request: Request) {
-  return withSecureCookies(await handlePost(request));
+  const startedAt = Date.now();
+  const requestId = request.headers.get('x-request-id') || crypto.randomUUID();
+  const response = withSecureCookies(await handlePost(request));
+  response.headers.set('x-request-id', requestId);
+  logFeeBumpRequest({ requestId, status: response.status, durationMs: Date.now() - startedAt });
+  return response;
 }
