@@ -12,6 +12,34 @@ export interface AssetInfo {
   isNative?: boolean;
 }
 
+export type Operation = Record<string, unknown>;
+
+/** Outcome of a transaction whose operations may partially fail (#749). */
+export interface PartialResult {
+  succeeded: Operation[];
+  failed: Array<{ operation: Operation; error: string }>;
+}
+
+/**
+ * Parse a transaction result handling partial failures (#749): operations
+ * that succeeded and operations that failed are reported separately instead
+ * of assuming all-or-nothing.
+ */
+export function parseTransactionResult(
+  entries: Array<{ operation: Operation; error?: string | null }>,
+): PartialResult {
+  const succeeded: Operation[] = [];
+  const failed: Array<{ operation: Operation; error: string }> = [];
+  for (const entry of entries) {
+    if (entry.error) {
+      failed.push({ operation: entry.operation, error: entry.error });
+    } else {
+      succeeded.push(entry.operation);
+    }
+  }
+  return { succeeded, failed };
+}
+
 export interface PoolInfo {
   id: string;
   contractAddress: string;

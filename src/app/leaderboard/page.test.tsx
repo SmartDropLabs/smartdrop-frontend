@@ -124,9 +124,12 @@ describe("LeaderboardPage accessible live-refresh announcements (#86)", () => {
 
   it("announces 'No results found' for a search with zero matches, not silence", async () => {
     vi.useFakeTimers();
-    getLeaderboardMock.mockResolvedValue({
-      entries: [entry(0)],
-      total: 1,
+    // Search is server-side (issue #132): the mock must branch on the
+    // `search` argument like the real backend/event-scan would, rather than
+    // returning the same page regardless of query.
+    getLeaderboardMock.mockImplementation(async (_offset, _limit, _sortKey, search) => {
+      if (search) return { entries: [], total: 0 };
+      return { entries: [entry(0)], total: 1 };
     });
 
     await act(async () => {
@@ -184,5 +187,50 @@ describe("LeaderboardPage accessible live-refresh announcements (#86)", () => {
     expect(creditsHeader.getAttribute("aria-sort")).toBe("none");
     expect(stakeHeader.getAttribute("aria-sort")).toBe("descending");
     expect(liveRegionText()).toContain("sorted by Stake");
+  });
+
+  it("dims the table while a sort-change refetch is in flight, then restores it", async () => {
+    let resolveSecondFetch:
+      | ((value: { entries: ReturnType<typeof entry>[]; total: number }) => void)
+      | undefined;
+
+    getLeaderboardMock
+      .mockResolvedValueOnce({
+        entries: Array.from({ length: 5 }, (_, i) => entry(i)),
+        total: 5,
+      })
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveSecondFetch = resolve;
+          }),
+      );
+
+    await act(async () => {
+      renderPage();
+    });
+
+    const tableContainer = screen.getByRole("table").parentElement as HTMLElement;
+    expect(tableContainer.getAttribute("aria-busy")).not.toBe("true");
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /stake/i }));
+    });
+
+    // The old rows are still on screen (no spinner/blank flash) but marked
+    // busy and visually dimmed while the new sort's data is still loading.
+    expect(tableContainer.getAttribute("aria-busy")).toBe("true");
+    expect(getComputedStyle(tableContainer).opacity).toBe("0.5");
+    expect(screen.getAllByRole("row").length).toBeGreaterThan(1);
+
+    await act(async () => {
+      resolveSecondFetch?.({
+        entries: Array.from({ length: 5 }, (_, i) => entry(i)),
+        total: 5,
+      });
+    });
+
+    expect(tableContainer.getAttribute("aria-busy")).not.toBe("true");
+    expect(getComputedStyle(tableContainer).opacity).toBe("1");
   });
 });

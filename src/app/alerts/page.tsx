@@ -5,6 +5,7 @@ import {
   Badge,
   Box,
   Button,
+  Checkbox,
   Flex,
   HStack,
   Input,
@@ -22,6 +23,7 @@ import {
   type Alert,
 } from "@/lib/backend";
 import { QueryErrorAlert } from "@/components/QueryErrorAlert/QueryErrorAlert";
+import FieldError from "@/components/FieldError/FieldError";
 
 export default function AlertsPage() {
   const toast = useToast();
@@ -32,19 +34,31 @@ export default function AlertsPage() {
   const [thresholdUsd, setThresholdUsd] = useState("");
   const [webhookUrl, setWebhookUrl] = useState("");
   const [webhookSecret, setWebhookSecret] = useState("");
+  const [selectedAlerts, setSelectedAlerts] = useState<Set<string>>(new Set());
+  const [readAlerts, setReadAlerts] = useState<Set<string>>(new Set());
 
-  const hasKey = apiKey.trim().length > 0;
+  // Backend API keys are opaque bearer tokens with no documented format —
+  // validate the one thing we can: it must be non-trivial-length, non-blank
+  // input, not just whitespace or a stray keystroke (issue #206).
+  const trimmedApiKey = apiKey.trim();
+  const MIN_API_KEY_LENGTH = 16;
+  const apiKeyTouched = apiKey.length > 0;
+  const apiKeyError =
+    apiKeyTouched && trimmedApiKey.length < MIN_API_KEY_LENGTH
+      ? `API key looks too short (min ${MIN_API_KEY_LENGTH} characters).`
+      : null;
+  const hasKey = trimmedApiKey.length >= MIN_API_KEY_LENGTH;
 
   const { data, isLoading, isError, error, isFetching, refetch } = useQuery({
-    queryKey: ["alerts", apiKey],
-    queryFn: () => listAlerts(apiKey),
+    queryKey: ["alerts", trimmedApiKey],
+    queryFn: () => listAlerts(trimmedApiKey),
     enabled: hasKey,
     ...backendQueryRetry,
   });
 
   const createMutation = useMutation({
     mutationFn: () =>
-      createAlert(apiKey, {
+      createAlert(trimmedApiKey, {
         asset: asset.trim().toUpperCase(),
         type,
         threshold_usd: Number(thresholdUsd),
@@ -57,7 +71,7 @@ export default function AlertsPage() {
       setThresholdUsd("");
       setWebhookUrl("");
       setWebhookSecret("");
-      queryClient.invalidateQueries({ queryKey: ["alerts", apiKey] });
+      queryClient.invalidateQueries({ queryKey: ["alerts", trimmedApiKey] });
     },
     onError: (err) =>
       toast({
@@ -69,9 +83,27 @@ export default function AlertsPage() {
   });
 
   const deleteMutation = useMutation({
-    mutationFn: (id: string) => deleteAlert(apiKey, id),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["alerts", apiKey] }),
+    mutationFn: (id: string) => deleteAlert(trimmedApiKey, id),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["alerts", trimmedApiKey] }),
   });
+
+  const markAllAsRead = () => {
+    setReadAlerts((prev) => {
+      const next = new Set(prev);
+      selectedAlerts.forEach((id) => next.add(id));
+      return next;
+    });
+    setSelectedAlerts(new Set());
+    toast({ title: `${selectedAlerts.size} alert${selectedAlerts.size !== 1 ? "s" : ""} marked as read`, status: "success", duration: 3000 });
+  };
+
+  const toggleSelect = (id: string) => {
+    setSelectedAlerts((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -128,12 +160,16 @@ export default function AlertsPage() {
           placeholder="Your smartdrop-backend API key"
           fontFamily="mono"
           fontSize="sm"
-          borderColor="app.border"
+          borderColor={apiKeyError ? "app.errorFg" : "app.border"}
           bg="app.inputBg"
-          _hover={{ borderColor: "app.accent" }}
-          _focus={{ boxShadow: "none", borderColor: "app.accent" }}
+          isInvalid={Boolean(apiKeyError)}
+          aria-invalid={Boolean(apiKeyError)}
+          aria-describedby="api-key-error api-key-help"
+          _hover={{ borderColor: apiKeyError ? "app.errorFg" : "app.accent" }}
+          _focus={{ boxShadow: "none", borderColor: apiKeyError ? "app.errorFg" : "app.accent" }}
         />
-        <Text fontSize="xs" color="app.muted" mt={2}>
+        <FieldError id="api-key-error" message={apiKeyError} mt={2} />
+        <Text id="api-key-help" fontSize="xs" color="app.muted" mt={2}>
           This endpoint requires backend authentication. The key is only kept in this page&apos;s memory — it is never stored or sent anywhere except the backend API.
         </Text>
       </Box>
@@ -259,6 +295,29 @@ export default function AlertsPage() {
               </Flex>
             ) : (
               <Flex direction="column" gap={3}>
+                <HStack justify="space-between" mb={1}>
+                  <Checkbox
+                    isChecked={data.data.length > 0 && selectedAlerts.size === data.data.length}
+                    isIndeterminate={selectedAlerts.size > 0 && selectedAlerts.size < data.data.length}
+                    onChange={(e) =>
+                      setSelectedAlerts(e.target.checked ? new Set(data.data.map((a) => a.id)) : new Set())
+                    }
+                    colorScheme="teal"
+                  >
+                    <Text fontSize="sm" color="app.muted">Select all</Text>
+                  </Checkbox>
+                  {selectedAlerts.size > 0 && (
+                    <Button
+                      size="sm"
+                      bg="app.accent"
+                      color="app.onAccent"
+                      _hover={{ opacity: 0.9 }}
+                      onClick={markAllAsRead}
+                    >
+                      Mark {selectedAlerts.size} as read
+                    </Button>
+                  )}
+                </HStack>
                 {data.data.map((alert) => (
                   <Flex
                     key={alert.id}
@@ -266,27 +325,39 @@ export default function AlertsPage() {
                     align="center"
                     p={5}
                     border="1px solid"
-                    borderColor="app.border"
+                    borderColor={readAlerts.has(alert.id) ? "app.border" : "app.border"}
                     borderRadius="card"
                     bg="app.surface"
                     boxShadow="card"
                     flexWrap="wrap"
                     gap={3}
+                    opacity={readAlerts.has(alert.id) ? 0.5 : 1}
                   >
-                    <Box>
-                      <HStack>
-                        <Text fontWeight="semibold">{alert.asset}</Text>
-                        <Badge borderRadius="full" px={2}>{alert.type}</Badge>
-                      </HStack>
-                      <Text fontSize="sm" color="app.muted" fontFamily="mono">
-                        threshold ${alert.threshold_usd} · {alert.webhook_url}
-                      </Text>
-                    </Box>
+                    <HStack spacing={3} flex={1} minW={0}>
+                      <Checkbox
+                        isChecked={selectedAlerts.has(alert.id)}
+                        onChange={() => toggleSelect(alert.id)}
+                        colorScheme="teal"
+                        aria-label={`Select alert for ${alert.asset}`}
+                      />
+                      <Box minW={0}>
+                        <HStack>
+                          <Text fontWeight="semibold">{alert.asset}</Text>
+                          <Badge borderRadius="full" px={2}>{alert.type}</Badge>
+                          {readAlerts.has(alert.id) && (
+                            <Badge colorScheme="gray" borderRadius="full" px={2}>Read</Badge>
+                          )}
+                        </HStack>
+                        <Text fontSize="sm" color="app.muted" fontFamily="mono" noOfLines={1}>
+                          threshold ${alert.threshold_usd} · {alert.webhook_url}
+                        </Text>
+                      </Box>
+                    </HStack>
                     <Button
                       size="sm"
                       variant="outline"
                       borderColor="app.border"
-                      color="#ff8080"
+                      color="app.errorFg"
                       onClick={() => deleteMutation.mutate(alert.id)}
                       isLoading={deleteMutation.isPending && deleteMutation.variables === alert.id}
                     >

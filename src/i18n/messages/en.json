@@ -1,0 +1,52 @@
+{
+  "common": {
+    "welcome": "Welcome to Smartdrop",
+    "loading": "Loading...",
+    "error": "Something went wrong",
+    "tryAgain": "Try again",
+    "cancel": "Cancel",
+    "confirm": "Confirm",
+    "back": "Back"
+  },
+  "farm": {
+    "title": "Farm",
+    "backToFarm": "Back to Farm",
+    "poolNotFound": "Pool not found",
+    "failedToLoadPool": "Failed to load pool data",
+    "deposit": "Deposit",
+    "dailyRate": "Daily Rate",
+    "minLockPeriod": "Min Lock Period",
+    "totalUsers": "Total Users",
+    "totalLocked": "Total Locked",
+    "tvlChart": "7-Day TVL",
+    "topDepositors": "Top 20 Depositors",
+    "noDepositors": "No depositors yet",
+    "address": "Address",
+    "amount": "Amount",
+    "credits": "Credits",
+    "lockAssets": "Lock Assets",
+    "unlockAssets": "Unlock Assets",
+    "connectWalletToDeposit": "Connect Wallet to Deposit",
+    "yourFeesAreSponsored": "Your fees are sponsored for this transaction",
+    "confirmLockTransaction": "Confirm Lock Transaction",
+    "youAreAboutToLock": "You are about to lock {{amount}} {{symbol}} for a minimum period of {{period}}. This action cannot be reversed until the lock period expires.",
+    "waitingForSignature": "Waiting for signature...",
+    "processing": "Processing...",
+    "earningsBreakdown": "Earnings Breakdown",
+    "dailyEarnings": "Daily Earnings",
+    "weeklyEarnings": "Weekly Earnings",
+    "totalEarnings": "Total Earnings"
+  },
+  "leaderboard": {
+    "title": "Leaderboard",
+    "rank": "Rank",
+    "user": "User",
+    "earnings": "Earnings"
+  },
+  "wallet": {
+    "connectWallet": "Connect Wallet",
+    "connected": "Connected",
+    "disconnected": "Disconnected",
+    "networkMismatch": "Network mismatch"
+  }
+}

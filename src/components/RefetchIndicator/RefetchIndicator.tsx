@@ -1,51 +1,51 @@
 "use client";
 
-import { useIsFetching, useQueryClient } from "@tanstack/react-query";
-import { Flex, Spinner, Text, IconButton } from "@chakra-ui/react";
-import { CloseIcon } from "@chakra-ui/icons";
+import { keyframes } from "@emotion/react";
+import { Box } from "@chakra-ui/react";
+import { useIsFetching } from "@tanstack/react-query";
+import { memo } from "react";
 
-interface RefetchIndicatorProps {
-  /** Narrow to a specific query key; omit to watch all queries. */
-  queryKey?: unknown[];
-}
+const slide = keyframes`
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(250%); }
+`;
 
-export default function RefetchIndicator({ queryKey }: RefetchIndicatorProps) {
-  const filters = queryKey ? { queryKey } : undefined;
-  const isFetching = useIsFetching(filters);
-  const queryClient = useQueryClient();
-
-  if (!isFetching) return null;
-
-  const handleCancel = () => {
-    queryClient.cancelQueries(filters);
-  };
+/**
+ * A thin bar at the top of the viewport while cached data is being refreshed
+ * (#499). Only queries that already hold data count, so first loads (which
+ * have their own spinners) don't trigger it; the old data stays on screen and
+ * this shows it is being updated. The animation is dropped for users who
+ * prefer reduced motion, leaving a static bar.
+ */
+function RefetchIndicator() {
+  const refetching =
+    useIsFetching({ predicate: (query) => query.state.data !== undefined }) > 0;
 
   return (
-    <Flex
-      align="center"
-      gap={2}
-      px={3}
-      py={1}
-      borderRadius="md"
-      bg="app.surface"
-      border="1px solid"
-      borderColor="app.border"
-      role="status"
-      aria-live="polite"
-      aria-label="Background data refresh in progress"
+    <Box
+      aria-hidden="true"
+      position="fixed"
+      top={0}
+      left={0}
+      right={0}
+      h="2px"
+      zIndex="toast"
+      overflow="hidden"
+      pointerEvents="none"
+      opacity={refetching ? 1 : 0}
+      transition="opacity 0.2s ease"
     >
-      <Spinner size="xs" color="app.accent" />
-      <Text fontSize="xs" color="app.text">
-        Refreshing…
-      </Text>
-      <IconButton
-        aria-label="Cancel refresh"
-        icon={<CloseIcon boxSize={2} />}
-        size="xs"
-        variant="ghost"
-        color="app.text"
-        onClick={handleCancel}
+      <Box
+        h="100%"
+        w="40%"
+        bg="app.accent"
+        animation={refetching ? `${slide} 1.2s ease-in-out infinite` : undefined}
+        sx={{ "@media (prefers-reduced-motion: reduce)": { animation: "none", w: "100%" } }}
       />
-    </Flex>
+    </Box>
   );
 }
+
+// Memoized: AppShell re-renders on every wallet / own-CTA change, and this
+// component doesn't depend on either.
+export default memo(RefetchIndicator);

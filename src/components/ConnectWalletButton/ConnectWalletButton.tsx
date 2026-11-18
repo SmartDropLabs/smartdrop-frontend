@@ -24,13 +24,27 @@ export default function ConnectWalletButton({
   const [isConnecting, setIsConnecting] = useState(false);
   const [copied, setCopied] = useState(false);
 
+  const CONNECT_TIMEOUT_MS = 30_000;
+
   const handleConnect = async () => {
     setIsConnecting(true);
     try {
+      const timeout = new Promise<never>((_, reject) =>
+        setTimeout(
+          () => reject(new Error("Connection timed out. Please try again.")),
+          CONNECT_TIMEOUT_MS,
+        ),
+      );
+      await Promise.race([connect(), timeout]);
+      toast.success("Wallet Connected", "Your wallet has been connected successfully");
       await connect();
       toast.success("Wallet connected", "Freighter is now linked to SmartDrop");
     } catch (error) {
-      toast.handleError(error, "Wallet Connection");
+      // Issue #250: offer a Retry action right on the error toast, so a
+      // failed connect (wrong network, rejected prompt, timeout) doesn't
+      // force the user to dismiss the toast and click Connect all over
+      // again from scratch.
+      toast.handleError(error, "Wallet Connection", () => void handleConnect());
     } finally {
       setIsConnecting(false);
     }
@@ -71,7 +85,15 @@ export default function ConnectWalletButton({
           color="#fff"
           fontSize="xs"
         >
+          {/* A real button so the tooltip also opens on keyboard focus, and
+              the full address is in the accessible name, not hover-only (#571). */}
           <Text
+            as="button"
+            type="button"
+            aria-label={copied ? "Address copied" : `Copy wallet address ${publicKey}`}
+            bg="transparent"
+            border="none"
+            p={0}
             fontSize="sm"
             fontFamily="mono"
             color={ACCENT}

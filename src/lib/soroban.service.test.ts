@@ -49,7 +49,7 @@ import {
   unlockAssets,
   validateSimulationAuth,
 } from "./soroban";
-import { SecurityError } from "./error-handler";
+import { FeeBumpError, SecurityError } from "./error-handler";
 
 const POOL_CONTRACT_ID =
   "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4";
@@ -263,7 +263,43 @@ describe("soroban amount and Horizon helpers", () => {
 
     expect(fetchSpy).toHaveBeenCalledWith(
       expect.stringMatching(new RegExp(`/accounts/${USER_PUBLIC_KEY}$`)),
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
     );
+  });
+
+  it("getStellarBalance aborts and throws a timeout error when Horizon hangs", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(
+      (_url, init) =>
+        new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () =>
+            reject(new DOMException("Aborted", "AbortError")),
+          );
+        }),
+    );
+
+    await expect(getStellarBalance(USER_PUBLIC_KEY, undefined, 10)).rejects.toThrow(
+      "Timed out fetching Stellar balance from Horizon",
+    );
+  });
+
+  it("getStellarBalance forwards external cancellation to fetch", async () => {
+    let fetchSignal: AbortSignal | undefined;
+    vi.spyOn(globalThis, "fetch").mockImplementation(
+      (_url, init) =>
+        new Promise<Response>((_resolve, reject) => {
+          fetchSignal = init?.signal ?? undefined;
+          fetchSignal?.addEventListener("abort", () =>
+            reject(new DOMException("Aborted", "AbortError")),
+          );
+        }),
+    );
+
+    const external = new AbortController();
+    const pending = getStellarBalance(USER_PUBLIC_KEY, external.signal);
+    external.abort();
+
+    await expect(pending).rejects.toThrow("Aborted");
+    expect(fetchSignal?.aborted).toBe(true);
   });
 
   it("getStellarBalance throws for Horizon non-OK and missing native balances", async () => {
@@ -475,7 +511,7 @@ describe("soroban transaction builders", () => {
     );
   });
 
-  it("converts unlock display units to stroops before delegating", async () => {
+  it("passes display units through to the service unchanged (#445)", async () => {
     const walletApi = { signTransaction: vi.fn() };
     const unlockSpy = vi
       .spyOn(sorobanService, "unlockAssets")
@@ -493,11 +529,29 @@ describe("soroban transaction builders", () => {
     expect(unlockSpy).toHaveBeenCalledWith(
       "pool-xlm",
       USER_PUBLIC_KEY,
-      "12345678",
+      "1.2345678",
       walletApi,
       { onHash: undefined, onStep: undefined },
       undefined,
     );
+  });
+
+  it("rejects a malformed unlock amount instead of delegating garbage (#445)", async () => {
+    const walletApi = { signTransaction: vi.fn() };
+    const unlockSpy = vi
+      .spyOn(sorobanService, "unlockAssets")
+      .mockResolvedValue({ success: true, transactionHash: "abc123" });
+
+    await expect(
+      unlockAssets({
+        poolContractId: "pool-xlm",
+        publicKey: USER_PUBLIC_KEY,
+        amount: "not-a-number",
+        walletApi,
+      }),
+    ).rejects.toThrow("Enter a valid positive decimal amount.");
+
+    expect(unlockSpy).not.toHaveBeenCalled();
   });
 
   it("delegates lockAssets wrapper callbacks to the singleton service", async () => {
@@ -740,6 +794,46 @@ describe("SorobanService RPC writes", () => {
     expect(rpcServer.sendTransaction).toHaveBeenCalledTimes(1);
   });
 
+  it("lockAssets returns a friendly FeeBumpError message when the sponsor API fails", async () => {
+    vi.stubEnv("NEXT_PUBLIC_FEE_SPONSOR_PUBLIC_KEY", USER_PUBLIC_KEY);
+    const { service, rpcServer } = makeService();
+    mockAssembleTransactionPassthrough();
+    rpcServer.simulateTransaction.mockResolvedValue({
+      result: { auth: [makeAuthEntry("lock_assets")] },
+      minResourceFee: "321",
+    });
+    // Unfunded account (Horizon 404) triggers sponsorship; sponsor then 500s.
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) =>
+      String(input).includes("/api/sign-fee-bump")
+        ? ({
+            ok: false,
+            status: 500,
+            text: async () => "Internal Server Error",
+          } as Response)
+        : ({ ok: false, status: 404 } as Response),
+    );
+    const walletApi = {
+      signTransaction: vi.fn(async (xdrEnvelope: string) => xdrEnvelope),
+    };
+
+    const result = await service.lockAssets(
+      POOL_ID,
+      USER_PUBLIC_KEY,
+      "50000000",
+      walletApi,
+    );
+
+    expect(result).toEqual({
+      success: false,
+      status: "FAILED",
+      errorCode: "FEE_BUMP_FAILED",
+      error: new FeeBumpError("x").userMessage,
+    });
+    expect(result.error).not.toContain("Internal Server Error");
+    expect(rpcServer.sendTransaction).not.toHaveBeenCalled();
+    vi.unstubAllEnvs();
+  });
+
   it("lockAssets returns decoded contract error details when confirmation fails", async () => {
     const { service, rpcServer } = makeService();
     mockAssembleTransactionPassthrough();
@@ -809,6 +903,38 @@ describe("SorobanService RPC writes", () => {
     });
     expect(walletApi.signTransaction).toHaveBeenCalledTimes(1);
     expect(rpcServer.sendTransaction).toHaveBeenCalledTimes(1);
+  });
+
+  it("unlockAssets converts display units to stroops before building the call (#445)", async () => {
+    const { service, rpcServer } = makeService();
+    rpcServer.simulateTransaction.mockResolvedValue({
+      error: "stop before signing",
+    });
+    const callSpy = vi.spyOn(Contract.prototype, "call");
+
+    const result = await service.unlockAssets(
+      POOL_ID,
+      USER_PUBLIC_KEY,
+      "1.5",
+      {
+        signTransaction: vi.fn(),
+      },
+    );
+
+    expect(result).toMatchObject({ success: false });
+    expect(callSpy).toHaveBeenCalledWith(
+      "unlock_assets",
+      expect.any(xdr.ScVal),
+      expect.any(xdr.ScVal),
+    );
+
+    const op = callSpy.mock.results[0].value as xdr.Operation;
+    const invokeContract = invokeContractFromOperation(op);
+    const [, amountArg] = invokeContract.args();
+
+    expect(invokeContract.functionName().toString()).toBe("unlock_assets");
+    expect(amountArg.switch()).toBe(xdr.ScValType.scvI128());
+    expect(scValToNative(amountArg)).toBe(15_000_000n);
   });
 
   it("unlockAssets throws when the pool is not registered", async () => {
@@ -1302,6 +1428,30 @@ describe("SorobanService event-derived pool data", () => {
     );
   });
 
+  it("getPoolHistory seeds N distinct consecutive days even on a US DST 'spring forward' day (#452)", async () => {
+    // Reproduces the bug with local getDate()/setDate() arithmetic: on the
+    // day before a spring-forward transition, subtracting a local calendar
+    // day only moves the underlying instant by 23 hours, which can land on
+    // the same UTC date twice — collapsing two days into one dailyMap key
+    // and silently dropping a day from the chart.
+    const originalTz = process.env.TZ;
+    process.env.TZ = "America/New_York";
+    try {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date("2026-03-08T23:30:00.000Z"));
+      const { service, rpcServer } = makeService({ pool: false });
+      rpcServer.getLatestLedger.mockResolvedValue({ sequence: 200_000 });
+      rpcServer.getEvents.mockResolvedValue({ events: [], latestLedger: 200_000 });
+
+      const history = await service.getPoolHistory(POOL_CONTRACT_ID, 10);
+
+      expect(history).toHaveLength(10);
+      expect(new Set(history.map((h) => h.date)).size).toBe(10);
+    } finally {
+      process.env.TZ = originalTz;
+    }
+  });
+
   it("getPoolDepositors aggregates successful lock and unlock events by address", async () => {
     const otherUser = StrKey.encodeEd25519PublicKey(Buffer.alloc(32, 8));
     const { service, rpcServer } = makeService({ pool: false });
@@ -1688,10 +1838,99 @@ describe("SorobanService leaderboard", () => {
     }
   });
 
-  it("getCreditVelocity currently returns the zero accumulator", async () => {
+  it("getCreditVelocity returns 0 when no factory is configured (#446)", async () => {
     const { service } = makeService({ pool: false });
 
     await expect(service.getCreditVelocity(12)).resolves.toBe("0");
+  });
+
+  it("getCreditVelocity sums per-address credit growth inside the window (#446)", async () => {
+    const otherUser = StrKey.encodeEd25519PublicKey(Buffer.alloc(32, 8));
+    const { service, rpcServer } = makeService({ factory: true, pool: false });
+    vi.spyOn(service, "getFactoryPools").mockResolvedValue([
+      {
+        id: "factory-pool",
+        contractAddress: POOL_CONTRACT_ID,
+        asset: { code: "XLM", isNative: true },
+        dailyRate: "0",
+        minLockPeriod: 0,
+        totalLocked: "0",
+        totalUsers: 0,
+        isActive: true,
+        createdAt: 1,
+      },
+    ]);
+    rpcServer.getLatestLedger.mockResolvedValue({ sequence: 200_000 });
+
+    const now = Date.now();
+    const hoursAgo = (h: number) => new Date(now - h * 3_600_000).toISOString();
+    rpcServer.getEvents.mockResolvedValue({
+      events: [
+        // Baseline: last update before the 24h window opened.
+        makeContractEvent({
+          action: "update_credits",
+          address: USER_PUBLIC_KEY,
+          value: { credits: 100 },
+          ledgerClosedAt: hoursAgo(30),
+        }),
+        // Inside the window: 100 → 180 ⇒ +80.
+        makeContractEvent({
+          action: "update_credits",
+          address: USER_PUBLIC_KEY,
+          value: { credits: 180 },
+          ledgerClosedAt: hoursAgo(10),
+        }),
+        // No pre-window baseline ⇒ no observed delta.
+        makeContractEvent({
+          action: "update_credits",
+          address: otherUser,
+          value: { credits: 50 },
+          ledgerClosedAt: hoursAgo(5),
+        }),
+        // Unrelated actions are ignored.
+        makeContractEvent({
+          action: "lock_assets",
+          address: USER_PUBLIC_KEY,
+          value: { amount: 300_000_000n },
+          ledgerClosedAt: hoursAgo(3),
+        }),
+        // Failed calls are ignored.
+        makeContractEvent({
+          action: "update_credits",
+          address: USER_PUBLIC_KEY,
+          value: { credits: 999 },
+          ledgerClosedAt: hoursAgo(1),
+          inSuccessfulContractCall: false,
+        }),
+      ],
+    });
+
+    await expect(service.getCreditVelocity(24)).resolves.toBe("80");
+  });
+
+  it("getCreditVelocity bounds the event scan by windowHours (#446)", async () => {
+    const { service, rpcServer } = makeService({ factory: true, pool: false });
+    vi.spyOn(service, "getFactoryPools").mockResolvedValue([
+      {
+        id: "factory-pool",
+        contractAddress: POOL_CONTRACT_ID,
+        asset: { code: "XLM", isNative: true },
+        dailyRate: "0",
+        minLockPeriod: 0,
+        totalLocked: "0",
+        totalUsers: 0,
+        isActive: true,
+        createdAt: 1,
+      },
+    ]);
+    rpcServer.getLatestLedger.mockResolvedValue({ sequence: 200_000 });
+    rpcServer.getEvents.mockResolvedValue({ events: [] });
+
+    await expect(service.getCreditVelocity(12)).resolves.toBe("0");
+    // 12h window + equal baseline = 2 × (12 × 3600 / 5) = 17_280 ledgers back.
+    expect(rpcServer.getEvents).toHaveBeenCalledWith(
+      expect.objectContaining({ startLedger: 182_720 }),
+    );
   });
 });
 
