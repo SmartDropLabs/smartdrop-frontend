@@ -35,6 +35,24 @@ import { useEffect, useRef, useState } from "react";
 
 type BoostStep = "idle" | "submitting" | "success" | "error";
 
+/** Allocations at or above this share of credits get an explicit warning (#768). */
+export const LARGE_BOOST_THRESHOLD = 75;
+
+const BOOST_WARNING =
+    "This allocation applies to all future credit emissions until you change it.";
+
+/**
+ * Warning shown in the confirmation step. Every boost change is already
+ * confirmed; raising the allocation to a large share of credits says so
+ * explicitly, so an accidental slider drag to 100% is not waved through (#768).
+ */
+export function boostConfirmWarning(allocation: number, currentBoost: number): string {
+    if (allocation >= LARGE_BOOST_THRESHOLD && allocation > currentBoost) {
+        return `Large boost: you are allocating ${allocation}% of your credits. ${BOOST_WARNING}`;
+    }
+    return BOOST_WARNING;
+}
+
 export default function BoostModal() {
     const selectedPosition = useFarmStore((s) => s.selectedPosition);
     const isBoost = useFarmStore((s) => s.activeModal === "boost");
@@ -310,7 +328,7 @@ export default function BoostModal() {
                     isLoading: feePreview.isFetching,
                     isError: feePreview.isError,
                 }}
-                warning="This allocation applies to all future credit emissions until you change it."
+                warning={boostConfirmWarning(allocation, currentBoost)}
                 confirmLabel="Confirm Boost"
             />
         </Modal>

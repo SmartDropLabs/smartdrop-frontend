@@ -106,6 +106,10 @@ export function useSorobanEvents(
       xdr.ScVal.scvSymbol(t).toXDR("base64"),
       "*",
     ]);
+    // `topics` is the event-type filter (#767). It is applied by the RPC via
+    // `topicFilters` above and enforced again client-side below, so an event
+    // of a type the caller did not ask for can never trigger an invalidation.
+    const wantedTopics = new Set(topics);
 
     let cancelled = false;
     let intervalId: ReturnType<typeof setInterval> | undefined;
@@ -148,11 +152,12 @@ export function useSorobanEvents(
 
           for (const evt of response.events) {
             if (!evt.inSuccessfulContractCall) continue;
-            hasPoolEvent = true;
 
             const topicNatives = (evt.topic as xdr.ScVal[]).map(scValToNative);
             const action = topicNatives[0] as string;
             const userAddr = topicNatives[1] as string;
+            if (!wantedTopics.has(action)) continue;
+            hasPoolEvent = true;
 
             if (USER_EVENT_TOPICS.has(action) && userAddr === publicKey) {
               hasUserEvent = true;

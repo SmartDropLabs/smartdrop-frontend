@@ -4,7 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useStellarWallet } from "@/context/StellarWalletContext";
 import { useFarmStore } from "@/store/farmStore";
-import BoostModal from "./BoostModal";
+import BoostModal, { boostConfirmWarning, LARGE_BOOST_THRESHOLD } from "./BoostModal";
 
 vi.mock("@/context/StellarWalletContext", () => ({
   useStellarWallet: vi.fn(),
@@ -124,5 +124,22 @@ describe("BoostModal", () => {
     });
     renderModal();
     expect(screen.getByText(/You need to deposit/)).toBeTruthy();
+  });
+});
+
+describe("boostConfirmWarning (#768)", () => {
+  it("keeps the standard warning for a small allocation", () => {
+    expect(boostConfirmWarning(20, 0)).toBe(
+      "This allocation applies to all future credit emissions until you change it.",
+    );
+  });
+
+  it("flags a large allocation explicitly in the confirmation step", () => {
+    const warning = boostConfirmWarning(LARGE_BOOST_THRESHOLD, 10);
+    expect(warning).toMatch(/^Large boost: you are allocating 75% of your credits\./);
+  });
+
+  it("does not flag lowering an already-large allocation", () => {
+    expect(boostConfirmWarning(80, 100)).not.toMatch(/Large boost/);
   });
 });
