@@ -4,7 +4,7 @@ import { ErrorBoundary } from "@/components/ErrorBoundary/ErrorBoundary";
 import { ErrorProvider } from "@/context/ErrorContext";
 import { StellarWalletProvider } from "@/context/StellarWalletContext";
 import theme from "@/lib/theme";
-import { ChakraProvider, ColorModeScript, localStorageManager } from "@chakra-ui/react";
+import { ChakraProvider, localStorageManager } from "@chakra-ui/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import { type ReactNode, useEffect, useState } from "react";
@@ -17,31 +17,39 @@ declare global {
 
 function ContextProvider({ children }: { children: ReactNode }) {
   const [queryClient] = useState(() => {
-    return new QueryClient();
+    return new QueryClient({
+      // Baseline caching defaults (issue #481). Every query now inherits a
+      // sane staleTime/gcTime instead of React Query's staleTime: 0 — hooks
+      // that need a different freshness window (5s/15s/60s) still override
+      // these per-query in useSorobanQuery.ts.
+      defaultOptions: {
+        queries: {
+          staleTime: 30_000,
+          gcTime: 5 * 60 * 1000,
+        },
+      },
+    });
   });
 
   useEffect(() => {
-    if (
-      typeof window !== 'undefined' &&
-      (process.env.NODE_ENV !== 'production' || process.env.NEXT_PUBLIC_E2E === 'true')
-    ) {
+    // Dev-only escape hatch for local debugging and Playwright specs that run
+    // `next dev` (NODE_ENV=development). Never expose the QueryClient in a
+    // production bundle — not even when NEXT_PUBLIC_E2E is set (issue #471).
+    if (typeof window !== 'undefined' && process.env.NODE_ENV !== 'production') {
       window.__queryClient = queryClient;
     }
   }, [queryClient]);
 
   return (
-    <>
-      <ColorModeScript initialColorMode={theme.config.initialColorMode} storageKey="chakra-ui-color-mode" />
-      <ChakraProvider theme={theme} colorModeManager={localStorageManager}>
-        <ErrorBoundary>
-          <ErrorProvider>
-            <QueryClientProvider client={queryClient}>
-              <StellarWalletProvider>{children}</StellarWalletProvider>
-            </QueryClientProvider>
-          </ErrorProvider>
-        </ErrorBoundary>
-      </ChakraProvider>
-    </>
+    <ChakraProvider theme={theme} colorModeManager={localStorageManager}>
+      <ErrorBoundary captureUnhandledRejections>
+        <ErrorProvider>
+          <QueryClientProvider client={queryClient}>
+            <StellarWalletProvider>{children}</StellarWalletProvider>
+          </QueryClientProvider>
+        </ErrorProvider>
+      </ErrorBoundary>
+    </ChakraProvider>
   );
 }
 

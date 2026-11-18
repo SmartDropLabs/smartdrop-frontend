@@ -3,11 +3,25 @@ type SparklineProps = {
   data: number[];
   width?: number;
   height?: number;
+  /** If true, the sparkline will scale to fill its container width. */
+  responsive?: boolean;
   /** Stroke colour for the line. */
   color?: string;
   /** If true, fills the area under the line with a semi-transparent version of color. */
   fill?: boolean;
+  /**
+   * Accessible label describing the trend (issue #213), e.g.
+   * "TVL trend: increasing over 24 hours". Falls back to a label computed
+   * from the first/last data points when omitted.
+   */
+  label?: string;
 };
+
+function describeTrend(data: number[]): string {
+  const delta = data[data.length - 1] - data[0];
+  const direction = delta > 0 ? "increasing" : delta < 0 ? "decreasing" : "flat";
+  return `Trend chart: ${direction}`;
+}
 
 /**
  * Minimal SVG sparkline — no dependencies.
@@ -17,10 +31,14 @@ export function Sparkline({
   data,
   width = 120,
   height = 32,
+  responsive = false,
   color = "#4AE292",
   fill = true,
+  label,
 }: SparklineProps) {
   if (data.length < 2) return null;
+
+  const accessibleLabel = label ?? describeTrend(data);
 
   const min = Math.min(...data);
   const max = Math.max(...data);
@@ -41,11 +59,14 @@ export function Sparkline({
 
   return (
     <svg
-      width={width}
+      width={responsive ? "100%" : width}
       height={height}
       viewBox={`0 0 ${width} ${height}`}
-      aria-hidden="true"
+      role="img"
+      aria-label={accessibleLabel}
+      style={responsive ? { maxWidth: width } : undefined}
     >
+      <title>{accessibleLabel}</title>
       {fill && (
         <path
           d={fillPath}

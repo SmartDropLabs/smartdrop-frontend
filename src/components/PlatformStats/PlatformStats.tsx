@@ -3,11 +3,7 @@
 import React from 'react';
 import { SimpleGrid, Stat, StatLabel, StatNumber, Box, Skeleton } from '@chakra-ui/react';
 import { usePlatformStats, UIPlatformStats } from '@/hooks/useSorobanQuery';
-
-const formatCredits = (value: string): string => {
-  const num = parseFloat(value) || 0;
-  return `${(num / 1_000_000).toFixed(1)}M XLM`;
-};
+import { formatCredits } from '@/lib/soroban';
 
 interface PlatformStatsProps {
   initialData?: UIPlatformStats;
@@ -35,7 +31,7 @@ export const PlatformStats: React.FC<PlatformStatsProps> = ({ initialData }) => 
           <StatLabel color="app.muted">Total Value Locked</StatLabel>
           <Skeleton isLoaded={!isLoading || !!stats} startColor="app.border" endColor="app.surfaceHover">
             <StatNumber fontSize="2xl" fontWeight="extrabold" color="app.accent">
-              {stats ? formatCredits(stats.tvl) : '0.0M XLM'}
+              {stats ? stats.tvl : '$0'}
             </StatNumber>
           </Skeleton>
         </Stat>
@@ -68,7 +64,7 @@ export const PlatformStats: React.FC<PlatformStatsProps> = ({ initialData }) => 
           <StatLabel color="app.muted">24h Credit Velocity</StatLabel>
           <Skeleton isLoaded={!isLoading || !!stats} startColor="app.border" endColor="app.surfaceHover">
             <StatNumber fontSize="2xl" fontWeight="extrabold" color="app.accent2">
-              {stats ? formatCredits(stats.creditVelocity) : '0.0M XLM'}
+              {stats ? `${formatCredits(stats.creditVelocity)} XLM` : '0 XLM'}
             </StatNumber>
           </Skeleton>
         </Stat>

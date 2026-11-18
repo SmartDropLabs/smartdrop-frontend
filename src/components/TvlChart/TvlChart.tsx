@@ -10,13 +10,21 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from "recharts";
-import { sorobanService } from "@/lib/soroban";
 
 const ACCENT = "#4ae292";
+
+// Issue #214: a fixed 180px is tall relative to viewport width on small
+// phones; shrink it below the sm breakpoint instead. Expressed as a
+// responsive CSS value (not useBreakpointValue) so the skeleton, empty
+// state and chart all resolve to the same height on first paint — the JS
+// breakpoint hook falls back to "sm" until hydration, which made the
+// skeleton render at 180px and then jump to 140px on phones.
+const CHART_HEIGHT = { base: "140px", sm: "180px" };
 
 interface TvlDataPoint {
   date: string;
   tvl: string;
+  truncated?: boolean;
 }
 
 interface TvlChartProps {
@@ -30,8 +38,8 @@ export default function TvlChart({ poolId }: TvlChartProps) {
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    sorobanService
-      .getPoolHistory(poolId, 7)
+    import("@/lib/soroban")
+      .then(({ sorobanService }) => sorobanService.getPoolHistory(poolId, 7))
       .then((history) => {
         if (!cancelled) {
           setData(history);
@@ -47,13 +55,13 @@ export default function TvlChart({ poolId }: TvlChartProps) {
   }, [poolId]);
 
   if (loading) {
-    return <Skeleton height="180px" borderRadius="2xl" startColor="app.border" endColor="app.surfaceHover" />;
+    return <Skeleton h={CHART_HEIGHT} borderRadius="2xl" startColor="app.border" endColor="app.surfaceHover" />;
   }
 
   if (data.length === 0) {
     return (
       <Box
-        h="180px"
+        h={CHART_HEIGHT}
         display="flex"
         alignItems="center"
         justifyContent="center"
@@ -69,65 +77,68 @@ export default function TvlChart({ poolId }: TvlChartProps) {
   }
 
   return (
-    <ResponsiveContainer width="100%" height={180}>
-      <AreaChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
-        <defs>
-          <linearGradient id="tvlGradient" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="5%" stopColor={ACCENT} stopOpacity={0.3} />
-            <stop offset="95%" stopColor={ACCENT} stopOpacity={0} />
-          </linearGradient>
-        </defs>
-        <XAxis
-          dataKey="date"
-          tick={{ fontSize: 11, fill: "#A2A2A2" }}
-          tickFormatter={(v: string) =>
-            new Date(v).toLocaleDateString(undefined, {
-              month: "short",
-              day: "numeric",
-            })
-          }
-          axisLine={false}
-          tickLine={false}
-        />
-        <YAxis
-          tick={{ fontSize: 11, fill: "#A2A2A2" }}
-          tickFormatter={(v: number) =>
-            v >= 1_000_000
-              ? `$${(v / 1_000_000).toFixed(1)}M`
-              : v >= 1_000
-              ? `$${(v / 1_000).toFixed(0)}K`
-              : `$${v}`
-          }
-          axisLine={false}
-          tickLine={false}
-          width={56}
-        />
-        <Tooltip
-          contentStyle={{
-            background: "#171717",
-            border: "1px solid #333",
-            borderRadius: "12px",
-            fontSize: "12px",
-          }}
-          labelFormatter={(label) =>
-            new Date(String(label)).toLocaleDateString(undefined, {
-              weekday: "short",
-              month: "short",
-              day: "numeric",
-            })
-          }
-          formatter={(value) => [`$${Number(value).toLocaleString()}`, "TVL"]}
-        />
-        <Area
-          type="monotone"
-          dataKey="tvl"
-          stroke={ACCENT}
-          strokeWidth={2}
-          fill="url(#tvlGradient)"
-          dot={false}
-          activeDot={{ r: 4, fill: ACCENT }}
-        />
-      </AreaChart>
-    </ResponsiveContainer>
+    <Box h={CHART_HEIGHT}>
+      <ResponsiveContainer width="100%" height="100%">
+        <AreaChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+          <defs>
+            <linearGradient id="tvlGradient" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="5%" stopColor={ACCENT} stopOpacity={0.3} />
+              <stop offset="95%" stopColor={ACCENT} stopOpacity={0} />
+            </linearGradient>
+          </defs>
+          <XAxis
+            dataKey="date"
+            tick={{ fontSize: 11, fill: "#A2A2A2" }}
+            tickFormatter={(v: string) =>
+              new Date(v).toLocaleDateString(undefined, {
+                month: "short",
+                day: "numeric",
+              })
+            }
+            axisLine={false}
+            tickLine={false}
+          />
+          <YAxis
+            tick={{ fontSize: 11, fill: "#A2A2A2" }}
+            tickFormatter={(v: number) =>
+              v >= 1_000_000
+                ? `$${(v / 1_000_000).toFixed(1)}M`
+                : v >= 1_000
+                ? `$${(v / 1_000).toFixed(0)}K`
+                : `$${v}`
+            }
+            axisLine={false}
+            tickLine={false}
+            width={56}
+          />
+          <Tooltip
+            contentStyle={{
+              background: "var(--chakra-colors-app-surface)",
+              border: "1px solid var(--chakra-colors-app-border)",
+              borderRadius: "12px",
+              fontSize: "12px",
+              color: "var(--chakra-colors-app-text)",
+            }}
+            labelFormatter={(label) =>
+              new Date(String(label)).toLocaleDateString(undefined, {
+                weekday: "short",
+                month: "short",
+                day: "numeric",
+              })
+            }
+            formatter={(value) => [`$${Number(value).toLocaleString()}`, "TVL"]}
+          />
+          <Area
+            type="monotone"
+            dataKey="tvl"
+            stroke={ACCENT}
+            strokeWidth={2}
+            fill="url(#tvlGradient)"
+            dot={false}
+            activeDot={{ r: 4, fill: ACCENT }}
+          />
+        </AreaChart>
+      </ResponsiveContainer>
+    </Box>
   );
 }
