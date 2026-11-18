@@ -242,10 +242,13 @@ async function requestFeeBump(innerTxXdr: string): Promise<string> {
   }
 
   const resData = (await response.json().catch(() => null)) as
-    | { feeBumpTxXdr?: string }
+    | { feeBumpTxXdr?: string; warning?: string }
     | null;
   if (!resData?.feeBumpTxXdr) {
     throw new FeeBumpError('Sponsor API returned invalid response', response.status);
+  }
+  if (resData.warning) {
+    console.warn(`[FeeBump] ${resData.warning}`);
   }
   return resData.feeBumpTxXdr;
 }

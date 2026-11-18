@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { extractPoolIdFromSlug, generatePoolSlug } from './pool-slugs';
+import { extractPoolIdFromSlug, generatePoolSlug, generateUniquePoolSlugs } from './pool-slugs';
 import type { PoolInfo } from './soroban-parsers';
 
 function makePool(id: string, code: string): PoolInfo {
@@ -53,5 +53,50 @@ describe('extractPoolIdFromSlug (#447)', () => {
     const second = extractPoolIdFromSlug(slug, pools);
     expect(first).toBe(pools[0].id);
     expect(second).toBe(first);
+  });
+});
+
+describe('generateUniquePoolSlugs (#751)', () => {
+  it('keeps the short slug for pools that do not collide', () => {
+    const pools = [makePool('CAPOLL111111AAA', 'XLM'), makePool('CAPOLL222222BBB', 'USDC')];
+    const slugs = generateUniquePoolSlugs(pools);
+
+    expect(slugs.get(pools[0].id)).toBe(generatePoolSlug(pools[0]));
+    expect(slugs.get(pools[1].id)).toBe(generatePoolSlug(pools[1]));
+  });
+
+  it('gives colliding pools distinct, longer slugs', () => {
+    const a = makePool('CAAAAA9ZZZZZZ', 'XLM');
+    const b = makePool('CBBBBB8ZZZZZZ', 'XLM');
+    expect(generatePoolSlug(a)).toBe(generatePoolSlug(b));
+
+    const slugs = generateUniquePoolSlugs([a, b]);
+
+    expect(slugs.get(a.id)).toBe('xlm-9zzzzzz');
+    expect(slugs.get(b.id)).toBe('xlm-8zzzzzz');
+  });
+
+  it('does not depend on list order', () => {
+    const a = makePool('CAAAAA9ZZZZZZ', 'XLM');
+    const b = makePool('CBBBBB8ZZZZZZ', 'XLM');
+
+    expect(generateUniquePoolSlugs([a, b])).toEqual(generateUniquePoolSlugs([b, a]));
+  });
+});
+
+describe('extractPoolIdFromSlug with colliding pools (#751)', () => {
+  const a = makePool('CAAAAA9ZZZZZZ', 'XLM');
+  const b = makePool('CBBBBB8ZZZZZZ', 'XLM');
+  const pools = [a, b];
+
+  it('resolves each unique slug to its own pool', () => {
+    const slugs = generateUniquePoolSlugs(pools);
+
+    expect(extractPoolIdFromSlug(slugs.get(a.id)!, pools)).toBe(a.id);
+    expect(extractPoolIdFromSlug(slugs.get(b.id)!, pools)).toBe(b.id);
+  });
+
+  it('does not resolve the shared short slug to either pool', () => {
+    expect(extractPoolIdFromSlug(generatePoolSlug(a), pools)).toBeNull();
   });
 });

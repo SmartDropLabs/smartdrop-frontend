@@ -13,6 +13,7 @@ vi.mock("@/lib/soroban", () => ({
 
 vi.mock("@/lib/feeBumpGuard", () => ({
   assertSponsorableInnerTransaction: vi.fn(),
+  highFeeBumpWarning: vi.fn(() => null),
   feeBumpRateLimiter: { tryConsume: vi.fn(() => true) },
 }));
 

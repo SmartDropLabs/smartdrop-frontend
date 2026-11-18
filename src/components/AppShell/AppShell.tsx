@@ -30,6 +30,11 @@ function LayoutWrapper({ children }: { children: React.ReactNode }) {
   const { isConnected } = useStellarWallet();
   const pathname = usePathname();
 
+  // Keep the landing visit's utm_* params for share links built later (#752).
+  useEffect(() => {
+    rememberUtmParams();
+  }, [pathname]);
+
   // Pages signal a dynamic own-CTA via context (e.g. /farm, /farm/[poolId]).
   const hasContextCTA = useHasOwnConnectButton();
 
