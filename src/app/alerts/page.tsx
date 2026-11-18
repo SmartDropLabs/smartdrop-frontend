@@ -5,6 +5,7 @@ import {
   Badge,
   Box,
   Button,
+  Checkbox,
   Flex,
   HStack,
   Input,
@@ -33,6 +34,8 @@ export default function AlertsPage() {
   const [thresholdUsd, setThresholdUsd] = useState("");
   const [webhookUrl, setWebhookUrl] = useState("");
   const [webhookSecret, setWebhookSecret] = useState("");
+  const [selectedAlerts, setSelectedAlerts] = useState<Set<string>>(new Set());
+  const [readAlerts, setReadAlerts] = useState<Set<string>>(new Set());
 
   // Backend API keys are opaque bearer tokens with no documented format —
   // validate the one thing we can: it must be non-trivial-length, non-blank
@@ -83,6 +86,24 @@ export default function AlertsPage() {
     mutationFn: (id: string) => deleteAlert(trimmedApiKey, id),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["alerts", trimmedApiKey] }),
   });
+
+  const markAllAsRead = () => {
+    setReadAlerts((prev) => {
+      const next = new Set(prev);
+      selectedAlerts.forEach((id) => next.add(id));
+      return next;
+    });
+    setSelectedAlerts(new Set());
+    toast({ title: `${selectedAlerts.size} alert${selectedAlerts.size !== 1 ? "s" : ""} marked as read`, status: "success", duration: 3000 });
+  };
+
+  const toggleSelect = (id: string) => {
+    setSelectedAlerts((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -274,6 +295,29 @@ export default function AlertsPage() {
               </Flex>
             ) : (
               <Flex direction="column" gap={3}>
+                <HStack justify="space-between" mb={1}>
+                  <Checkbox
+                    isChecked={data.data.length > 0 && selectedAlerts.size === data.data.length}
+                    isIndeterminate={selectedAlerts.size > 0 && selectedAlerts.size < data.data.length}
+                    onChange={(e) =>
+                      setSelectedAlerts(e.target.checked ? new Set(data.data.map((a) => a.id)) : new Set())
+                    }
+                    colorScheme="teal"
+                  >
+                    <Text fontSize="sm" color="app.muted">Select all</Text>
+                  </Checkbox>
+                  {selectedAlerts.size > 0 && (
+                    <Button
+                      size="sm"
+                      bg="app.accent"
+                      color="app.onAccent"
+                      _hover={{ opacity: 0.9 }}
+                      onClick={markAllAsRead}
+                    >
+                      Mark {selectedAlerts.size} as read
+                    </Button>
+                  )}
+                </HStack>
                 {data.data.map((alert) => (
                   <Flex
                     key={alert.id}
@@ -281,22 +325,34 @@ export default function AlertsPage() {
                     align="center"
                     p={5}
                     border="1px solid"
-                    borderColor="app.border"
+                    borderColor={readAlerts.has(alert.id) ? "app.border" : "app.border"}
                     borderRadius="card"
                     bg="app.surface"
                     boxShadow="card"
                     flexWrap="wrap"
                     gap={3}
+                    opacity={readAlerts.has(alert.id) ? 0.5 : 1}
                   >
-                    <Box>
-                      <HStack>
-                        <Text fontWeight="semibold">{alert.asset}</Text>
-                        <Badge borderRadius="full" px={2}>{alert.type}</Badge>
-                      </HStack>
-                      <Text fontSize="sm" color="app.muted" fontFamily="mono">
-                        threshold ${alert.threshold_usd} · {alert.webhook_url}
-                      </Text>
-                    </Box>
+                    <HStack spacing={3} flex={1} minW={0}>
+                      <Checkbox
+                        isChecked={selectedAlerts.has(alert.id)}
+                        onChange={() => toggleSelect(alert.id)}
+                        colorScheme="teal"
+                        aria-label={`Select alert for ${alert.asset}`}
+                      />
+                      <Box minW={0}>
+                        <HStack>
+                          <Text fontWeight="semibold">{alert.asset}</Text>
+                          <Badge borderRadius="full" px={2}>{alert.type}</Badge>
+                          {readAlerts.has(alert.id) && (
+                            <Badge colorScheme="gray" borderRadius="full" px={2}>Read</Badge>
+                          )}
+                        </HStack>
+                        <Text fontSize="sm" color="app.muted" fontFamily="mono" noOfLines={1}>
+                          threshold ${alert.threshold_usd} · {alert.webhook_url}
+                        </Text>
+                      </Box>
+                    </HStack>
                     <Button
                       size="sm"
                       variant="outline"
