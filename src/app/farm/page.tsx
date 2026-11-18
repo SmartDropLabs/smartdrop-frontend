@@ -51,6 +51,7 @@ import {
 } from "@chakra-ui/react";
 import { useOwnConnectButton } from "@/context/OwnConnectButtonContext";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { formatCompactUsd } from "@/lib/format";
 
 const ACCENT = "#4AE292";
 
@@ -503,7 +504,7 @@ export default function Farm() {
       earned: position?.credits ?? "-",
       stake: position?.amount ?? "-",
       dailyRate: pool.dailyRate,
-      totalStakedLiquidity: `$${Number(pool.totalLocked).toLocaleString()}`,
+      totalStakedLiquidity: formatCompactUsd(pool.totalLocked),
       symbol: pool.asset.code,
       lockedAmount: position?.amount ? Number(position.amount) : 0,
       lockedAt: position?.lockedAt ?? 0,
@@ -526,7 +527,7 @@ export default function Farm() {
         earned: position?.credits ?? "-",
         stake: position?.amount ?? "-",
         dailyRate: pool.dailyRate,
-        totalStakedLiquidity: `$${Number(pool.totalLocked).toLocaleString()}`,
+        totalStakedLiquidity: formatCompactUsd(pool.totalLocked),
         symbol: pool.asset.code,
         lockedAmount: position?.amount ? Number(position.amount) : 0,
         lockedAt: position?.lockedAt ?? 0,
