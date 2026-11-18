@@ -11,6 +11,7 @@ import { useStellarWallet } from "@/context/StellarWalletContext";
 import { useCountdown } from "@/hooks/useCountdown";
 import { useDynamicFocusTrap } from "@/hooks/useDynamicFocusTrap";
 import { trackEvent } from "@/lib/analytics";
+import { invalidateLeaderboard } from "@/lib/leaderboard-events";
 import {
     stellarExpertTxUrl,
     unlockAssets,
@@ -278,6 +279,7 @@ export default function UnlockModal() {
       queryClient.invalidateQueries({ queryKey: [QUERY_KEYS.USER_CREDITS, selectedPoolContractId] });
       queryClient.invalidateQueries({ queryKey: [QUERY_KEYS.POOLS] });
       queryClient.invalidateQueries({ queryKey: [QUERY_KEYS.PLATFORM_STATS] });
+      invalidateLeaderboard();
     } catch (err) {
       // Roll back the optimistic update on thrown errors
       if (previousPosition) {

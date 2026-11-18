@@ -3,6 +3,7 @@ import { renderHook, act } from "@/test/renderHook";
 import { useUrlPagination } from "./useUrlPagination";
 
 const replace = vi.fn();
+const push = vi.fn();
 
 function mockSearchParams(initial: string) {
   return new URLSearchParams(initial);
@@ -11,7 +12,7 @@ function mockSearchParams(initial: string) {
 let search = "";
 
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({ replace, push: vi.fn() }),
+  useRouter: () => ({ replace, push }),
   usePathname: () => "/airdrops",
   useSearchParams: () => mockSearchParams(search),
 }));
@@ -19,6 +20,7 @@ vi.mock("next/navigation", () => ({
 describe("useUrlPagination", () => {
   beforeEach(() => {
     replace.mockClear();
+    push.mockClear();
     search = "";
   });
 
@@ -43,22 +45,49 @@ describe("useUrlPagination", () => {
     expect(zero.current.page).toBe(1);
   });
 
-  it("writes page to the URL and drops it on page 1", () => {
+  // #760 — a page change is a history entry, so Back/Forward step through
+  // pages instead of skipping straight past them.
+  it("pushes the page to the URL and drops it on page 1", () => {
     const { result } = renderHook(() => useUrlPagination());
     act(() => result.current.setPage(2));
-    expect(replace).toHaveBeenCalledWith("/airdrops?page=2", { scroll: false });
+    expect(push).toHaveBeenCalledWith("/airdrops?page=2", { scroll: false });
+    expect(replace).not.toHaveBeenCalled();
 
-    replace.mockClear();
+    push.mockClear();
     search = "page=2";
     const { result: page2 } = renderHook(() => useUrlPagination());
     act(() => page2.current.setPage(1));
-    expect(replace).toHaveBeenCalledWith("/airdrops", { scroll: false });
+    expect(push).toHaveBeenCalledWith("/airdrops", { scroll: false });
   });
 
   it("accepts a functional updater", () => {
     search = "page=2";
     const { result } = renderHook(() => useUrlPagination());
     act(() => result.current.setPage((p) => p + 1));
-    expect(replace).toHaveBeenCalledWith("/airdrops?page=3", { scroll: false });
+    expect(push).toHaveBeenCalledWith("/airdrops?page=3", { scroll: false });
+  });
+
+  it("replaces instead of pushing when asked (programmatic resets)", () => {
+    search = "page=4";
+    const { result } = renderHook(() => useUrlPagination());
+    act(() => result.current.setPage(1, { replace: true }));
+    expect(replace).toHaveBeenCalledWith("/airdrops", { scroll: false });
+    expect(push).not.toHaveBeenCalled();
+  });
+
+  it("adds no history entry when the page does not change", () => {
+    search = "page=2";
+    const { result } = renderHook(() => useUrlPagination());
+    act(() => result.current.setPage(2));
+    act(() => result.current.setPage(2, { replace: true }));
+    expect(push).not.toHaveBeenCalled();
+    expect(replace).not.toHaveBeenCalled();
+  });
+
+  it("keeps other query params when changing page", () => {
+    search = "sort=stake&page=2";
+    const { result } = renderHook(() => useUrlPagination());
+    act(() => result.current.setPage(3));
+    expect(push).toHaveBeenCalledWith("/airdrops?sort=stake&page=3", { scroll: false });
   });
 });
