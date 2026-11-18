@@ -46,6 +46,15 @@ import { useOwnConnectButton } from "@/context/OwnConnectButtonContext";
 import { isDepositPending, DEPOSIT_STEP_LABEL } from "@/types/farm";
 import { Input } from "@chakra-ui/react";
 import ShareButton from "@/components/ShareButton/ShareButton";
+import {
+  DEFAULT_SLIPPAGE_PCT,
+  SLIPPAGE_PRESETS,
+  checkSlippage,
+  loadSlippage,
+  minimumReceived,
+  parseSlippage,
+  saveSlippage,
+} from "@/lib/slippage";
 
 const ACCENT = "#4ae292";
 
@@ -96,6 +105,24 @@ function StatCard({
 export default function PoolDetailClient({ poolId }: { poolId: string }) {
   const [rawAmount, setRawAmount] = useState("0");
   const [showConfirmation, setShowConfirmation] = useState(false);
+
+  // Slippage tolerance (#771). Client-side only — see src/lib/slippage.ts for
+  // exactly what it guards and why on-chain enforcement needs a contract param.
+  const [slippageInput, setSlippageInput] = useState(String(DEFAULT_SLIPPAGE_PCT));
+  const [slippageError, setSlippageError] = useState<string | null>(null);
+  const confirmedAmountRef = useRef<number | null>(null);
+  useEffect(() => {
+    // Read after mount so server and first client render agree.
+    setSlippageInput(String(loadSlippage()));
+  }, []);
+  const slippagePct = parseSlippage(slippageInput);
+  const slippageInputId = useId();
+  const setSlippage = (value: string) => {
+    setSlippageInput(value);
+    setSlippageError(null);
+    const parsed = parseSlippage(value);
+    if (parsed !== null) saveSlippage(parsed);
+  };
 
   // Shares the same cache/staleTime/refetchInterval as the Farm page's
   // pool list instead of an independent, uncached getFactoryPools() call
@@ -190,15 +217,29 @@ export default function PoolDetailClient({ poolId }: { poolId: string }) {
     flow.reset();
     setRawAmount("0");
     setShowConfirmation(false);
+    setSlippageError(null);
     onClose();
   };
 
   const handleLockClick = () => {
+    // Snapshot what the user reviews, so the pre-submit check can tell if
+    // the amount drifted before signing (#771).
+    confirmedAmountRef.current = displayAmount;
+    setSlippageError(null);
     setShowConfirmation(true);
   };
 
   const handleConfirmLock = () => {
     setShowConfirmation(false);
+    const check = checkSlippage({
+      confirmedAmount: confirmedAmountRef.current ?? displayAmount,
+      submittedAmount: displayAmount,
+      tolerancePct: slippagePct,
+    });
+    if (!check.ok) {
+      setSlippageError(check.reason);
+      return;
+    }
     void flow.execute(displayAmount);
   };
 
@@ -464,6 +505,48 @@ export default function PoolDetailClient({ poolId }: { poolId: string }) {
                 <FieldError id={amountErrorId} message={amountError} />
               </Flex>
 
+              <Flex direction="column" gap={2} role="group" aria-labelledby={`${slippageInputId}-label`}>
+                <Text id={`${slippageInputId}-label`} fontSize="sm">
+                  Slippage tolerance
+                </Text>
+                <Flex gap={2} align="center" wrap="wrap">
+                  {SLIPPAGE_PRESETS.map((preset) => (
+                    <Button
+                      key={preset}
+                      size="sm"
+                      borderRadius="2xl"
+                      variant={slippagePct === preset ? "solid" : "outline"}
+                      aria-pressed={slippagePct === preset}
+                      onClick={() => setSlippage(String(preset))}
+                      isDisabled={isPending}
+                    >
+                      {preset}%
+                    </Button>
+                  ))}
+                  <Input
+                    id={slippageInputId}
+                    aria-label="Custom slippage tolerance (%)"
+                    type="number"
+                    min={0}
+                    step="any"
+                    size="sm"
+                    w="90px"
+                    borderRadius="2xl"
+                    value={slippageInput}
+                    onChange={(e) => setSlippage(e.target.value)}
+                    isDisabled={isPending}
+                    isInvalid={slippagePct === null}
+                  />
+                  <Text fontSize="sm" color="app.muted">%</Text>
+                </Flex>
+                <Text fontSize="xs" color="app.muted">
+                  {slippagePct === null
+                    ? "Enter a tolerance greater than 0 and at most 50%."
+                    : `Minimum received: ${amountValid ? minimumReceived(displayAmount, slippagePct) : 0} ${pool?.asset.code ?? ""}`}
+                </Text>
+                <FieldError id={`${slippageInputId}-error`} message={slippageError} />
+              </Flex>
+
               {isPending && (
                 <Flex align="center" gap={3} bg="app.inputBg" borderRadius="2xl" p={4} border="1px solid" borderColor="app.border" aria-live="polite" aria-atomic="true">
                   <Spinner size="sm" color="app.accent" />
@@ -504,7 +587,11 @@ export default function PoolDetailClient({ poolId }: { poolId: string }) {
                 color="app.onAccent"
                 _hover={{ opacity: isPending ? 1 : 0.9 }}
                 isDisabled={
-                  !amountValid || !isConnected || isPending || isNetworkMismatch
+                  !amountValid ||
+                  !isConnected ||
+                  isPending ||
+                  isNetworkMismatch ||
+                  slippagePct === null
                 }
                 onClick={handleLockClick}
                 w="full"
@@ -538,6 +625,11 @@ export default function PoolDetailClient({ poolId }: { poolId: string }) {
           details={[
             { label: "Pool", value: pool?.asset.code ?? poolId },
             { label: "Lock amount", value: `${displayAmount} ${pool?.asset.code ?? ""}` },
+            { label: "Slippage tolerance", value: slippagePct === null ? "—" : `${slippagePct}%` },
+            {
+              label: "Minimum received",
+              value: `${slippagePct === null ? 0 : minimumReceived(displayAmount, slippagePct)} ${pool?.asset.code ?? ""}`,
+            },
             { label: "Minimum lock period", value: lockPeriodLabel },
           ]}
           fee={{
