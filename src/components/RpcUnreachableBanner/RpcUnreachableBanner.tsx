@@ -1,7 +1,7 @@
 "use client";
 
 import { useRpcHealth } from "@/hooks/useSorobanQuery";
-import { Alert, AlertIcon } from "@chakra-ui/react";
+import { Alert, AlertIcon, Button } from "@chakra-ui/react";
 import { memo } from "react";
 
 // Issue #248: when the Soroban RPC is down, every page independently shows
@@ -9,7 +9,7 @@ import { memo } from "react";
 // global banner is a clearer, faster way for a user to understand "this is
 // a whole-app connectivity issue," not something wrong with one page.
 function RpcUnreachableBanner() {
-  const { isUnreachable } = useRpcHealth();
+  const { isUnreachable, retryConnection } = useRpcHealth();
 
   if (!isUnreachable) return null;
 
@@ -27,6 +27,15 @@ function RpcUnreachableBanner() {
       <AlertIcon color="app.errorFg" />
       Unable to reach the Stellar network. Some data may be unavailable
       until the connection is restored.
+      <Button
+        size="xs"
+        ml={3}
+        variant="outline"
+        colorScheme="red"
+        onClick={() => void retryConnection()}
+      >
+        Retry
+      </Button>
     </Alert>
   );
 }
