@@ -9,10 +9,18 @@ export default function ConnectWalletButton() {
   const toast = useErrorHandler();
   const [isLoading, setIsLoading] = useState(false);
 
+  const CONNECT_TIMEOUT_MS = 30_000;
+
   const handleConnect = async () => {
     setIsLoading(true);
     try {
-      await connect();
+      const timeout = new Promise<never>((_, reject) =>
+        setTimeout(
+          () => reject(new Error("Connection timed out. Please try again.")),
+          CONNECT_TIMEOUT_MS,
+        ),
+      );
+      await Promise.race([connect(), timeout]);
       toast.success("Wallet Connected", "Your wallet has been connected successfully");
     } catch (error) {
       toast.handleError(error, "Wallet Connection");
