@@ -6,13 +6,16 @@ import {
   Button,
   Flex,
   HStack,
+  Select,
   Spinner,
   Text,
 } from "@chakra-ui/react";
+import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { listAirdrops, backendQueryRetry } from "@/lib/backend";
 import { QueryErrorAlert } from "@/components/QueryErrorAlert/QueryErrorAlert";
 import { useUrlPagination } from "@/hooks/useUrlPagination";
+import { AIRDROP_SORTS, isAirdropSort, sortAirdrops, type AirdropSort } from "./sort";
 
 function statusColor(status: string) {
   switch (status) {
@@ -39,6 +42,13 @@ export default function AirdropsPage() {
   });
 
   const totalPages = data?.pagination.total_pages ?? 1;
+
+  // The backend has no sort parameter, so this orders the current page (#773).
+  const [sort, setSort] = useState<AirdropSort>("default");
+  const airdrops = useMemo(
+    () => sortAirdrops(data?.airdrops ?? [], sort),
+    [data?.airdrops, sort],
+  );
 
   return (
     <Flex direction="column" align="center" px={{ base: 6, md: 16 }} py={10} gap={8}>
@@ -89,7 +99,25 @@ export default function AirdropsPage() {
           </Flex>
         ) : (
           <Flex direction="column" gap={3}>
-            {data.airdrops.map((airdrop) => (
+            <Flex justify="flex-end">
+              <Select
+                aria-label="Sort airdrops"
+                size="sm"
+                maxW="220px"
+                borderRadius="2xl"
+                value={sort}
+                onChange={(event) => {
+                  if (isAirdropSort(event.target.value)) setSort(event.target.value);
+                }}
+              >
+                {AIRDROP_SORTS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </Select>
+            </Flex>
+            {airdrops.map((airdrop) => (
               <Flex
                 key={airdrop.id}
                 justify="space-between"

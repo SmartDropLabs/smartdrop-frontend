@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render } from '@testing-library/react';
-import { PlatformStats } from './PlatformStats';
+import { render, screen } from '@testing-library/react';
+import { METRIC_HELP, PlatformStats } from './PlatformStats';
 import * as hooks from '@/hooks/useSorobanQuery';
 import { ChakraProvider } from '@chakra-ui/react';
 
@@ -32,5 +32,28 @@ describe('<PlatformStats /> Layout Component', () => {
     );
 
     expect(asFragment()).toMatchSnapshot();
+  });
+
+  // #769 — every metric explains itself, and the explanation is reachable by
+  // keyboard (the label is focusable, so its tooltip opens on focus).
+  it('gives every metric a focusable label with an explanation', () => {
+    vi.spyOn(hooks, 'usePlatformStats').mockReturnValue({
+      data: { tvl: '', activePools: 1, totalFarmers: 1, creditVelocity: '0' },
+      isLoading: false,
+      isError: false,
+    } as ReturnType<typeof hooks.usePlatformStats>);
+
+    render(
+      <ChakraProvider>
+        <PlatformStats />
+      </ChakraProvider>
+    );
+
+    for (const label of ['Total Value Locked', 'Active Pools', 'Total Farmers', '24h Credit Velocity']) {
+      expect(screen.getByText(label).getAttribute('tabindex')).toBe('0');
+    }
+    for (const help of Object.values(METRIC_HELP)) {
+      expect(help.length).toBeGreaterThan(10);
+    }
   });
 });

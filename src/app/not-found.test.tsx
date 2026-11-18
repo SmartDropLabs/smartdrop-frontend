@@ -47,4 +47,31 @@ describe("not-found (#444)", () => {
     expect(screen.getByText("404")).toBeTruthy();
     expect(replaceMock).not.toHaveBeenCalled();
   });
+
+  // #784
+  it("suggests recently visited pages, leaving out the URL that 404'd", async () => {
+    window.localStorage.setItem(
+      "smartdrop:recent-pages",
+      JSON.stringify(["/farm/typo", "/leaderboard", "/prices"]),
+    );
+    renderNotFound("/farm/typo");
+
+    const nav = await screen.findByRole("navigation", { name: "Recently visited pages" });
+    const links = Array.from(nav.querySelectorAll("a")).map((a) => a.getAttribute("href"));
+    expect(links).toEqual(["/leaderboard", "/prices"]);
+    await waitFor(() =>
+      expect(JSON.parse(window.localStorage.getItem("smartdrop:recent-pages") ?? "[]")).toEqual([
+        "/leaderboard",
+        "/prices",
+      ]),
+    );
+    window.localStorage.clear();
+  });
+
+  it("shows no suggestions when nothing has been visited", () => {
+    window.localStorage.clear();
+    renderNotFound("/no-such-page");
+
+    expect(screen.queryByRole("navigation", { name: "Recently visited pages" })).toBeNull();
+  });
 });

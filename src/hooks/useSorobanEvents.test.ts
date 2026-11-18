@@ -513,4 +513,49 @@ describe("useSorobanEvents", () => {
     expect(mockRpc.getLatestLedger).toHaveBeenCalledTimes(1);
     expect(mockRpc.getEvents).toHaveBeenCalledTimes(1);
   });
+
+  // #767 — `topics` is the event-type filter: an event of a type the caller
+  // did not subscribe to must not trigger any invalidation, even if the RPC
+  // returns it.
+  it("ignores events whose type is not in the requested topics", async () => {
+    const invalidateQueries = vi.spyOn(queryClient, "invalidateQueries");
+
+    const unrequested = {
+      inSuccessfulContractCall: true,
+      topic: [
+        xdr.ScVal.scvSymbol("update_credits"),
+        addrScVal(TEST_PUBLIC_KEY),
+      ],
+      contractId: TEST_CONTRACT_ID,
+      value: xdr.ScVal.scvVoid(),
+      txHash: "deadbeef",
+      ledger: 1001,
+      ledgerClosedAt: new Date().toISOString(),
+      pagingToken: "1001-0-0",
+      id: "1001-0-0",
+      type: "contract",
+    };
+
+    const mockRpc: SorobanEventsRpc = {
+      getLatestLedger: vi.fn().mockResolvedValue({ sequence: 1000 }),
+      getEvents: vi.fn().mockResolvedValue({
+        events: [unrequested],
+        latestLedger: 1001,
+      }),
+    };
+
+    const wrapper = ({ children }: { children: React.ReactNode }) =>
+      createElement(QueryClientProvider, { client: queryClient }, children);
+
+    renderHook(
+      () => useSorobanEvents([TEST_CONTRACT_ID], ["lock_assets"], mockRpc),
+      { wrapper }
+    );
+
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(5000);
+
+    expect(mockRpc.getEvents).toHaveBeenCalledTimes(1);
+    expect(invalidateQueries).not.toHaveBeenCalled();
+  });
 });

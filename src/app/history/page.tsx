@@ -9,6 +9,7 @@ import {
   Button,
   Flex,
   HStack,
+  Input,
   Link,
   Spinner,
   Stack,
@@ -36,6 +37,7 @@ import {
 } from "@/lib/soroban";
 import { stellarNetwork } from "@/config";
 import { usePools } from "@/hooks/useSorobanQuery";
+import { filterByDateRange } from "@/lib/date-range";
 
 const PAGE_SIZE = 20;
 
@@ -156,6 +158,9 @@ export default function HistoryPage() {
   const { page, setPage } = useUrlPagination();
   const [error, setError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
+  // Inclusive `YYYY-MM-DD` bounds from the date inputs; "" means open-ended.
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate] = useState("");
 
   const poolContractIds = useMemo(
     () => (pools ?? []).map((p) => p.contractAddress).filter(Boolean),
@@ -189,11 +194,17 @@ export default function HistoryPage() {
     };
   }, [publicKey, poolContractIds, reloadKey]);
 
-  const totalPages = Math.max(1, Math.ceil(entries.length / PAGE_SIZE));
-  const paged = entries.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  const filtered = useMemo(
+    () => filterByDateRange(entries, fromDate, toDate),
+    [entries, fromDate, toDate],
+  );
+  const isDateFiltered = fromDate !== "" || toDate !== "";
 
-  const rangeStart = entries.length === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
-  const rangeEnd = Math.min(page * PAGE_SIZE, entries.length);
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const paged = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+
+  const rangeStart = filtered.length === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
+  const rangeEnd = Math.min(page * PAGE_SIZE, filtered.length);
   const announcementMessage =
     !isConnected || isLoading
       ? ""
@@ -201,7 +212,9 @@ export default function HistoryPage() {
         ? error
         : entries.length === 0
         ? "No farming history found."
-        : `History updated, showing ${rangeStart}-${rangeEnd} of ${entries.length.toLocaleString()} transactions.`;
+        : filtered.length === 0
+        ? "No transactions in the selected date range."
+        : `History updated, showing ${rangeStart}-${rangeEnd} of ${filtered.length.toLocaleString()} transactions.`;
   const announcement = useLiveAnnouncer(announcementMessage);
 
   return (
@@ -274,6 +287,70 @@ export default function HistoryPage() {
         </EmptyState>
       ) : (
         <>
+          <Flex
+            w="100%"
+            maxW="1000px"
+            mt={2}
+            gap={3}
+            align={{ base: "stretch", md: "flex-end" }}
+            direction={{ base: "column", md: "row" }}
+          >
+            <Box>
+              <Text as="label" htmlFor="history-from" fontSize="xs" color="app.muted">
+                From
+              </Text>
+              <Input
+                id="history-from"
+                type="date"
+                size="sm"
+                borderRadius="lg"
+                value={fromDate}
+                max={toDate || undefined}
+                onChange={(e) => {
+                  setFromDate(e.target.value);
+                  setPage(1);
+                }}
+              />
+            </Box>
+            <Box>
+              <Text as="label" htmlFor="history-to" fontSize="xs" color="app.muted">
+                To
+              </Text>
+              <Input
+                id="history-to"
+                type="date"
+                size="sm"
+                borderRadius="lg"
+                value={toDate}
+                min={fromDate || undefined}
+                onChange={(e) => {
+                  setToDate(e.target.value);
+                  setPage(1);
+                }}
+              />
+            </Box>
+            {isDateFiltered && (
+              <Button
+                size="sm"
+                variant="ghost"
+                color="app.muted"
+                onClick={() => {
+                  setFromDate("");
+                  setToDate("");
+                  setPage(1);
+                }}
+              >
+                Clear dates
+              </Button>
+            )}
+          </Flex>
+
+          {filtered.length === 0 && (
+            <Text color="app.muted" mt={6}>
+              No transactions in the selected date range.
+            </Text>
+          )}
+
           {isMobile ? (
             <Stack w="100%" maxW="1000px" mt={6} spacing={3}>
               {paged.map((entry) => (
@@ -409,7 +486,7 @@ export default function HistoryPage() {
             </Flex>
           )}
 
-          {page === totalPages && entries.length >= PAGE_SIZE && (
+          {page === totalPages && filtered.length >= PAGE_SIZE && (
             <Button
               mt={6}
               mb={8}

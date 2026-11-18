@@ -6,7 +6,8 @@ import { useCallback, useRef, useEffect, useState } from "react";
  * Keyboard navigation hook for data tables.
  *
  * Supports arrow key navigation between table cells, Home/End for
- * row start/end, and PageUp/PageDown for multi-row scrolling.
+ * row start/end, Ctrl+Home/Ctrl+End for the first/last row, and
+ * PageUp/PageDown for multi-row scrolling.
  */
 export function useTableKeyboardNav(rowCount: number, colCount: number) {
   const [activeCell, setActiveCell] = useState({ row: 0, col: 0 });
@@ -47,13 +48,17 @@ export function useTableKeyboardNav(rowCount: number, colCount: number) {
           e.preventDefault();
           focusCell(row, col + 1);
           break;
+        // WAI-ARIA grid pattern (#766): Home/End move within the row;
+        // Ctrl+Home/Ctrl+End (Cmd on macOS) jump to the first/last row.
         case "Home":
           e.preventDefault();
-          focusCell(row, 0);
+          if (e.ctrlKey || e.metaKey) focusCell(0, 0);
+          else focusCell(row, 0);
           break;
         case "End":
           e.preventDefault();
-          focusCell(row, colCount - 1);
+          if (e.ctrlKey || e.metaKey) focusCell(rowCount - 1, colCount - 1);
+          else focusCell(row, colCount - 1);
           break;
         case "PageUp":
           e.preventDefault();
@@ -65,7 +70,7 @@ export function useTableKeyboardNav(rowCount: number, colCount: number) {
           break;
       }
     },
-    [activeCell, focusCell, colCount]
+    [activeCell, focusCell, rowCount, colCount]
   );
 
   // Focus the first cell when the table mounts

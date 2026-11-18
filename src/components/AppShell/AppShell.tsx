@@ -15,7 +15,7 @@ import {
   useHasOwnConnectButton,
 } from "@/context/OwnConnectButtonContext";
 import { useStellarWallet } from "@/context/StellarWalletContext";
-import { rememberUtmParams } from "@/lib/share-url";
+import { recordRecentPage } from "@/lib/recentPages";
 import { Box } from "@chakra-ui/react";
 import { usePathname } from "next/navigation";
 import { useEffect } from "react";
@@ -42,6 +42,11 @@ function LayoutWrapper({ children }: { children: React.ReactNode }) {
   const hasStaticCTA = STATIC_OWN_CONNECT_ROUTES.includes(pathname ?? "");
 
   const hasOwnConnectButton = hasContextCTA || hasStaticCTA;
+
+  // Feeds the 404 page's "recently visited" suggestions (#784).
+  useEffect(() => {
+    if (pathname) recordRecentPage(pathname);
+  }, [pathname]);
 
   return (
     <Box

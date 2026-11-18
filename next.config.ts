@@ -52,6 +52,17 @@ const nextConfig: NextConfig = {
   // Expose basePath to the client so ServiceWorkerRegistrar registers
   // `<basePath>/sw.js` on GitHub Pages exports (#528).
   env: { NEXT_PUBLIC_BASE_PATH: basePath },
+  // #785 — in server mode the legacy /leaderbord typo URL gets a real 301,
+  // so crawlers update their index. Redirects don't run in a static export
+  // (GitHub Pages has no server), so there src/app/LegacyPathRedirect.tsx
+  // stays as the client-side fallback.
+  ...(isStaticExport
+    ? {}
+    : {
+        redirects: async () => [
+          { source: "/leaderbord", destination: "/leaderboard", statusCode: 301 },
+        ],
+      }),
   headers: async () => [
     {
       // The service worker must never be served stale, or fixes to it would

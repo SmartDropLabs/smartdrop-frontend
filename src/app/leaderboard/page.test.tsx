@@ -234,3 +234,25 @@ describe("LeaderboardPage accessible live-refresh announcements (#86)", () => {
     expect(getComputedStyle(tableContainer).opacity).toBe("1");
   });
 });
+
+describe("LeaderboardPage profile links (#775)", () => {
+  it("links every address to its Stellar Expert account page in a new tab", async () => {
+    getLeaderboardMock.mockResolvedValue({
+      entries: Array.from({ length: 3 }, (_, i) => entry(i)),
+      total: 3,
+    });
+
+    await act(async () => {
+      renderPage();
+    });
+
+    for (let i = 0; i < 3; i++) {
+      const { address } = entry(i);
+      const link = screen.getByRole("link", { name: new RegExp(`View profile for ${address}`) });
+      expect(link.getAttribute("href")).toMatch(
+        new RegExp(`^https://stellar\.expert/explorer/[a-z]+/account/${address}$`),
+      );
+      expect(link.getAttribute("target")).toBe("_blank");
+    }
+  });
+});

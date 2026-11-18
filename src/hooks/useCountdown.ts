@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 export type Countdown = {
   /** Milliseconds remaining until the target time (0 once elapsed). */
@@ -9,6 +9,14 @@ export type Countdown = {
   isElapsed: boolean;
   /** Human-readable remaining time, e.g. "2d 04h 13m 09s" or "Unlocked". */
   label: string;
+  /** True while ticking is paused (#763). */
+  isPaused: boolean;
+  /** Stops ticking; the displayed values freeze at the moment of pausing. */
+  pause: () => void;
+  /** Resumes ticking from the real clock. */
+  resume: () => void;
+  /** Pauses when running, resumes when paused. */
+  togglePause: () => void;
 };
 
 function formatRemaining(ms: number): string {
@@ -33,16 +41,21 @@ function formatRemaining(ms: number): string {
  * skipped ticks in throttled background tabs; setTimeout scheduled from the
  * *actual* remaining time corrects itself immediately when the tab is
  * foregrounded again.
+ *
+ * `pause()` stops ticking and freezes the returned values; `resume()` picks
+ * the real clock back up (#763). The target is an absolute time, so pausing
+ * only holds the display — the unlock moment itself does not move.
  */
 export function useCountdown(unlockAtMs: number): Countdown {
   const [now, setNow] = useState(() => Date.now());
+  const [isPaused, setIsPaused] = useState(false);
 
   useEffect(() => {
+    if (isPaused) return;
+
     const current = Date.now();
-    if (current >= unlockAtMs) {
-      setNow(current);
-      return;
-    }
+    setNow(current);
+    if (current >= unlockAtMs) return;
 
     let handle: ReturnType<typeof setTimeout>;
 
@@ -63,12 +76,20 @@ export function useCountdown(unlockAtMs: number): Countdown {
 
     schedule();
     return () => clearTimeout(handle);
-  }, [unlockAtMs]);
+  }, [unlockAtMs, isPaused]);
+
+  const pause = useCallback(() => setIsPaused(true), []);
+  const resume = useCallback(() => setIsPaused(false), []);
+  const togglePause = useCallback(() => setIsPaused((paused) => !paused), []);
 
   const remainingMs = Math.max(0, unlockAtMs - now);
   return {
     remainingMs,
     isElapsed: remainingMs <= 0,
     label: formatRemaining(remainingMs),
+    isPaused,
+    pause,
+    resume,
+    togglePause,
   };
 }
