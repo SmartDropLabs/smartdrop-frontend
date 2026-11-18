@@ -16,6 +16,7 @@ import {
   useDisclosure,
 } from "@chakra-ui/react";
 import { ChevronDownIcon, HamburgerIcon } from "@chakra-ui/icons";
+import { useEffect } from "react";
 import { useStellarWallet } from "@/context/StellarWalletContext";
 import NextLink from "next/link";
 import { usePathname } from "next/navigation";
@@ -163,6 +164,11 @@ export default function Navbar() {
   const { isConnected, publicKey } = useStellarWallet();
   const { data: stats } = usePlatformStats();
   const { isOpen, onOpen, onClose } = useDisclosure();
+  const pathname = usePathname();
+
+  useEffect(() => {
+    onClose();
+  }, [pathname, onClose]);
 
   return (
     <nav
