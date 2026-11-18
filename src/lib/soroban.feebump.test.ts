@@ -14,11 +14,13 @@ vi.mock('@/config', () => ({
   horizonUrl: 'https://horizon-testnet.stellar.org',
   networkPassphrase: 'Test SDF Network ; September 2015',
   sorobanRpcUrl: 'https://soroban-testnet.stellar.org',
+  simulationAccount: 'GBQ3WPTHKJ5XKWLOKUZJLZL2GVXR6RWQCXUVDQZWM7Q2YNLDRVGM5ZWJ',
+  stellarNetwork: 'TESTNET',
 }));
 
-const USER_PUBKEY = StrKey.encodeEd25519PublicKey(new Uint8Array(32).fill(1));
-const SPONSOR_PUBKEY = StrKey.encodeEd25519PublicKey(new Uint8Array(32).fill(2));
-const DEST_PUBKEY = StrKey.encodeEd25519PublicKey(new Uint8Array(32).fill(3));
+const USER_PUBKEY = StrKey.encodeEd25519PublicKey(Buffer.alloc(32, 1));
+const SPONSOR_PUBKEY = StrKey.encodeEd25519PublicKey(Buffer.alloc(32, 2));
+const DEST_PUBKEY = StrKey.encodeEd25519PublicKey(Buffer.alloc(32, 3));
 
 describe('buildFeeBumpTransaction', () => {
   it('wraps an inner transaction in a fee-bump transaction with correct fee and sponsor', () => {

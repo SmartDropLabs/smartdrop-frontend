@@ -14,6 +14,8 @@ vi.mock('@/config', () => ({
   horizonUrl: 'https://horizon-testnet.stellar.org',
   networkPassphrase: 'Test SDF Network ; September 2015',
   sorobanRpcUrl: 'https://soroban-testnet.stellar.org',
+  simulationAccount: 'GBQ3WPTHKJ5XKWLOKUZJLZL2GVXR6RWQCXUVDQZWM7Q2YNLDRVGM5ZWJ',
+  stellarNetwork: 'TESTNET',
 }));
 
 const SELECTED_POOL_CONTRACT_ID =
@@ -32,7 +34,7 @@ type InvokeContractOperation = {
 
 describe('buildLockAssetsTransaction', () => {
   it('builds a lock_assets contract call with a 7-decimal i128 amount', async () => {
-    const publicKey = StrKey.encodeEd25519PublicKey(new Uint8Array(32).fill(7));
+    const publicKey = StrKey.encodeEd25519PublicKey(Buffer.alloc(32, 7));
     const keypair = Keypair.fromPublicKey(publicKey);
     expect(keypair.publicKey()).toBe(publicKey);
     const account = new Account(publicKey, '42');

@@ -1,7 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { memo, useEffect, useMemo, useState } from "react";
 import {
+  Alert,
+  AlertIcon,
   Badge,
   Box,
   Button,
@@ -9,6 +11,7 @@ import {
   HStack,
   Link,
   Spinner,
+  Stack,
   Table,
   TableContainer,
   Tbody,
@@ -17,17 +20,22 @@ import {
   Th,
   Thead,
   Tr,
+  useBreakpointValue,
+  VStack,
 } from "@chakra-ui/react";
+import NextLink from "next/link";
 import { useStellarWallet } from "@/context/StellarWalletContext";
 import ConnectWalletButton from "@/components/ConnectWalletButton/ConnectWalletButton";
 import LiveRegion from "@/components/LiveRegion/LiveRegion";
 import { useLiveAnnouncer } from "@/hooks/useLiveAnnouncer";
+import { useUrlPagination } from "@/hooks/useUrlPagination";
 import {
   getUserTransactionHistory,
   stellarExpertTxUrl,
   type TxHistoryEntry,
 } from "@/lib/soroban";
-import { poolContractId, stellarNetwork } from "@/config";
+import { stellarNetwork } from "@/config";
+import { usePools } from "@/hooks/useSorobanQuery";
 
 const PAGE_SIZE = 20;
 
@@ -69,23 +77,117 @@ function EmptyState({ children }: { children: React.ReactNode }) {
   );
 }
 
-export default function HistoryPage() {
-  const { publicKey, isConnected } = useStellarWallet();
-  const [entries, setEntries] = useState<TxHistoryEntry[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
-  const [page, setPage] = useState(1);
+const HistoryCard = memo(function HistoryCard({ entry }: { entry: TxHistoryEntry }) {
+  return (
+    <Box
+      w="100%"
+      p={4}
+      border="1px solid"
+      borderColor="app.border"
+      borderRadius="card"
+      bg="app.surface"
+    >
+      <Flex justify="space-between" align="center" mb={3}>
+        <Badge
+          colorScheme={entry.action === "lock" ? "green" : "yellow"}
+          borderRadius="full"
+          px={2.5}
+          py={0.5}
+          textTransform="capitalize"
+          fontWeight="semibold"
+        >
+          {entry.action}
+        </Badge>
+        <Text fontSize="xs" color="app.muted" whiteSpace="nowrap">
+          {formatDate(entry.date)}
+        </Text>
+      </Flex>
 
-  const poolContractIds = poolContractId ? [poolContractId] : [];
+      <VStack align="stretch" spacing={2}>
+        <Flex justify="space-between">
+          <Text fontSize="sm" color="app.muted">Amount</Text>
+          <Text fontSize="sm" color="app.text" fontWeight="medium">
+            {formatAmount(entry.amount, entry.symbol)}
+          </Text>
+        </Flex>
+        <Flex justify="space-between">
+          <Text fontSize="sm" color="app.muted">Credits Earned</Text>
+          <Text fontSize="sm" color="app.text" fontWeight="medium">
+            {entry.creditsEarned != null
+              ? Number(entry.creditsEarned).toLocaleString()
+              : "—"}
+          </Text>
+        </Flex>
+        <Flex justify="space-between" align="center">
+          <Text fontSize="sm" color="app.muted">Transaction</Text>
+          <Link
+            href={stellarExpertTxUrl(entry.txHash, stellarNetwork.toLowerCase())}
+            isExternal
+            color="app.accent"
+            fontFamily="mono"
+            fontSize="xs"
+            _hover={{ textDecoration: "underline" }}
+          >
+            {truncateHash(entry.txHash)}
+          </Link>
+        </Flex>
+      </VStack>
+    </Box>
+  );
+});
+
+export default function HistoryPage() {
+  // Chakra's `ssr` option is inverted from what the name suggests: `ssr: false`
+  // means "evaluate window.matchMedia immediately" (assumes a client-only app,
+  // no server render), which crashes `next build`'s static export at
+  // prerender time. `ssr: true` (the safe default) instead uses `fallback`
+  // during the server render and only switches to the real value after
+  // client hydration.
+  const isMobile = useBreakpointValue(
+    { base: true, md: false },
+    { ssr: true, fallback: "base" },
+  );
+  const { publicKey, isConnected } = useStellarWallet();
+  const { data: pools } = usePools();
+  const [entries, setEntries] = useState<TxHistoryEntry[]>([]);
+  const [truncated, setTruncated] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  // Page lives in the URL so history pages can be shared (#593).
+  const { page, setPage } = useUrlPagination();
+  const [error, setError] = useState<string | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
+
+  const poolContractIds = useMemo(
+    () => (pools ?? []).map((p) => p.contractAddress).filter(Boolean),
+    [pools],
+  );
 
   useEffect(() => {
     if (!publicKey || poolContractIds.length === 0) return;
+    let cancelled = false;
     setIsLoading(true);
+    setError(null);
     setPage(1);
     getUserTransactionHistory(publicKey, poolContractIds)
-      .then(setEntries)
-      .finally(() => setIsLoading(false));
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [publicKey]);
+      .then(({ entries, truncated }) => {
+        if (cancelled) return;
+        setEntries(entries);
+        setTruncated(truncated);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        console.error("Failed to load history:", err);
+        setEntries([]);
+        setTruncated(false);
+        setError("Failed to load transaction history. Please try again.");
+      })
+      .finally(() => {
+        if (!cancelled) setIsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [publicKey, poolContractIds, reloadKey]);
 
   const totalPages = Math.max(1, Math.ceil(entries.length / PAGE_SIZE));
   const paged = entries.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
@@ -95,7 +197,9 @@ export default function HistoryPage() {
   const announcementMessage =
     !isConnected || isLoading
       ? ""
-      : entries.length === 0
+      : error
+        ? error
+        : entries.length === 0
         ? "No farming history found."
         : `History updated, showing ${rangeStart}-${rangeEnd} of ${entries.length.toLocaleString()} transactions.`;
   const announcement = useLiveAnnouncer(announcementMessage);
@@ -134,84 +238,127 @@ export default function HistoryPage() {
         <Flex w="100%" justify="center" py={16}>
           <Spinner color="app.accent" size="xl" thickness="3px" />
         </Flex>
+      ) : error ? (
+        <EmptyState>
+          <Alert status="error" borderRadius="2xl" w="full">
+            <AlertIcon />
+            <Text fontSize="sm">{error}</Text>
+          </Alert>
+          <Button
+            size="sm"
+            borderRadius="2xl"
+            bg="app.accent"
+            color="app.onAccent"
+            _hover={{ opacity: 0.9 }}
+            onClick={() => setReloadKey((k) => k + 1)}
+          >
+            Retry
+          </Button>
+        </EmptyState>
       ) : entries.length === 0 ? (
         <EmptyState>
           <Text color="app.muted" textAlign="center">
-            No farming history yet — deposit to a pool to get started.
+            No transactions yet — start by locking assets in a pool.
           </Text>
+          <Button
+            as={NextLink}
+            href="/farm"
+            size="sm"
+            borderRadius="2xl"
+            bg="app.accent"
+            color="app.onAccent"
+            _hover={{ opacity: 0.9 }}
+          >
+            Go to Farm
+          </Button>
         </EmptyState>
       ) : (
         <>
-          <TableContainer
-            w="100%"
-            maxW="1000px"
-            mt={6}
-            overflowX="auto"
-            border="1px solid"
-            borderColor="app.border"
-            borderRadius="card"
-            bg="app.surface"
-            boxShadow="card"
-          >
-            <Table variant="unstyled" size="sm">
-              <Thead>
-                <Tr borderBottom="1px solid" borderColor="app.border">
-                  <Th color="app.muted" fontWeight="medium" py={4} pl={5}>Date</Th>
-                  <Th color="app.muted" fontWeight="medium" py={4}>Action</Th>
-                  <Th color="app.muted" fontWeight="medium" py={4} isNumeric>Amount</Th>
-                  <Th color="app.muted" fontWeight="medium" py={4} isNumeric>Credits Earned</Th>
-                  <Th color="app.muted" fontWeight="medium" py={4} pr={5}>Transaction</Th>
-                </Tr>
-              </Thead>
-              <Tbody>
-                {paged.map((entry) => (
-                  <Tr
-                    key={entry.txHash}
-                    borderTop="1px solid"
-                    borderColor="app.border"
-                    _hover={{ bg: "app.surfaceHover" }}
-                    transition="background 0.15s ease"
-                  >
-                    <Td py={4} pl={5} color="app.text" whiteSpace="nowrap">
-                      {formatDate(entry.date)}
-                    </Td>
-                    <Td py={4}>
-                      <Badge
-                        colorScheme={entry.action === "lock" ? "green" : "yellow"}
-                        borderRadius="full"
-                        px={2.5}
-                        py={0.5}
-                        textTransform="capitalize"
-                        fontWeight="semibold"
-                      >
-                        {entry.action}
-                      </Badge>
-                    </Td>
-                    <Td py={4} isNumeric color="app.text">
-                      {formatAmount(entry.amount, entry.symbol)}
-                    </Td>
-                    <Td py={4} isNumeric color="app.text">
-                      {entry.creditsEarned != null
-                        ? Number(entry.creditsEarned).toLocaleString()
-                        : "—"}
-                    </Td>
-                    <Td py={4} pr={5}>
-                      <Link
-                        href={stellarExpertTxUrl(entry.txHash, stellarNetwork.toLowerCase())}
-                        isExternal
-                        color="app.accent"
-                        fontFamily="mono"
-                        fontSize="xs"
-                        _hover={{ textDecoration: "underline" }}
-                      >
-                        {truncateHash(entry.txHash)}
-                      </Link>
-                    </Td>
+          {isMobile ? (
+            <Stack w="100%" maxW="1000px" mt={6} spacing={3}>
+              {paged.map((entry) => (
+                <HistoryCard key={entry.txHash} entry={entry} />
+              ))}
+            </Stack>
+          ) : (
+            <TableContainer
+              w="100%"
+              maxW="1000px"
+              mt={6}
+              overflowX="auto"
+              border="1px solid"
+              borderColor="app.border"
+              borderRadius="card"
+              bg="app.surface"
+              boxShadow="card"
+            >
+              <Table variant="unstyled" size="sm">
+                <Thead>
+                  <Tr borderBottom="1px solid" borderColor="app.border">
+                    <Th color="app.muted" fontWeight="medium" py={4} pl={5}>Date</Th>
+                    <Th color="app.muted" fontWeight="medium" py={4}>Action</Th>
+                    <Th color="app.muted" fontWeight="medium" py={4} isNumeric>Amount</Th>
+                    <Th color="app.muted" fontWeight="medium" py={4} isNumeric>Credits Earned</Th>
+                    <Th color="app.muted" fontWeight="medium" py={4} pr={5}>Transaction</Th>
                   </Tr>
-                ))}
-              </Tbody>
-            </Table>
-          </TableContainer>
+                </Thead>
+                <Tbody>
+                  {paged.map((entry) => (
+                    <Tr
+                      key={entry.txHash}
+                      borderTop="1px solid"
+                      borderColor="app.border"
+                      _hover={{ bg: "app.surfaceHover" }}
+                      transition="background 0.15s ease"
+                    >
+                      <Td py={4} pl={5} color="app.text" whiteSpace="nowrap">
+                        {formatDate(entry.date)}
+                      </Td>
+                      <Td py={4}>
+                        <Badge
+                          colorScheme={entry.action === "lock" ? "green" : "yellow"}
+                          borderRadius="full"
+                          px={2.5}
+                          py={0.5}
+                          textTransform="capitalize"
+                          fontWeight="semibold"
+                        >
+                          {entry.action}
+                        </Badge>
+                      </Td>
+                      <Td py={4} isNumeric color="app.text">
+                        {formatAmount(entry.amount, entry.symbol)}
+                      </Td>
+                      <Td py={4} isNumeric color="app.text">
+                        {entry.creditsEarned != null
+                          ? Number(entry.creditsEarned).toLocaleString()
+                          : "—"}
+                      </Td>
+                      <Td py={4} pr={5}>
+                        <Link
+                          href={stellarExpertTxUrl(entry.txHash, stellarNetwork.toLowerCase())}
+                          isExternal
+                          color="app.accent"
+                          fontFamily="mono"
+                          fontSize="xs"
+                          _hover={{ textDecoration: "underline" }}
+                        >
+                          {truncateHash(entry.txHash)}
+                        </Link>
+                      </Td>
+                    </Tr>
+                  ))}
+                </Tbody>
+              </Table>
+            </TableContainer>
+          )}
+
+          {truncated && (
+            <Alert status="warning" borderRadius="2xl" mt={4} bg="app.warningBg" color="app.warningFg" maxW="1000px" w="full">
+              <AlertIcon color="app.warningFg" />
+              <Text fontSize="sm">Some history may be missing — the result was truncated. Older transactions may not be shown.</Text>
+            </Alert>
+          )}
 
           {totalPages > 1 && (
             <Flex gap={2} mt={6} align="center" wrap="wrap" justify="center">

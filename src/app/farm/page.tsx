@@ -3,7 +3,12 @@
 import { PlatformStats } from "@/components/PlatformStats/PlatformStats";
 import ConnectWalletButton from "@/components/ConnectWalletButton/ConnectWalletButton";
 import UnlockModal from "@/components/UnlockModal/UnlockModal";
+import BoostModal from "@/components/BoostModal/BoostModal";
+import Breadcrumbs from "@/components/Breadcrumbs/Breadcrumbs";
+import TransactionConfirmModal from "@/components/TransactionConfirmModal/TransactionConfirmModal";
+import FieldError from "@/components/FieldError/FieldError";
 import { EarningRow, MetricColumn } from "@/app/farm/EarningRow";
+import { FarmPoolRow } from "@/app/farm/FarmPoolRow";
 import {
   factoryContractId,
   minLockPeriodSeconds,
@@ -12,20 +17,18 @@ import {
 } from "@/config";
 import { useStellarWallet } from "@/context/StellarWalletContext";
 import {
-  QUERY_KEYS,
   useAllUserPositions,
-  useLockAssets,
   useLockAssetsFeePreview,
   usePools,
   useStellarBalance,
 } from "@/hooks/useSorobanQuery";
+import { useLockFlow } from "@/hooks/useLockFlow";
 import { useSorobanEvents } from "@/hooks/useSorobanEvents";
 import { stellarExpertTxUrl } from "@/lib/soroban";
 import type { UserPosition } from "@/lib/soroban";
 import {
   DEPOSIT_STEP_LABEL,
   isDepositPending,
-  type DepositStep,
   type FarmPosition,
 } from "@/types/farm";
 import {
@@ -47,9 +50,7 @@ import {
   useToast,
 } from "@chakra-ui/react";
 import { useOwnConnectButton } from "@/context/OwnConnectButtonContext";
-import { useQueryClient } from "@tanstack/react-query";
-import NextLink from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 const ACCENT = "#4AE292";
 
@@ -65,6 +66,7 @@ type LivePoolRow = {
   lockedAmount: number;
   lockedAt: number;
   lockPeriodSeconds: number;
+  createdAt: number;
 };
 
 function formatLockPeriod(seconds: number): string {
@@ -93,14 +95,11 @@ function DepositModal({
   isOpen: boolean;
   onClose: () => void;
 }) {
-  const { publicKey, isConnected, isNetworkMismatch } = useStellarWallet();
+  const { publicKey, walletApi, isConnected, isNetworkMismatch } = useStellarWallet();
   const [amount, setAmount] = useState("");
-  const [txHash, setTxHash] = useState<string | null>(null);
-  const [step, setStep] = useState<DepositStep>("idle");
-  const [localError, setLocalError] = useState<string | null>(null);
+  const [isConfirmOpen, setIsConfirmOpen] = useState(false);
 
   const selectedContractAddress = farm?.contractAddress || farm?.id || "";
-  const queryClient = useQueryClient();
   const balanceQuery = useStellarBalance(publicKey ?? undefined);
   const trimmedAmount = amount.trim();
   const numericAmount = Number(trimmedAmount);
@@ -119,14 +118,27 @@ function DepositModal({
     amountValid &&
     typeof availableBalance === "number" &&
     numericAmount > availableBalance;
+  const amountError =
+    !!trimmedAmount && !amountValid
+      ? "Enter a positive amount with no more than 7 decimals."
+      : exceedsBalance
+        ? "Amount exceeds your Horizon XLM balance."
+        : null;
+  const amountErrorId = useId();
   const feePreview = useLockAssetsFeePreview({
     publicKey,
     poolContractId: selectedContractAddress,
     amount: amountValid ? trimmedAmount : "",
   });
-  const lockMutation = useLockAssets({
-    onHash: (hash) => setTxHash(hash),
-    onStep: (nextStep) => setStep(nextStep),
+
+  // #83: Use the shared useLockFlow hook instead of useLockAssets directly,
+  // ensuring consistent analytics (deposit_initiated/succeeded/failed) and
+  // cache invalidation across both farm-list and pool-detail entry points.
+  const flow = useLockFlow({
+    poolId: selectedContractAddress,
+    symbol: farm?.symbol ?? "",
+    publicKey: publicKey ?? "",
+    walletApi,
   });
 
   const isFeeSponsored =
@@ -135,7 +147,7 @@ function DepositModal({
     availableBalance < 1.0 &&
     !!process.env.NEXT_PUBLIC_FEE_SPONSOR_PUBLIC_KEY;
 
-  const isPending = lockMutation.isPending || isDepositPending(step);
+  const isPending = isDepositPending(flow.step);
   const canSubmit =
     isConnected &&
     !!farm &&
@@ -154,10 +166,8 @@ function DepositModal({
   useEffect(() => {
     if (isOpen) {
       setAmount("");
-      setTxHash(null);
-      setStep("idle");
-      setLocalError(null);
-      lockMutation.reset();
+      setIsConfirmOpen(false);
+      flow.reset();
     }
     // Reset only when the modal opens or the selected pool changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -165,10 +175,7 @@ function DepositModal({
 
   const resetAndClose = () => {
     setAmount("");
-    setTxHash(null);
-    setStep("idle");
-    setLocalError(null);
-    lockMutation.reset();
+    flow.reset();
     onClose();
   };
 
@@ -178,49 +185,23 @@ function DepositModal({
   };
 
   const handleSubmit = async () => {
-    if (!farm || !publicKey) {
-      setLocalError("Connect your Freighter wallet to deposit.");
-      return;
-    }
-    if (isNetworkMismatch) {
-      setLocalError(`Switch Freighter to ${stellarNetwork} to deposit.`);
-      return;
-    }
-    if (!canSubmit) {
-      setLocalError("Enter a valid amount and wait for the fee preview.");
-      return;
-    }
-
-    setLocalError(null);
-    setTxHash(null);
-
-    try {
-      const result = await lockMutation.mutateAsync({
-        poolId: selectedContractAddress,
-        amount: trimmedAmount,
-      });
-
-      if (!result.success) {
-        setStep("error");
-        setLocalError(result.error ?? "Deposit failed. Please try again.");
-        return;
-      }
-
-      queryClient.invalidateQueries({
-        queryKey: [QUERY_KEYS.USER_POSITION, farm.id],
-      });
-      resetAndClose();
-    } catch (error) {
-      setStep("error");
-      setLocalError(
-        error instanceof Error ? error.message : "Deposit failed. Please try again.",
-      );
-    }
+    if (!farm || !publicKey || !amountValid) return;
+    await flow.execute(numericAmount);
   };
 
-  const explorerUrl = txHash
-    ? stellarExpertTxUrl(txHash, stellarNetwork.toLowerCase())
-    : null;
+  const handleConfirmDeposit = () => {
+    setIsConfirmOpen(false);
+    void handleSubmit();
+  };
+
+  // Auto-close the modal after a successful deposit (#416).
+  useEffect(() => {
+    if (flow.step === "success") {
+      const timer = setTimeout(resetAndClose, 3500);
+      return () => clearTimeout(timer);
+    }
+  }, [flow.step]);
+
   const lockPeriod = formatLockPeriod(
     farm?.lockPeriodSeconds || minLockPeriodSeconds,
   );
@@ -266,7 +247,7 @@ function DepositModal({
                   {feePreview.isFetching
                     ? "Simulating..."
                     : feePreview.data
-                      ? `${feePreview.data.feePreview} stroops`
+                      ? formatFeeEstimate(feePreview.data.feePreview) ?? "Unavailable"
                       : "Enter amount"}
                 </Text>
               </Flex>
@@ -287,6 +268,8 @@ function DepositModal({
                   value={amount}
                   onChange={(event) => setAmount(event.target.value)}
                   isDisabled={isPending}
+                  isInvalid={Boolean(amountError)}
+                  aria-describedby={amountErrorId}
                   borderRadius="2xl"
                   h="50px"
                   borderColor="app.border"
@@ -308,16 +291,7 @@ function DepositModal({
                   {farm.symbol}
                 </Text>
               </Box>
-              {!!trimmedAmount && !amountValid && (
-                <Text fontSize="xs" color="#ff8080">
-                  Enter a positive amount with no more than 7 decimals.
-                </Text>
-              )}
-              {exceedsBalance && (
-                <Text fontSize="xs" color="#ff8080">
-                  Amount exceeds your Horizon XLM balance.
-                </Text>
-              )}
+              <FieldError id={amountErrorId} message={amountError} />
             </Flex>
 
             {isPending && (
@@ -329,60 +303,63 @@ function DepositModal({
                 p={4}
                 border="1px solid"
                 borderColor="app.border"
+                aria-live="polite"
+                aria-atomic="true"
               >
                 <Spinner size="sm" color="app.accent" />
                 <Text fontSize="sm" color="app.muted">
-                  {DEPOSIT_STEP_LABEL[step] || "Processing deposit..."}
+                  {DEPOSIT_STEP_LABEL[flow.step] || "Processing deposit..."}
                 </Text>
               </Flex>
             )}
 
-            {txHash && (
+            {flow.record?.txHash && (
               <Box border="1px solid" borderColor="app.border" borderRadius="2xl" p={3}>
                 <Flex justify="space-between" fontSize="sm" gap={4}>
                   <Text color="app.muted">Transaction</Text>
-                  {explorerUrl ? (
-                    <Link href={explorerUrl} isExternal color="app.accent" fontFamily="mono">
-                      {shortHash(txHash)}
-                    </Link>
-                  ) : (
-                    <Text fontFamily="mono">{shortHash(txHash)}</Text>
-                  )}
+                  <Link
+                    href={stellarExpertTxUrl(flow.record.txHash, stellarNetwork.toLowerCase())}
+                    isExternal
+                    color="app.accent"
+                    fontFamily="mono"
+                  >
+                    {shortHash(flow.record.txHash)}
+                  </Link>
                 </Flex>
               </Box>
             )}
 
             {feePreview.isError && (
-              <Alert status="error" borderRadius="2xl" bg="#2a1414" color="#ff8080">
-                <AlertIcon color="#ff8080" />
+              <Alert status="error" borderRadius="2xl" bg="app.errorBg" color="app.errorFg">
+                <AlertIcon color="app.errorFg" />
                 Fee simulation failed. Check the amount and try again.
               </Alert>
             )}
 
             {balanceQuery.isError && (
-              <Alert status="error" borderRadius="2xl" bg="#2a1414" color="#ff8080">
-                <AlertIcon color="#ff8080" />
+              <Alert status="error" borderRadius="2xl" bg="app.errorBg" color="app.errorFg">
+                <AlertIcon color="app.errorFg" />
                 Unable to load your Horizon balance.
               </Alert>
             )}
 
-            {localError && (
-              <Alert status="error" borderRadius="2xl" bg="#2a1414" color="#ff8080">
-                <AlertIcon color="#ff8080" />
-                {localError}
+            {flow.error && (
+              <Alert status="error" borderRadius="2xl" bg="app.errorBg" color="app.errorFg" aria-live="assertive" aria-atomic="true">
+                <AlertIcon color="app.errorFg" />
+                {flow.error}
               </Alert>
             )}
 
             {isFeeSponsored && (
-              <Alert status="warning" borderRadius="2xl" bg="#2d2216" color="#ffb86c" fontSize="sm" border="1px solid #7c5c24">
-                <AlertIcon color="#ffb86c" />
+              <Alert status="warning" borderRadius="2xl" bg="app.feeWarnBg" color="app.feeWarnFg" fontSize="sm" border="1px solid app.feeWarnBorder">
+                <AlertIcon color="app.feeWarnFg" />
                 Your fees are sponsored for this transaction
               </Alert>
             )}
 
             {!isConnected && (
-              <Alert status="warning" borderRadius="2xl" bg="#2a2412" color="#f6c453">
-                <AlertIcon color="#f6c453" />
+              <Alert status="warning" borderRadius="2xl" bg="app.warningBg" color="app.warningFg">
+                <AlertIcon color="app.warningFg" />
                 Connect your Freighter wallet to deposit.
               </Alert>
             )}
@@ -393,14 +370,14 @@ function DepositModal({
               color="app.onAccent"
               _hover={{ opacity: isPending ? 1 : 0.9 }}
               isDisabled={!canSubmit}
-              onClick={() => void handleSubmit()}
+              onClick={() => setIsConfirmOpen(true)}
               w="full"
             >
               {isPending ? (
                 <Flex align="center" gap={2}>
                   <Spinner size="xs" />
                   <Text>
-                    {step === "signing" ? "Waiting for signature..." : "Processing..."}
+                    {flow.step === "signing" ? "Waiting for signature..." : "Processing..."}
                   </Text>
                 </Flex>
               ) : (
@@ -408,16 +385,12 @@ function DepositModal({
               )}
             </Button>
 
-            {step === "error" && (
+            {flow.step === "error" && (
               <Button
                 variant="ghost"
                 size="sm"
                 color="app.muted"
-                onClick={() => {
-                  setStep("idle");
-                  setLocalError(null);
-                  lockMutation.reset();
-                }}
+                onClick={flow.reset}
               >
                 Try again
               </Button>
@@ -425,6 +398,26 @@ function DepositModal({
           </Flex>
         </ModalBody>
       </ModalContent>
+      <TransactionConfirmModal
+        isOpen={isConfirmOpen}
+        onClose={() => setIsConfirmOpen(false)}
+        onConfirm={handleConfirmDeposit}
+        title="Confirm Deposit"
+        description="Review the details below. You'll be asked to sign this transaction in Freighter."
+        details={[
+          { label: "Pool", value: farm.name },
+          { label: "Deposit amount", value: `${trimmedAmount} ${farm.symbol}` },
+          { label: "Minimum lock period", value: lockPeriod },
+        ]}
+        fee={{
+          minResourceFee: feePreview.data?.feePreview,
+          isLoading: feePreview.isFetching,
+          isError: feePreview.isError,
+          isSponsored: isFeeSponsored,
+        }}
+        warning={`Deposited funds stay locked for at least ${lockPeriod} and can't be withdrawn before then.`}
+        confirmLabel="Confirm Deposit"
+      />
     </Modal>
   );
 }
@@ -515,6 +508,7 @@ export default function Farm() {
       lockedAmount: position?.amount ? Number(position.amount) : 0,
       lockedAt: position?.lockedAt ?? 0,
       lockPeriodSeconds: position ? pool.minLockPeriod : minLockPeriodSeconds,
+      boostAllocation: position?.boostAllocation,
     }));
   }, [userPositions]);
 
@@ -537,24 +531,31 @@ export default function Farm() {
         lockedAmount: position?.amount ? Number(position.amount) : 0,
         lockedAt: position?.lockedAt ?? 0,
         lockPeriodSeconds: pool.minLockPeriod,
+        boostAllocation: position?.boostAllocation,
+        createdAt: pool.createdAt,
       };
     });
   }, [pools, userPositions]);
 
-  const handleDepositClick = (pool: LivePoolRow) => {
+  // Stable references so the memoized FarmPoolRow children
+  // don't receive a new callback on every wallet or query update.
+  const handleDepositClick = useCallback((pool: LivePoolRow) => {
     setSelectedFarm(pool);
     setIsDepositOpen(true);
-  };
+  }, []);
 
-  const handleDepositClose = () => {
+  const handleDepositClose = useCallback(() => {
     setIsDepositOpen(false);
     setSelectedFarm(null);
-  };
+  }, []);
 
   const hasPositions = myPositions.length > 0;
 
   return (
     <Flex direction="column" align="center" gap={6} px={{ base: 4, md: 8 }} py={6}>
+      <Flex w="full" maxW="1200px">
+        <Breadcrumbs items={[{ label: "Farm" }]} />
+      </Flex>
       <PlatformStats />
       <Text fontSize="xs" color="app.muted" textAlign="center" overflowWrap="anywhere">
         Network: {stellarNetwork}
@@ -582,57 +583,13 @@ export default function Farm() {
       ) : (
         <Flex direction="column" gap={3} w="full" maxW="1200px">
           {availablePools.map((farm) => (
-            <Flex
+            <FarmPoolRow
               key={farm.id}
-              display={{ base: "flex", md: "flex" }}
-              flexDirection={{ base: "column", md: "row" }}
-              w="full"
-              minH={20}
-              align={{ base: "stretch", md: "center" }}
-              justify={{ base: "flex-start", md: "space-between" }}
-              gap={{ base: 4, md: 0 }}
-              border="1px solid"
-              borderColor="app.border"
-              borderRadius="card"
-              bg="app.surface"
-              boxShadow="card"
-              transition="all 0.2s ease"
-              _hover={{ borderColor: "app.borderHover", boxShadow: "cardHover" }}
-              px={5}
-              py={{ base: 4, md: 0 }}
-            >
-              <NextLink href={`/farm/${farm.id}`} style={{ textDecoration: "none" }}>
-                <Text
-                  fontWeight="bold"
-                  w={{ base: "full", md: "auto" }}
-                  _hover={{ color: "app.accent" }}
-                  cursor="pointer"
-                >
-                  {farm.name}
-                </Text>
-              </NextLink>
-              <MetricColumn label="Earned" value={farm.earned} />
-              <MetricColumn label="My Stake" value={farm.stake} />
-              <MetricColumn label="Daily Rate" value={farm.dailyRate} />
-              <MetricColumn
-                label="Total Staked Liquidity"
-                value={farm.totalStakedLiquidity}
-                minW="180px"
-              />
-              {isConnected && (
-                <Button
-                  borderRadius="3xl"
-                  bg="app.accent"
-                  color="app.onAccent"
-                  _hover={{ opacity: 0.9 }}
-                  onClick={() => handleDepositClick(farm)}
-                  isDisabled={isNetworkMismatch}
-                  w={{ base: "full", md: "auto" }}
-                >
-                  + Deposit
-                </Button>
-              )}
-            </Flex>
+              farm={farm}
+              isConnected={isConnected}
+              isNetworkMismatch={isNetworkMismatch}
+              onDeposit={handleDepositClick}
+            />
           ))}
         </Flex>
       )}
@@ -695,6 +652,7 @@ export default function Farm() {
         onClose={handleDepositClose}
       />
       <UnlockModal />
+      <BoostModal />
     </Flex>
   );
 }

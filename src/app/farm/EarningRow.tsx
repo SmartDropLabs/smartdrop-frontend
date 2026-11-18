@@ -15,8 +15,9 @@ import {
   Flex,
   Text,
   Tooltip,
+  VisuallyHidden,
 } from "@chakra-ui/react";
-import { memo, type ReactNode } from "react";
+import { memo, useId, type ReactNode } from "react";
 
 export function MetricColumn({
   label,
@@ -68,7 +69,9 @@ function earningRowPropsAreEqual(
     previousPosition.symbol === nextPosition.symbol &&
     previousPosition.lockedAmount === nextPosition.lockedAmount &&
     previousPosition.lockedAt === nextPosition.lockedAt &&
-    previousPosition.lockPeriodSeconds === nextPosition.lockPeriodSeconds
+    previousPosition.lockPeriodSeconds === nextPosition.lockPeriodSeconds &&
+    previousPosition.boostAllocation === nextPosition.boostAllocation &&
+    previousPosition.minDepositAmount === nextPosition.minDepositAmount
   );
 }
 
@@ -76,17 +79,31 @@ export const EarningRow = memo(function EarningRow({
   position,
 }: EarningRowProps) {
   const openUnlock = useFarmStore((s) => s.openUnlock);
+  const openBoost = useFarmStore((s) => s.openBoost);
   const { isNetworkMismatch } = useStellarWallet();
   const countdown = useCountdown(unlockAvailableAt(position));
   const hasStake = position.lockedAmount > 0;
   const canUnlock = hasStake && countdown.isElapsed;
-  const boostUnavailable = true;
+  const boostDisabled = !hasStake || isNetworkMismatch;
   const unlockDisabled = !canUnlock || isNetworkMismatch;
+  const boostTooltipLabel = isNetworkMismatch
+    ? `Switch Freighter to ${stellarNetwork} to set boost.`
+    : !hasStake
+      ? "Deposit first to enable boost"
+      : undefined;
   const unlockTooltipLabel = isNetworkMismatch
     ? `Switch Freighter to ${stellarNetwork} to unlock.`
     : !hasStake
       ? "No locked assets in this position"
       : `Locked for another ${countdown.label}`;
+  // The tooltips sit on disabled buttons, which can't receive focus or hover
+  // events from assistive tech, so the reason a button is disabled was
+  // mouse-only (#571). Expose it as a description via aria-describedby too.
+  const descId = useId();
+  const boostDescId = `${descId}-boost`;
+  const unlockDescId = `${descId}-unlock`;
+  const showBoostReason = boostDisabled && Boolean(boostTooltipLabel);
+  const showUnlockReason = unlockDisabled && Boolean(unlockTooltipLabel);
 
   return (
     <Flex
@@ -144,19 +161,31 @@ export const EarningRow = memo(function EarningRow({
         direction={{ base: "column", md: "row" }}
         w={{ base: "full", md: "auto" }}
       >
-        <Button
-          borderRadius="3xl"
-          variant="outline"
-          borderColor="app.border"
-          color="app.muted"
-          isDisabled={isNetworkMismatch || boostUnavailable}
-          opacity={0.6}
-          cursor="not-allowed"
-          _hover={{ opacity: 0.6 }}
-          w={{ base: "full", md: "auto" }}
+        <Tooltip
+          label={boostTooltipLabel}
+          isDisabled={!boostDisabled}
+          hasArrow
+          bg="app.tooltipBg"
+          color="app.tooltipFg"
         >
-          Boost
-        </Button>
+          <Box w={{ base: "full", md: "auto" }}>
+            <Button
+              borderRadius="3xl"
+              variant="outline"
+              borderColor="app.border"
+              color={position.boostAllocation ? "app.accent" : "app.muted"}
+              isDisabled={boostDisabled}
+              aria-describedby={showBoostReason ? boostDescId : undefined}
+              onClick={() => openBoost(position)}
+              w={{ base: "full", md: "auto" }}
+            >
+              {position.boostAllocation ? `Boost (${position.boostAllocation}%)` : "Boost"}
+            </Button>
+            {showBoostReason && (
+              <VisuallyHidden id={boostDescId}>{boostTooltipLabel}</VisuallyHidden>
+            )}
+          </Box>
+        </Tooltip>
         <Tooltip
           label={unlockTooltipLabel}
           isDisabled={!unlockDisabled}
@@ -172,10 +201,14 @@ export const EarningRow = memo(function EarningRow({
               _hover={{ opacity: 0.9 }}
               onClick={() => openUnlock(position)}
               isDisabled={unlockDisabled}
+              aria-describedby={showUnlockReason ? unlockDescId : undefined}
               w={{ base: "full", md: "auto" }}
             >
               Unlock
             </Button>
+            {showUnlockReason && (
+              <VisuallyHidden id={unlockDescId}>{unlockTooltipLabel}</VisuallyHidden>
+            )}
           </Box>
         </Tooltip>
       </Flex>

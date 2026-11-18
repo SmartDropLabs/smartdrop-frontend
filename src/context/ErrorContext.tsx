@@ -11,6 +11,7 @@ import {
     createContext,
     useContext,
     useEffect,
+    useMemo,
     type ReactNode,
 } from "react";
 
@@ -31,8 +32,10 @@ export function ErrorProvider({ children }: { children: ReactNode }) {
     return cleanup;
   }, []);
 
+  const value = useMemo(() => ({ toast }), [toast]);
+
   return (
-    <ErrorContext.Provider value={{ toast }}>
+    <ErrorContext.Provider value={value}>
       {children}
     </ErrorContext.Provider>
   );

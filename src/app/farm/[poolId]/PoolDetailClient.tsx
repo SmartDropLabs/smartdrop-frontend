@@ -1,14 +1,13 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import NextLink from "next/link";
+import TransactionConfirmModal from "@/components/TransactionConfirmModal/TransactionConfirmModal";
+import FieldError from "@/components/FieldError/FieldError";
 import {
   Alert,
   AlertIcon,
   Box,
-  Breadcrumb,
-  BreadcrumbItem,
-  BreadcrumbLink,
   Button,
   Flex,
   Modal,
@@ -18,7 +17,6 @@ import {
   ModalHeader,
   ModalOverlay,
   Skeleton,
-  SkeletonText,
   Spinner,
   Table,
   Tbody,
@@ -29,19 +27,25 @@ import {
   Tr,
   useDisclosure,
 } from "@chakra-ui/react";
+import Breadcrumbs from "@/components/Breadcrumbs/Breadcrumbs";
 import { formatCredits } from "@/lib/soroban";
 import TvlChart from "@/components/TvlChart/TvlChart";
 import { useLockFlow } from "@/hooks/useLockFlow";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   usePoolDepositors,
+  useLockAssetsFeePreview,
   usePools,
   useStellarBalance,
+  useUserCredits,
+  useUserPosition,
 } from "@/hooks/useSorobanQuery";
 import { useStellarWallet } from "@/context/StellarWalletContext";
 import ConnectWalletButton from "@/components/ConnectWalletButton/ConnectWalletButton";
 import { useOwnConnectButton } from "@/context/OwnConnectButtonContext";
 import { isDepositPending, DEPOSIT_STEP_LABEL } from "@/types/farm";
 import { Input } from "@chakra-ui/react";
+import ShareButton from "@/components/ShareButton/ShareButton";
 
 const ACCENT = "#4ae292";
 
@@ -78,19 +82,20 @@ function StatCard({
       <Text fontSize="xs" color="app.muted" fontWeight="medium">
         {label}
       </Text>
-      {loading ? (
-        <Skeleton height="24px" w="80%" borderRadius="md" startColor="app.border" endColor="app.surfaceHover" />
-      ) : (
+      {/* Wrapping the real Text (rather than a fixed-height bar) sizes the
+          skeleton to the value's actual line box, so nothing shifts on load. */}
+      <Skeleton isLoaded={!loading} w={loading ? "80%" : undefined} borderRadius="md" startColor="app.border" endColor="app.surfaceHover">
         <Text fontWeight="bold" fontSize="lg" color="app.text">
           {value}
         </Text>
-      )}
+      </Skeleton>
     </Flex>
   );
 }
 
 export default function PoolDetailClient({ poolId }: { poolId: string }) {
   const [rawAmount, setRawAmount] = useState("0");
+  const [showConfirmation, setShowConfirmation] = useState(false);
 
   // Shares the same cache/staleTime/refetchInterval as the Farm page's
   // pool list instead of an independent, uncached getFactoryPools() call
@@ -143,20 +148,79 @@ export default function PoolDetailClient({ poolId }: { poolId: string }) {
     walletApi,
   });
 
+  // Invalidate cached queries when pool changes so the fee preview
+  // doesn't briefly show stale data from the previous pool (#410).
+  const queryClient = useQueryClient();
+  const prevPoolIdRef = useRef(poolId);
+  useEffect(() => {
+    if (prevPoolIdRef.current !== poolId) {
+      prevPoolIdRef.current = poolId;
+      queryClient.invalidateQueries({ queryKey: ["userPosition"] });
+      queryClient.invalidateQueries({ queryKey: ["userCredits"] });
+    }
+  }, [poolId, queryClient]);
+
   const { data: depositorsData, isLoading: depositorsLoading } =
     usePoolDepositors(poolId, 20);
   const depositors: Depositor[] = depositorsData ?? [];
+
+  const { data: userCredits, isLoading: creditsLoading } = useUserCredits(poolId, isConnected);
+  const { data: userPosition, isLoading: positionLoading } = useUserPosition(poolId, isConnected);
+
+  const calculateEarningsBreakdown = () => {
+    if (!userPosition || !pool) return { daily: '0', weekly: '0', total: userCredits || '0' };
+
+    const totalCredits = parseFloat(userCredits || '0');
+    const lockTime = userPosition.lockedAt ? Date.now() - userPosition.lockedAt : 0;
+    const lockDays = lockTime / (1000 * 60 * 60 * 24);
+    const dailyRate = lockDays > 0 ? totalCredits / lockDays : 0;
+    const weeklyRate = dailyRate * 7;
+
+    return {
+      daily: dailyRate.toFixed(4),
+      weekly: weeklyRate.toFixed(4),
+      total: totalCredits.toFixed(4),
+    };
+  };
+
+  const earnings = calculateEarningsBreakdown();
 
   const handleModalClose = () => {
     if (isDepositPending(flow.step)) return;
     flow.reset();
     setRawAmount("0");
+    setShowConfirmation(false);
     onClose();
   };
 
+  const handleLockClick = () => {
+    setShowConfirmation(true);
+  };
+
+  const handleConfirmLock = () => {
+    setShowConfirmation(false);
+    void flow.execute(displayAmount);
+  };
+
+  const handleCancelLock = () => {
+    setShowConfirmation(false);
+  };
+
+  const shareUrl = typeof window !== "undefined" ? window.location.href : "";
+
   const displayAmount = parseFloat(rawAmount);
   const amountValid = Number.isFinite(displayAmount) && displayAmount > 0;
+  const amountError =
+    rawAmount !== "0" && rawAmount !== "" && !amountValid
+      ? "Enter an amount greater than 0."
+      : null;
+  const amountErrorId = useId();
   const isPending = isDepositPending(flow.step);
+  const lockPeriodLabel = pool
+    ? pool.minLockPeriod >= 86400
+      ? `${Math.floor(pool.minLockPeriod / 86400)} day${Math.floor(pool.minLockPeriod / 86400) > 1 ? "s" : ""}`
+      : `${Math.floor(pool.minLockPeriod / 3600)} hour${Math.floor(pool.minLockPeriod / 3600) > 1 ? "s" : ""}`
+    : "";
 
   if (error) {
     return (
@@ -184,26 +248,22 @@ export default function PoolDetailClient({ poolId }: { poolId: string }) {
       w="full"
     >
       {/* Breadcrumb */}
-      <Box w="full">
-        <Breadcrumb fontSize="sm" color="app.muted">
-          <BreadcrumbItem>
-            <BreadcrumbLink as={NextLink} href="/farm" color="app.muted" _hover={{ color: ACCENT }}>
-              Farm
-            </BreadcrumbLink>
-          </BreadcrumbItem>
-          <BreadcrumbItem isCurrentPage>
-            <BreadcrumbLink color={ACCENT}>
-              {poolLoading ? poolId.slice(0, 8) + "…" : (pool?.asset.code ?? poolId.slice(0, 8) + "…")}
-            </BreadcrumbLink>
-          </BreadcrumbItem>
-        </Breadcrumb>
-      </Box>
+      <Flex w="full">
+        <Breadcrumbs
+          items={[
+            { label: "Farm", href: "/farm" },
+            {
+              label: poolLoading
+                ? poolId.slice(0, 8) + "…"
+                : (pool?.asset.code ?? poolId.slice(0, 8) + "…"),
+            },
+          ]}
+        />
+      </Flex>
 
       {/* Header */}
       <Flex w="full" justify="space-between" align="center" flexWrap="wrap" gap={4}>
-        {poolLoading ? (
-          <Skeleton height="40px" w="200px" borderRadius="xl" startColor="app.border" endColor="app.surfaceHover" />
-        ) : (
+        <Skeleton isLoaded={!poolLoading} w={poolLoading ? "200px" : undefined} borderRadius="xl" startColor="app.border" endColor="app.surfaceHover">
           <Text
             fontSize={{ base: "2xl", md: "3xl" }}
             fontWeight="extrabold"
@@ -211,23 +271,32 @@ export default function PoolDetailClient({ poolId }: { poolId: string }) {
             bgGradient="linear(to-r, app.text, app.accent)"
             bgClip="text"
           >
-            {pool?.asset.code ?? "Pool"} Pool
+            {poolLoading ? "Pool" : `${pool?.asset.code ?? "Pool"} Pool`}
           </Text>
-        )}
-        <Button
-          borderRadius="3xl"
-          bg="app.accent"
-          color="app.onAccent"
-          _hover={{ opacity: 0.9 }}
-          onClick={onOpen}
-          size="lg"
-          isDisabled={poolLoading || isNetworkMismatch}
-        >
-          Deposit
-        </Button>
+        </Skeleton>
+        <Flex align="center" gap={2}>
+          {!poolLoading && (
+            <ShareButton
+              url={shareUrl}
+              shareText={`Check out the ${pool?.asset.code ?? "SmartDrop"} pool on SmartDrop`}
+              size="sm"
+            />
+          )}
+          <Button
+            borderRadius="3xl"
+            bg="app.accent"
+            color="app.onAccent"
+            _hover={{ opacity: 0.9 }}
+            onClick={onOpen}
+            size="lg"
+            isDisabled={poolLoading || isNetworkMismatch}
+          >
+            Deposit
+          </Button>
+        </Flex>
       </Flex>
 
-      {/* Stats */}
+      {/* Pool Stats */}
       <Flex w="full" gap={3} flexWrap="wrap">
         <StatCard
           label="Daily Rate"
@@ -257,6 +326,46 @@ export default function PoolDetailClient({ poolId }: { poolId: string }) {
         />
       </Flex>
 
+      {/* User Earnings Breakdown - shown when wallet is connected */}
+      {isConnected && (
+        <Box w="full" p={5} border="1px solid" borderColor="app.border" borderRadius="card" bg="app.surface" boxShadow="card">
+          <Text fontSize="sm" fontWeight="semibold" mb={4} color="app.muted" letterSpacing="wide" textTransform="uppercase">
+            Your Earnings
+          </Text>
+          {creditsLoading || positionLoading ? (
+            // Same row of StatCards as the loaded state, so the section
+            // keeps its height and layout when earnings arrive.
+            <Flex gap={3} flexWrap="wrap">
+              <StatCard label="Daily Earnings" value="—" loading />
+              <StatCard label="Weekly Earnings" value="—" loading />
+              <StatCard label="Total Earnings" value="—" loading />
+            </Flex>
+          ) : userCredits ? (
+            <Flex gap={3} flexWrap="wrap">
+              <StatCard
+                label="Daily Earnings"
+                value={earnings.daily}
+                loading={false}
+              />
+              <StatCard
+                label="Weekly Earnings"
+                value={earnings.weekly}
+                loading={false}
+              />
+              <StatCard
+                label="Total Earnings"
+                value={formatCredits(earnings.total)}
+                loading={false}
+              />
+            </Flex>
+          ) : (
+            <Text color="app.muted" fontSize="sm">
+              No earnings yet. Deposit to start earning credits.
+            </Text>
+          )}
+        </Box>
+      )}
+
       {/* TVL Chart */}
       <Box
         w="full"
@@ -278,13 +387,7 @@ export default function PoolDetailClient({ poolId }: { poolId: string }) {
         <Text fontSize="sm" fontWeight="semibold" mb={4} color="app.muted" letterSpacing="wide" textTransform="uppercase">
           Top 20 Depositors
         </Text>
-        {depositorsLoading ? (
-          <Flex direction="column" gap={2}>
-            {Array.from({ length: 5 }).map((_, i) => (
-              <SkeletonText key={i} noOfLines={1} skeletonHeight="32px" borderRadius="md" />
-            ))}
-          </Flex>
-        ) : depositors.length === 0 ? (
+        {!depositorsLoading && depositors.length === 0 ? (
           <Text color="app.muted" fontSize="sm">
             No depositors yet.
           </Text>
@@ -300,7 +403,17 @@ export default function PoolDetailClient({ poolId }: { poolId: string }) {
                 </Tr>
               </Thead>
               <Tbody>
-                {depositors.map((d, i) => (
+                {/* Skeleton rows reuse the real table's cells (and its
+                    sm row height) so the list doesn't jump on load. */}
+                {depositorsLoading && Array.from({ length: 5 }).map((_, i) => (
+                  <Tr key={i}>
+                    <Td borderColor="app.border"><Skeleton h="16px" w="16px" borderRadius="md" /></Td>
+                    <Td borderColor="app.border"><Skeleton h="16px" w="88px" borderRadius="md" /></Td>
+                    <Td borderColor="app.border" isNumeric><Skeleton h="16px" w="56px" ml="auto" borderRadius="md" /></Td>
+                    <Td borderColor="app.border" isNumeric><Skeleton h="16px" w="56px" ml="auto" borderRadius="md" /></Td>
+                  </Tr>
+                ))}
+                {!depositorsLoading && depositors.map((d, i) => (
                   <Tr key={d.address} _hover={{ bg: "app.inputBg" }}>
                     <Td borderColor="app.border" color="app.muted">{i + 1}</Td>
                     <Td borderColor="app.border" fontFamily="mono" fontSize="xs">
@@ -338,6 +451,8 @@ export default function PoolDetailClient({ poolId }: { poolId: string }) {
                   value={rawAmount}
                   onChange={(e) => setRawAmount(e.target.value)}
                   isDisabled={isPending}
+                  isInvalid={Boolean(amountError)}
+                  aria-describedby={amountErrorId}
                   borderRadius="2xl"
                   h="50px"
                   borderColor="app.border"
@@ -346,15 +461,11 @@ export default function PoolDetailClient({ poolId }: { poolId: string }) {
                   _hover={{ borderColor: "app.accent" }}
                   _focus={{ boxShadow: "none", borderColor: "app.accent" }}
                 />
-                {rawAmount !== "0" && rawAmount !== "" && !amountValid && (
-                  <Text fontSize="xs" color="#ff8080">
-                    Enter an amount greater than 0.
-                  </Text>
-                )}
+                <FieldError id={amountErrorId} message={amountError} />
               </Flex>
 
               {isPending && (
-                <Flex align="center" gap={3} bg="app.inputBg" borderRadius="2xl" p={4} border="1px solid" borderColor="app.border">
+                <Flex align="center" gap={3} bg="app.inputBg" borderRadius="2xl" p={4} border="1px solid" borderColor="app.border" aria-live="polite" aria-atomic="true">
                   <Spinner size="sm" color="app.accent" />
                   <Text fontSize="sm" color="app.muted">
                     {DEPOSIT_STEP_LABEL[flow.step]}
@@ -363,15 +474,15 @@ export default function PoolDetailClient({ poolId }: { poolId: string }) {
               )}
 
               {flow.step === "error" && flow.error && (
-                <Alert status="error" borderRadius="2xl" bg="#2a1414" color="#ff8080" fontSize="sm">
-                  <AlertIcon color="#ff8080" />
+                <Alert status="error" borderRadius="2xl" bg="app.errorBg" color="app.errorFg" fontSize="sm" aria-live="assertive" aria-atomic="true">
+                  <AlertIcon color="app.errorFg" />
                   {flow.error}
                 </Alert>
               )}
 
               {isFeeSponsored && (
-                <Alert status="warning" borderRadius="2xl" bg="#2d2216" color="#ffb86c" fontSize="sm" border="1px solid #7c5c24">
-                  <AlertIcon color="#ffb86c" />
+                <Alert status="warning" borderRadius="2xl" bg="app.feeWarnBg" color="app.feeWarnFg" fontSize="sm" border="1px solid app.feeWarnBorder">
+                  <AlertIcon color="app.feeWarnFg" />
                   Your fees are sponsored for this transaction
                 </Alert>
               )}
@@ -395,7 +506,7 @@ export default function PoolDetailClient({ poolId }: { poolId: string }) {
                 isDisabled={
                   !amountValid || !isConnected || isPending || isNetworkMismatch
                 }
-                onClick={() => void flow.execute(displayAmount)}
+                onClick={handleLockClick}
                 w="full"
               >
                 {isPending ? (
@@ -418,6 +529,26 @@ export default function PoolDetailClient({ poolId }: { poolId: string }) {
             </Flex>
           </ModalBody>
         </ModalContent>
+        <TransactionConfirmModal
+          isOpen={showConfirmation}
+          onClose={handleCancelLock}
+          onConfirm={handleConfirmLock}
+          title="Confirm Lock"
+          description="Review the details below. You'll be asked to sign this transaction in Freighter."
+          details={[
+            { label: "Pool", value: pool?.asset.code ?? poolId },
+            { label: "Lock amount", value: `${displayAmount} ${pool?.asset.code ?? ""}` },
+            { label: "Minimum lock period", value: lockPeriodLabel },
+          ]}
+          fee={{
+            minResourceFee: feePreview.data?.feePreview,
+            isLoading: feePreview.isFetching,
+            isError: feePreview.isError,
+            isSponsored: isFeeSponsored,
+          }}
+          warning={`This action cannot be reversed until the ${lockPeriodLabel} lock period expires.`}
+          confirmLabel="Confirm Lock"
+        />
       </Modal>
     </Flex>
   );

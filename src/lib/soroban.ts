@@ -15,15 +15,18 @@ import {
   Networks,
   Transaction,
   FeeBumpTransaction,
+  Account,
 } from '@stellar/stellar-sdk';
 import {
   factoryContractId,
-  horizonUrl,
   networkPassphrase,
   sorobanRpcUrl,
+  simulationAccount,
+  stellarNetwork,
 } from '@/config';
-import { SecurityError } from './error-handler';
-import { fetchAccountBalances } from './stellar';
+import { ConfigError, FeeBumpError, FreighterError, SecurityError } from './error-handler';
+import { fetchAccountBalances, fetchHorizonAccount } from './stellar';
+import { readJsonWithLimit } from './safe-fetch';
 import {
   bigintToDisplayAmount,
   parsePoolsFromNative,
@@ -52,7 +55,9 @@ export interface LeaderboardRow {
   address: string;
   totalCredits: number;
   totalStake: number;
-  boostUtilization: number;
+  /** null when the data source (e.g. the event-scan fallback) cannot derive
+   * boost utilization — distinct from a genuine 0% (issue #142). */
+  boostUtilization: number | null;
 }
 
 export interface LeaderboardPage {
@@ -151,10 +156,14 @@ export interface FreighterWalletApi {
     transactionXdr: string,
     options: { networkPassphrase: string; address?: string },
   ) => Promise<FreighterSignTransactionResult>;
+  getNetworkDetails?: () => Promise<{
+    network: string;
+    networkPassphrase: string;
+  }>;
 }
 
 type LockAssetsStep = 'simulating' | 'signing' | 'submitting';
-type UnlockAssetsStep = 'signing' | 'submitting' | 'confirming';
+type UnlockAssetsStep = 'simulating' | 'signing' | 'submitting' | 'confirming';
 
 export interface LockAssetsCallbacks {
   onHash?: (hash: string) => void;
@@ -204,23 +213,81 @@ export function amountToStroops(amount: string, decimals = 7): bigint {
   return stroops;
 }
 
-export async function getStellarBalance(publicKey: string): Promise<number> {
-  const response = await fetch(
-    `${horizonUrl.replace(/\/$/, '')}/accounts/${publicKey}`,
-  );
+export const HORIZON_BALANCE_TIMEOUT_MS = 10_000;
 
-  if (!response.ok) {
-    throw new Error(
-      `Unable to fetch Stellar balance from Horizon (${response.status}).`,
+/**
+ * Asks the sponsor API to wrap a signed inner transaction in a fee bump.
+ * Any failure is surfaced as a FeeBumpError so the UI can show a friendly message.
+ */
+async function requestFeeBump(innerTxXdr: string): Promise<string> {
+  let response: Response;
+  try {
+    response = await fetch('/api/sign-fee-bump', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ innerTxXdr }),
+    });
+  } catch (error) {
+    throw new FeeBumpError(
+      'Fee sponsor request failed',
+      undefined,
+      error instanceof Error ? error : undefined,
     );
   }
 
-  const account = (await response.json()) as {
-    balances?: Array<{
-      asset_type?: string;
-      balance?: string;
-    }>;
-  };
+  if (!response.ok) {
+    const errText = await response.text().catch(() => '');
+    throw new FeeBumpError(`Fee sponsor failed: ${errText}`, response.status);
+  }
+
+  const resData = (await response.json().catch(() => null)) as
+    | { feeBumpTxXdr?: string }
+    | null;
+  if (!resData?.feeBumpTxXdr) {
+    throw new FeeBumpError('Sponsor API returned invalid response', response.status);
+  }
+  return resData.feeBumpTxXdr;
+}
+
+export async function getStellarBalance(
+  publicKey: string,
+  signal?: AbortSignal,
+  timeoutMs: number = HORIZON_BALANCE_TIMEOUT_MS,
+): Promise<number> {
+  const controller = new AbortController();
+  let timedOut = false;
+  const timeout = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, timeoutMs);
+
+  // Forward external cancellation (e.g. React Query unmount) to our controller.
+  const onExternalAbort = () => controller.abort();
+  if (signal?.aborted) {
+    controller.abort();
+  } else {
+    signal?.addEventListener('abort', onExternalAbort, { once: true });
+  }
+
+  let account: Awaited<ReturnType<typeof fetchHorizonAccount>>;
+  try {
+    account = await fetchHorizonAccount(publicKey, { signal: controller.signal });
+  } catch (error) {
+    if (timedOut) {
+      throw new Error(
+        `Timed out fetching Stellar balance from Horizon after ${timeoutMs / 1000}s.`,
+      );
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+    signal?.removeEventListener('abort', onExternalAbort);
+  }
+
+  if (account === null) {
+    throw new Error('Unable to fetch Stellar balance from Horizon (404).');
+  }
+
   const nativeBalance = account.balances?.find(
     (balance) => balance.asset_type === 'native',
   );
@@ -284,6 +351,102 @@ export async function simulateLockAssets(
 ) {
   const server = rpcOverride ?? rpcServer;
   const transaction = await buildLockAssetsTransaction(args, server);
+  const simulation = await server.simulateTransaction(transaction);
+
+  if ('error' in simulation) {
+    throw new Error(`Simulation failed: ${simulation.error}`);
+  }
+
+  return {
+    transaction,
+    simulation,
+    feePreview: String(simulation.minResourceFee ?? '0'),
+  };
+}
+
+/**
+ * Read-only unlock_assets simulation for a fee preview (issue #240) — no
+ * signing, no submission. Mirrors buildLockAssetsTransaction/simulateLockAssets.
+ */
+export async function buildUnlockAssetsTransaction(
+  args: BuildLockAssetsTransactionArgs,
+  rpcOverride?: LockAssetsRpc,
+) {
+  const server = rpcOverride ?? rpcServer;
+  const account = await server.getAccount(args.publicKey);
+  const contract = new Contract(args.poolContractId);
+  const operation = contract.call(
+    'unlock_assets',
+    Address.fromString(args.publicKey).toScVal(),
+    nativeToScVal(amountToStroops(args.amount), { type: 'i128' }),
+  );
+
+  return new TransactionBuilder(account, {
+    fee: BASE_FEE,
+    networkPassphrase,
+  })
+    .addOperation(operation)
+    .setTimeout(300)
+    .build();
+}
+
+export async function simulateUnlockAssets(
+  args: BuildLockAssetsTransactionArgs,
+  rpcOverride?: LockAssetsRpc,
+) {
+  const server = rpcOverride ?? rpcServer;
+  const transaction = await buildUnlockAssetsTransaction(args, server);
+  const simulation = await server.simulateTransaction(transaction);
+
+  if ('error' in simulation) {
+    throw new Error(`Simulation failed: ${simulation.error}`);
+  }
+
+  return {
+    transaction,
+    simulation,
+    feePreview: String(simulation.minResourceFee ?? '0'),
+  };
+}
+
+export interface BuildSetBoostTransactionArgs {
+  poolContractId: string;
+  publicKey: string;
+  allocationPercentage: number;
+}
+
+/**
+ * Read-only set_boost simulation for a fee preview — no signing, no
+ * submission. Mirrors the transaction SorobanService.setBoost builds.
+ */
+export async function buildSetBoostTransaction(
+  args: BuildSetBoostTransactionArgs,
+  rpcOverride?: LockAssetsRpc,
+) {
+  const server = rpcOverride ?? rpcServer;
+  const account = await server.getAccount(args.publicKey);
+  const contract = new Contract(args.poolContractId);
+  const operation = contract.call(
+    'set_boost',
+    Address.fromString(args.publicKey).toScVal(),
+    nativeToScVal(args.allocationPercentage, { type: 'u32' }),
+  );
+
+  return new TransactionBuilder(account, {
+    fee: BASE_FEE,
+    networkPassphrase,
+  })
+    .addOperation(operation)
+    .setTimeout(300)
+    .build();
+}
+
+export async function simulateSetBoost(
+  args: BuildSetBoostTransactionArgs,
+  rpcOverride?: LockAssetsRpc,
+) {
+  const server = rpcOverride ?? rpcServer;
+  const transaction = await buildSetBoostTransaction(args, server);
   const simulation = await server.simulateTransaction(transaction);
 
   if ('error' in simulation) {
@@ -516,6 +679,47 @@ export function getContractErrorMessage(errorCode?: string): string | undefined 
   return message;
 }
 
+/**
+ * Parse raw Soroban simulation error strings into user-friendly messages.
+ * Catches common failure patterns (insufficient balance, contract errors,
+ * auth failures) and returns a clear message BEFORE the wallet signing
+ * prompt so users are not confused by opaque XDR error strings.
+ */
+export function parseSimulationError(rawError: string): string {
+  const lower = rawError.toLowerCase();
+
+  // Insufficient balance / funding
+  if (lower.includes('insufficient') || lower.includes('underfunded') || lower.includes('balance')) {
+    return 'Insufficient balance to cover this transaction. Please ensure your wallet has enough funds.';
+  }
+
+  // Contract-level numeric error code: "HostError(Contract, #N)"
+  const contractCodeMatch = rawError.match(/HostError\(Contract,\s*#(\d+)\)/i);
+  if (contractCodeMatch) {
+    const code = contractCodeMatch[1];
+    const mapped = CONTRACT_ERROR_MESSAGES[code];
+    return mapped ?? `Contract error #${code}. Please check your position and try again.`;
+  }
+
+  // Authorization / auth failures
+  if (lower.includes('auth') || lower.includes('unauthorized') || lower.includes('not authorized')) {
+    return 'Authorization failed. Make sure your wallet is connected to the correct account.';
+  }
+
+  // Expired / time-related
+  if (lower.includes('expired') || lower.includes('too old') || lower.includes('deadline')) {
+    return 'Transaction expired. Please try again.';
+  }
+
+  // Budget exceeded
+  if (lower.includes('budget') || lower.includes('exceeded') || lower.includes('resource')) {
+    return 'Transaction exceeds the network resource budget. Try a smaller amount.';
+  }
+
+  // Fallback with the raw error for debugging
+  return `Transaction simulation failed: ${rawError}`;
+}
+
 /** `getContractErrorMessage(errorCode) ?? this` — always includes the raw
  * code (when one was extracted) so a user or support agent has something
  * concrete to reference, even for a still-unmapped code (#146). */
@@ -720,11 +924,101 @@ export class SorobanService {
   private rpcServer: rpc.Server;
   private factoryContract?: Contract;
   private poolContracts: Map<string, Contract> = new Map();
+  private simulationAccountAddress: string;
+  // Short-lived cache for getAccount results keyed by address.
+  // Collapses N concurrent calls for the same simulation account
+  // (e.g. useAllUserPositions fanning out over N pools) into one RPC fetch.
+  private accountCache: Map<string, { account: Account; expiresAt: number }> = new Map();
+  // Tracks in-flight getAccount requests so truly concurrent calls share
+  // the same promise rather than each firing a separate RPC round trip.
+  private inflightAccount: Map<string, Promise<Account>> = new Map();
+  private static ACCOUNT_CACHE_TTL_MS = 3_000;
+  // Memoized lazy-init promise (issue #451) — see ensureInitialized().
+  private initPromise?: Promise<void>;
+  private factoryWarningLogged = false;
 
   constructor() {
     this.rpcServer = rpcServer;
+    this.simulationAccountAddress = simulationAccount;
     if (factoryContractId) {
       this.factoryContract = new Contract(factoryContractId);
+    }
+  }
+
+  /**
+   * Returns a cached Account object for read-only simulation calls.
+   * Uses cachedGetAccount for TTL + in-flight deduplication. Throws
+   * ConfigError if NEXT_PUBLIC_SIMULATION_ACCOUNT is not set.
+   */
+  private async getSimulationAccount(): Promise<Account> {
+    if (!this.simulationAccountAddress) {
+      throw new ConfigError(
+        'NEXT_PUBLIC_SIMULATION_ACCOUNT is not configured. Set it to a funded Stellar account on the active network.',
+      );
+    }
+
+    try {
+      return await this.cachedGetAccount(this.simulationAccountAddress);
+    } catch (err) {
+      throw new ConfigError(
+        `Simulation account ${this.simulationAccountAddress} could not be resolved: ${err instanceof Error ? err.message : 'unknown error'}. Fund this account or set NEXT_PUBLIC_SIMULATION_ACCOUNT to a funded account on ${stellarNetwork}.`,
+      );
+    }
+  }
+
+  /**
+   * Cached getAccount — returns a fresh Account object but deduplicates
+   * concurrent and near-concurrent calls for the same address within a
+   * short TTL window.  Used by every method that needs a simulation
+   * account (getFactoryPools, getUserPosition, calculateUserCredits, …).
+   */
+  async cachedGetAccount(address: string): Promise<Account> {
+    const now = Date.now();
+    const cached = this.accountCache.get(address);
+    if (cached && cached.expiresAt > now) {
+      return cached.account;
+    }
+
+    // If a request is already in flight for this address, share it
+    const inflight = this.inflightAccount.get(address);
+    if (inflight) return inflight;
+
+    const promise = this.rpcServer.getAccount(address).then((account) => {
+      this.accountCache.set(address, {
+        account,
+        expiresAt: Date.now() + SorobanService.ACCOUNT_CACHE_TTL_MS,
+      });
+      this.inflightAccount.delete(address);
+      return account;
+    }).catch((err) => {
+      this.inflightAccount.delete(address);
+      throw err;
+    });
+
+    this.inflightAccount.set(address, promise);
+    return promise;
+  }
+
+  /**
+   * Verify the wallet's active network matches the expected network passphrase.
+   * Defense-in-depth: runs before signTransaction to catch network mismatches
+   * that UI-level gating might miss (e.g. race conditions).
+   */
+  private async verifyWalletNetwork(walletApi: FreighterWalletApi): Promise<void> {
+    if (!walletApi.getNetworkDetails) return;
+    try {
+      const details = await walletApi.getNetworkDetails();
+      if (details.networkPassphrase !== networkPassphrase) {
+        throw new FreighterError(
+          'FREIGHTER_NETWORK_MISMATCH',
+          `Wallet network mismatch: expected "${networkPassphrase}", got "${details.networkPassphrase}". Switch your Freighter wallet to the correct network.`,
+        );
+      }
+    } catch (err) {
+      if (err instanceof FreighterError) throw err;
+      // If getNetworkDetails fails for other reasons, log and continue —
+      // the signing step will surface its own error if the network is wrong.
+      console.warn('[SmartDrop] Could not verify wallet network:', err);
     }
   }
 
@@ -735,9 +1029,30 @@ export class SorobanService {
     if (factoryAddress) {
       this.factoryContract = new Contract(factoryAddress);
     }
-    
+
+    // Without a factory there are no pools to load; skip the call instead of
+    // logging a warning on every page load (#487).
+    if (!this.factoryContract) return;
+
     // Load existing pools
     await this.loadPoolContracts();
+  }
+
+  /**
+   * Lazily run `initialize()` on first use instead of at module import
+   * time (issue #451). The promise is memoized so concurrent callers
+   * share a single RPC round trip; a failure clears it so the next call
+   * can retry. `loadPoolContracts` already swallows factory/RPC errors,
+   * so this never rejects in practice.
+   */
+  private ensureInitialized(): Promise<void> {
+    if (!this.initPromise) {
+      this.initPromise = this.initialize().catch((err) => {
+        console.warn('SorobanService lazy initialization failed:', err);
+        this.initPromise = undefined;
+      });
+    }
+    return this.initPromise;
   }
 
   /**
@@ -761,16 +1076,17 @@ export class SorobanService {
    */
   async getFactoryPools(): Promise<PoolInfo[]> {
     if (!this.factoryContract) {
-      console.warn('Factory contract not initialized; returning empty pool list');
+      if (!this.factoryWarningLogged) {
+        this.factoryWarningLogged = true;
+        console.warn('Factory contract not initialized; returning empty pool list');
+      }
       return [];
     }
 
     try {
       const call = this.factoryContract.call("get_pools");
 
-      const account = await this.rpcServer.getAccount(
-        'GBQ3WPTHKJ5XKWLOKUZJLZL2GVXR6RWQCXUVDQZWM7Q2YNLDRVGM5ZWJ'
-      );
+      const account = await this.getSimulationAccount();
       const transaction = new TransactionBuilder(account, {
         fee: BASE_FEE,
         networkPassphrase,
@@ -804,6 +1120,7 @@ export class SorobanService {
     poolId: string,
     userAddress: string
   ): Promise<UserPosition | null> {
+    await this.ensureInitialized();
     const poolContract = this.poolContracts.get(poolId);
     if (!poolContract) {
       console.warn(`Pool contract not found for ID: ${poolId}`);
@@ -816,9 +1133,7 @@ export class SorobanService {
         Address.fromString(userAddress).toScVal(),
       );
 
-      const account = await this.rpcServer.getAccount(
-        'GBQ3WPTHKJ5XKWLOKUZJLZL2GVXR6RWQCXUVDQZWM7Q2YNLDRVGM5ZWJ'
-      );
+      const account = await this.getSimulationAccount();
       const transaction = new TransactionBuilder(account, {
         fee: BASE_FEE,
         networkPassphrase,
@@ -852,6 +1167,7 @@ export class SorobanService {
     poolId: string,
     userAddress: string
   ): Promise<string> {
+    await this.ensureInitialized();
     const poolContract = this.poolContracts.get(poolId);
     if (!poolContract) {
       console.warn(`Pool contract not found for ID: ${poolId}`);
@@ -864,9 +1180,7 @@ export class SorobanService {
         Address.fromString(userAddress).toScVal(),
       );
 
-      const account = await this.rpcServer.getAccount(
-        'GBQ3WPTHKJ5XKWLOKUZJLZL2GVXR6RWQCXUVDQZWM7Q2YNLDRVGM5ZWJ'
-      );
+      const account = await this.getSimulationAccount();
       const transaction = new TransactionBuilder(account, {
         fee: BASE_FEE,
         networkPassphrase,
@@ -954,6 +1268,7 @@ export class SorobanService {
     amount: string,
     walletApi: FreighterWalletApi,
     callbacks?: LockAssetsCallbacks,
+    isStillConnected?: () => boolean,
   ): Promise<TransactionResult> {
     try {
       // Check if sponsored fee-bump is needed
@@ -974,14 +1289,25 @@ export class SorobanService {
 
       callbacks?.onStep?.('simulating');
       const poolContract = this.resolvePoolContract(poolId);
-      const { transaction, simulation, feePreview } = await simulateLockAssets(
-        {
-          poolContractId: poolContract.contractId(),
-          publicKey: userAddress,
-          amount,
-        },
-        this.rpcServer,
-      );
+      let simResult;
+      try {
+        simResult = await simulateLockAssets(
+          {
+            poolContractId: poolContract.contractId(),
+            publicKey: userAddress,
+            amount,
+          },
+          this.rpcServer,
+        );
+      } catch (simErr) {
+        const simMessage = simErr instanceof Error ? simErr.message : String(simErr);
+        return {
+          success: false,
+          status: 'FAILED',
+          error: parseSimulationError(simMessage),
+        };
+      }
+      const { transaction, simulation, feePreview } = simResult;
 
       validateSimulationAuth(simulation, [
         {
@@ -992,7 +1318,16 @@ export class SorobanService {
 
       const preparedTransaction = rpc.assembleTransaction(transaction, simulation).build();
 
+      // Guard: verify wallet is still connected before requesting signature (#70)
+      if (isStillConnected && !isStillConnected()) {
+        throw new FreighterError(
+          'FREIGHTER_DISCONNECTED_MID_FLOW',
+          'Wallet disconnected during transaction. Please reconnect and try again.',
+        );
+      }
+
       callbacks?.onStep?.('signing');
+      await this.verifyWalletNetwork(walletApi);
       const signedTransaction = getSignedTransactionXdr(
         await walletApi.signTransaction(preparedTransaction.toXDR(), {
           networkPassphrase,
@@ -1003,20 +1338,7 @@ export class SorobanService {
 
       let finalTxXdr = signedTransaction;
       if (isFeeSponsored) {
-        const response = await fetch('/api/sign-fee-bump', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ innerTxXdr: signedTransaction }),
-        });
-        if (!response.ok) {
-          const errText = await response.text();
-          throw new Error(`Fee sponsor failed: ${errText}`);
-        }
-        const resData = await response.json();
-        if (!resData.feeBumpTxXdr) {
-          throw new Error('Sponsor API returned invalid response');
-        }
-        finalTxXdr = resData.feeBumpTxXdr;
+        finalTxXdr = await requestFeeBump(signedTransaction);
       }
 
       callbacks?.onStep?.('submitting');
@@ -1064,6 +1386,14 @@ export class SorobanService {
       if (error instanceof SecurityError) {
         throw error;
       }
+      if (error instanceof FeeBumpError) {
+        return {
+          success: false,
+          status: 'FAILED',
+          errorCode: error.code,
+          error: error.userMessage,
+        };
+      }
       return {
         success: false,
         status: 'FAILED',
@@ -1074,6 +1404,10 @@ export class SorobanService {
 
   /**
    * Unlock assets from a pool
+   * @param amount - display units as a string, converted to stroops via
+   *   amountToStroops — the same contract lockAssets uses (issue #445)
+   * @param amountStroops - optional pre-converted stroops value to avoid
+   *   double-conversion when caller has already validated (issue #500)
    */
   async unlockAssets(
     poolId: string,
@@ -1081,6 +1415,8 @@ export class SorobanService {
     amount: string,
     walletApi: FreighterWalletApi,
     callbacks?: UnlockAssetsCallbacks,
+    isStillConnected?: () => boolean,
+    amountStroops?: bigint,
   ): Promise<TransactionResult> {
     const poolContract = this.resolvePoolContract(poolId);
 
@@ -1101,10 +1437,14 @@ export class SorobanService {
         }
       }
 
+      callbacks?.onStep?.('simulating');
+
+      const stroops = amountStroops ?? amountToStroops(amount);
+
       const call = poolContract.call(
         "unlock_assets",
         Address.fromString(userAddress).toScVal(),
-        nativeToScVal(BigInt(amount), { type: "i128" }),
+        nativeToScVal(stroops, { type: "i128" }),
       );
 
       const account = await this.rpcServer.getAccount(userAddress);
@@ -1122,7 +1462,7 @@ export class SorobanService {
       if ("error" in simulation) {
         return {
           success: false,
-          error: `Simulation failed: ${simulation.error}`,
+          error: parseSimulationError(String(simulation.error)),
         };
       }
 
@@ -1135,7 +1475,16 @@ export class SorobanService {
 
       const preparedTransaction = rpc.assembleTransaction(transaction, simulation).build();
 
+      // Guard: verify wallet is still connected before requesting signature (#70)
+      if (isStillConnected && !isStillConnected()) {
+        throw new FreighterError(
+          'FREIGHTER_DISCONNECTED_MID_FLOW',
+          'Wallet disconnected during transaction. Please reconnect and try again.',
+        );
+      }
+
       callbacks?.onStep?.('signing');
+      await this.verifyWalletNetwork(walletApi);
       const signedTransaction = getSignedTransactionXdr(
         await walletApi.signTransaction(preparedTransaction.toXDR(), {
           networkPassphrase,
@@ -1146,20 +1495,7 @@ export class SorobanService {
 
       let finalTxXdr = signedTransaction;
       if (isFeeSponsored) {
-        const response = await fetch('/api/sign-fee-bump', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ innerTxXdr: signedTransaction }),
-        });
-        if (!response.ok) {
-          const errText = await response.text();
-          throw new Error(`Fee sponsor failed: ${errText}`);
-        }
-        const resData = await response.json();
-        if (!resData.feeBumpTxXdr) {
-          throw new Error('Sponsor API returned invalid response');
-        }
-        finalTxXdr = resData.feeBumpTxXdr;
+        finalTxXdr = await requestFeeBump(signedTransaction);
       }
 
       callbacks?.onStep?.('submitting');
@@ -1206,6 +1542,13 @@ export class SorobanService {
       console.error('Error unlocking assets:', error);
       if (error instanceof SecurityError) {
         throw error;
+      }
+      if (error instanceof FeeBumpError) {
+        return {
+          success: false,
+          errorCode: error.code,
+          error: error.userMessage,
+        };
       }
       return {
         success: false,
@@ -1267,6 +1610,7 @@ export class SorobanService {
 
       const preparedTransaction = rpc.assembleTransaction(transaction, simulation).build();
 
+      await this.verifyWalletNetwork(walletApi);
       const signedTransaction = getSignedTransactionXdr(
         await walletApi.signTransaction(preparedTransaction.toXDR(), {
           networkPassphrase,
@@ -1374,7 +1718,7 @@ export class SorobanService {
   async getPoolHistory(
     poolId: string,
     days: number = 7,
-  ): Promise<{ date: string; tvl: string }[]> {
+  ): Promise<{ date: string; tvl: string; truncated?: boolean }[]> {
     try {
       const latest = await this.rpcServer.getLatestLedger();
       // ~5 s per ledger; days * 86400 / 5
@@ -1385,8 +1729,9 @@ export class SorobanService {
       const lockSym = xdr.ScVal.scvSymbol('lock_assets').toXDR('base64');
       const unlockSym = xdr.ScVal.scvSymbol('unlock_assets').toXDR('base64');
 
-      const response = await this.rpcServer.getEvents({
+      const { events, truncated } = await getAllEvents(this.rpcServer, {
         startLedger,
+        endLedger: latest.sequence,
         filters: [
           {
             type: 'contract',
@@ -1397,18 +1742,31 @@ export class SorobanService {
         limit: 500,
       });
 
+      if (truncated) {
+        console.warn('[SmartDrop] getPoolHistory: event results were truncated — TVL history may be incomplete');
+      }
+
       // Build a running TVL map keyed by ISO date string
       const dailyMap = new Map<string, number>();
       let runningTvl = 0;
 
-      // Seed today and past N days so chart always has points
+      // Seed today and past N days so chart always has points. Use pure UTC
+      // day arithmetic (Date.UTC + millisecond math) rather than
+      // getDate()/setDate(), which operate in the server process's local
+      // timezone: on a "spring forward" DST transition day, subtracting a
+      // local calendar day can skip 23 hours instead of 24, producing a
+      // duplicate key here (collapsing two distinct days into one, since
+      // dailyMap is keyed by date string) — a real, verified gap in the
+      // chart. dateKey below is already a pure UTC slice of ledgerClosedAt,
+      // so seeding needs to match that exactly, with no DST dependency.
+      const now = new Date();
+      const todayUtcMs = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+      const MS_PER_DAY = 24 * 60 * 60 * 1000;
       for (let i = days - 1; i >= 0; i--) {
-        const d = new Date();
-        d.setDate(d.getDate() - i);
-        dailyMap.set(d.toISOString().slice(0, 10), 0);
+        dailyMap.set(new Date(todayUtcMs - i * MS_PER_DAY).toISOString().slice(0, 10), 0);
       }
 
-      for (const evt of response.events) {
+      for (const evt of events) {
         if (!evt.inSuccessfulContractCall) continue;
         const topics = (evt.topic as import('@stellar/stellar-sdk').xdr.ScVal[]).map(scValToNative);
         const action = topics[0] as string;
@@ -1426,9 +1784,11 @@ export class SorobanService {
         if (dailyMap.has(dateKey)) dailyMap.set(dateKey, runningTvl);
       }
 
-      return Array.from(dailyMap.entries())
+      const result = Array.from(dailyMap.entries())
         .sort(([a], [b]) => a.localeCompare(b))
-        .map(([date, tvl]) => ({ date, tvl: String(tvl) }));
+        .map(([date, tvl]) => ({ date, tvl: String(tvl), ...(truncated ? { truncated: true } : {}) }));
+
+      return result;
     } catch (err) {
       console.warn('[SmartDrop] getPoolHistory failed:', err);
       return [];
@@ -1452,8 +1812,9 @@ export class SorobanService {
       const lockSym = xdr.ScVal.scvSymbol('lock_assets').toXDR('base64');
       const unlockSym = xdr.ScVal.scvSymbol('unlock_assets').toXDR('base64');
 
-      const response = await this.rpcServer.getEvents({
+      const { events } = await getAllEvents(this.rpcServer, {
         startLedger,
+        endLedger: latest.sequence,
         filters: [
           {
             type: 'contract',
@@ -1466,7 +1827,7 @@ export class SorobanService {
 
       const balances = new Map<string, number>();
 
-      for (const evt of response.events) {
+      for (const evt of events) {
         if (!evt.inSuccessfulContractCall) continue;
         const topics = (evt.topic as import('@stellar/stellar-sdk').xdr.ScVal[]).map(scValToNative);
         const action = topics[0] as string;
@@ -1509,34 +1870,37 @@ export class SorobanService {
     offset: number,
     limit: number,
     sortKey: LeaderboardSortKey = 'credits',
+    search?: string,
   ): Promise<LeaderboardPage> {
     if (LEADERBOARD_API_URL) {
       try {
-        return await this.fetchLeaderboardFromApi(offset, limit, sortKey);
+        return await this.fetchLeaderboardFromApi(offset, limit, sortKey, search);
       } catch (err) {
         console.warn('[SmartDrop] leaderboard API failed, falling back to event scan:', err);
       }
     }
-    return this.fetchLeaderboardFromEvents(offset, limit, sortKey);
+    return this.fetchLeaderboardFromEvents(offset, limit, sortKey, search);
   }
 
   private async fetchLeaderboardFromApi(
     offset: number,
     limit: number,
     sortKey: LeaderboardSortKey,
+    search?: string,
   ): Promise<LeaderboardPage> {
     const url = new URL(LEADERBOARD_API_URL);
     url.searchParams.set('offset', String(offset));
     url.searchParams.set('limit', String(limit));
     url.searchParams.set('sort', sortKey);
+    if (search) url.searchParams.set('search', search);
 
     const res = await fetch(url.toString(), { headers: { accept: 'application/json' } });
     if (!res.ok) throw new Error(`Leaderboard API responded ${res.status}`);
 
-    const data = (await res.json()) as {
+    const data = await readJsonWithLimit<{
       entries?: Array<Partial<LeaderboardRow>>;
       total?: number;
-    };
+    }>(res);
     const entries: LeaderboardRow[] = (data.entries ?? []).map((e) => ({
       address: String(e.address ?? ''),
       totalCredits: Number(e.totalCredits ?? 0),
@@ -1550,6 +1914,7 @@ export class SorobanService {
     offset: number,
     limit: number,
     sortKey: LeaderboardSortKey,
+    search?: string,
   ): Promise<LeaderboardPage> {
     const poolIds = await this.getLeaderboardPoolIds();
     if (poolIds.length === 0) return { entries: [], total: 0 };
@@ -1562,8 +1927,9 @@ export class SorobanService {
       const unlockSym = xdr.ScVal.scvSymbol('unlock_assets').toXDR('base64');
       const creditSym = xdr.ScVal.scvSymbol('update_credits').toXDR('base64');
 
-      const response = await this.rpcServer.getEvents({
+      const { events, truncated } = await getAllEvents(this.rpcServer, {
         startLedger,
+        endLedger: latest.sequence,
         filters: [
           {
             type: 'contract',
@@ -1573,6 +1939,10 @@ export class SorobanService {
         ],
         limit: 1000,
       });
+
+      if (truncated) {
+        console.warn('[SmartDrop] fetchLeaderboardFromEvents: event results were truncated — leaderboard may be incomplete');
+      }
 
       const agg = new Map<string, { stake: number; credits: number }>();
       const rowFor = (addr: string) => {
@@ -1584,7 +1954,7 @@ export class SorobanService {
         return row;
       };
 
-      for (const evt of response.events) {
+      for (const evt of events) {
         if (!evt.inSuccessfulContractCall) continue;
         const topics = (evt.topic as xdr.ScVal[]).map(scValToNative);
         const action = topics[0] as string;
@@ -1600,12 +1970,17 @@ export class SorobanService {
         else if (action === 'update_credits') row.credits = amount;
       }
 
+      // Issue #142: no boost-related event is scanned above (only
+      // lock_assets/unlock_assets/update_credits), so boost utilization
+      // cannot be derived from on-chain events at all. Report it as
+      // unavailable (null) rather than a fabricated 0 — the API path
+      // (fetchLeaderboardFromApi) still returns a real value.
       const all: LeaderboardRow[] = Array.from(agg.entries())
         .map(([address, { stake, credits }]) => ({
           address,
           totalCredits: Math.round(credits),
           totalStake: Math.round(stake),
-          boostUtilization: 0,
+          boostUtilization: null,
         }))
         .filter((e) => e.totalStake > 0 || e.totalCredits > 0);
 
@@ -1615,7 +1990,14 @@ export class SorobanService {
           : b.totalStake - a.totalStake,
       );
 
-      return { entries: all.slice(offset, offset + limit), total: all.length };
+      // Issue #132: filter the already-fully-scanned `all` array by address
+      // before paginating, so search covers the whole leaderboard rather
+      // than whichever page happened to be loaded when the query was typed.
+      const filtered = search
+        ? all.filter((e) => e.address.toLowerCase().includes(search.toLowerCase()))
+        : all;
+
+      return { entries: filtered.slice(offset, offset + limit), total: filtered.length };
     } catch (err) {
       console.warn('[SmartDrop] event-derived leaderboard failed:', err);
       return { entries: [], total: 0 };
@@ -1665,11 +2047,85 @@ export class SorobanService {
     return parseCreditsFromXdrResult(xdrResult);
   }
 
-  async getCreditVelocity(_windowHours: number = 24): Promise<string> {
+  /**
+   * Credits accrued across pools over the trailing `windowHours` window
+   * (issue #446).
+   *
+   * Instead of simulating `get_total_credits` on every pool (an all-time
+   * snapshot that ignored the window entirely), this scans `update_credits`
+   * events bounded by `windowHours` — plus an equal pre-window period used
+   * as a per-address baseline — and sums each address's net credit growth.
+   * Returns "0" when no factory is configured or no growth was observed.
+   */
+  async getCreditVelocity(windowHours: number = 24): Promise<string> {
     try {
-      void _windowHours;
-      const totalCreditsAccumulated = 0n;
-      return totalCreditsAccumulated.toString();
+      if (!this.factoryContract) {
+        return "0";
+      }
+
+      const poolIds = await this.getLeaderboardPoolIds();
+      if (poolIds.length === 0) {
+        return "0";
+      }
+
+      // ~5s per ledger. Scan the window plus an equal baseline period so
+      // addresses that last updated before the window still have a starting
+      // value to diff against.
+      const hours = Number.isFinite(windowHours) && windowHours > 0 ? windowHours : 24;
+      const ledgersPerWindow = Math.max(1, Math.ceil((hours * 3600) / 5));
+      const latest = await this.rpcServer.getLatestLedger();
+      const startLedger = Math.max(1, latest.sequence - ledgersPerWindow * 2);
+      const windowStartMs = Date.now() - hours * 3600 * 1000;
+
+      const creditSym = xdr.ScVal.scvSymbol('update_credits').toXDR('base64');
+      const { events, truncated } = await getAllEvents(this.rpcServer, {
+        startLedger,
+        endLedger: latest.sequence,
+        filters: [
+          {
+            type: 'contract',
+            contractIds: poolIds,
+            topics: [[creditSym, '*']],
+          },
+        ],
+        limit: 1000,
+      });
+
+      if (truncated) {
+        console.warn('[SmartDrop] getCreditVelocity: event results were truncated — velocity may be understated');
+      }
+
+      // Per address: last value observed before the window opened, plus the
+      // first and last values observed inside it.
+      const baseline = new Map<string, number>();
+      const firstInWindow = new Map<string, number>();
+      const lastInWindow = new Map<string, number>();
+
+      for (const evt of events) {
+        if (!evt.inSuccessfulContractCall) continue;
+        const topics = (evt.topic as xdr.ScVal[]).map(scValToNative);
+        const action = topics[0] as string;
+        if (action !== 'update_credits') continue;
+        const address = String(topics[1] ?? '');
+        if (!address) continue;
+
+        const value = this.extractEventAmount(scValToNative(evt.value as xdr.ScVal));
+        const closedAt = Date.parse(evt.ledgerClosedAt);
+        if (closedAt < windowStartMs) {
+          baseline.set(address, value);
+        } else {
+          if (!firstInWindow.has(address)) firstInWindow.set(address, value);
+          lastInWindow.set(address, value);
+        }
+      }
+
+      let total = 0;
+      for (const [address, last] of lastInWindow) {
+        const start = baseline.get(address) ?? firstInWindow.get(address) ?? 0;
+        total += Math.max(0, last - start);
+      }
+
+      return String(Math.round(total));
     } catch (error) {
       console.error("Failed to calculate credit velocity:", error);
       return "0";
@@ -1677,11 +2133,12 @@ export class SorobanService {
   }
 }
 
-// Export singleton instance
+// Export singleton instance.
+// NOTE: do NOT call initialize() here — a module-level RPC call runs at
+// import time (issue #451), which breaks tree-shaking, fails when the RPC
+// is unavailable during import, and surprises tests that only import this
+// module. Pool contracts are loaded lazily on first use instead.
 export const sorobanService = new SorobanService();
-
-// Initialize on import
-sorobanService.initialize();
 
 // Utility functions
 export const formatCredits = (credits: string): string => {
@@ -1712,6 +2169,11 @@ export const formatCredits = (credits: string): string => {
   return Number(formattedCredits) === 0 ? normalizedCredits : formattedCredits;
 };
 
+// #496 — one number formatter for the lock-time and asset-amount helpers, with
+// a fixed locale so both format numbers the same way for every user.
+const NUMBER_FORMAT = new Intl.NumberFormat('en-US', { maximumFractionDigits: 7 });
+const formatNumber = (value: number): string => NUMBER_FORMAT.format(value);
+
 export const formatLockTime = (timestamp: number): string => {
   const now = Date.now();
   const diff = timestamp - now;
@@ -1724,9 +2186,9 @@ export const formatLockTime = (timestamp: number): string => {
   const days = Math.floor(hours / 24);
   
   if (days > 0) {
-    return `${days} day${days > 1 ? 's' : ''} remaining`;
+    return `${formatNumber(days)} day${days > 1 ? 's' : ''} remaining`;
   } else if (hours > 0) {
-    return `${hours} hour${hours > 1 ? 's' : ''} remaining`;
+    return `${formatNumber(hours)} hour${hours > 1 ? 's' : ''} remaining`;
   } else {
     return 'Less than 1 hour';
   }
@@ -1734,7 +2196,7 @@ export const formatLockTime = (timestamp: number): string => {
 
 export const formatAssetAmount = (amount: string, asset: AssetInfo): string => {
   const num = parseFloat(amount);
-  return `${num.toLocaleString()} ${asset.code}`;
+  return `${formatNumber(num)} ${asset.code}`;
 };
 
 /** Convenience wrapper — call lock_assets on a pool and await on-chain confirmation. */
@@ -1745,16 +2207,18 @@ export const lockAssets = async ({
   walletApi,
   onHash,
   onStep,
+  isStillConnected,
 }: {
   poolContractId: string;
   publicKey: string;
   amount: string;
   walletApi: FreighterWalletApi;
+  isStillConnected?: () => boolean;
 } & LockAssetsCallbacks) =>
   sorobanService.lockAssets(poolContractId, publicKey, amount, walletApi, {
     onHash,
     onStep,
-  });
+  }, isStillConnected);
 
 export const unlockAssets = async ({
   poolContractId,
@@ -1763,23 +2227,28 @@ export const unlockAssets = async ({
   walletApi,
   onHash,
   onStep,
+  isStillConnected,
 }: {
   poolContractId: string;
   publicKey: string;
   amount: string;
   walletApi: FreighterWalletApi;
+  isStillConnected?: () => boolean;
 } & UnlockAssetsCallbacks) => {
-  // Convert display-unit amount to integer stroops before passing as i128.
-  // 1 display unit = 10,000,000 stroops (Stellar's fixed-point precision).
-  const stroops = Math.round(parseFloat(amount) * 10_000_000).toString();
-  return sorobanService.unlockAssets(poolContractId, publicKey, stroops, walletApi, {
+  // Validate the display-unit amount up front so malformed input is rejected
+  // before any wallet/RPC interaction. Capture the converted stroops value
+  // to avoid double-conversion in the service (issue #500).
+  const stroops = amountToStroops(amount);
+  return sorobanService.unlockAssets(poolContractId, publicKey, amount, walletApi, {
     onHash,
     onStep,
-  });
+  }, isStillConnected, stroops);
 };
 
+// Both segments come from RPC/Horizon responses; encode them so a malformed
+// value can't add path segments or a query to the explorer URL (#527).
 export const stellarExpertTxUrl = (hash: string, network: string) =>
-  `https://stellar.expert/explorer/${network}/tx/${hash}`;
+  `https://stellar.expert/explorer/${encodeURIComponent(network)}/tx/${encodeURIComponent(hash)}`;
 
 /**
  * Compute live-preview values for a partial unlock.
@@ -1814,6 +2283,71 @@ const HISTORY_LOOKBACK_LEDGERS = 120960;
 interface SorobanRpcServer {
   getLatestLedger(): Promise<{ sequence: number }>;
   getEvents(request: Parameters<rpc.Server['getEvents']>[0]): ReturnType<rpc.Server['getEvents']>;
+}
+
+/** Maximum number of auto-pagination loops to prevent infinite fetching. */
+const MAX_EVENT_PAGES = 20;
+
+/**
+ * Paginated response from {@link getAllEvents}.
+ */
+export interface PaginatedEvents {
+  events: Awaited<ReturnType<SorobanRpcServer['getEvents']>>['events'];
+  truncated: boolean;
+}
+
+/**
+ * Fetch ALL Soroban contract events within a ledger range, automatically
+ * paginating through the RPC's bounded response pages.
+ *
+ * The Soroban `getEvents` RPC returns at most `limit` events per call.
+ * This helper loops, advancing `startLedger` past the latest ledger of
+ * each response, until the full range is covered or the cap is hit.
+ *
+ * @param server   RPC server (or mock in tests)
+ * @param opts     Same filters/limits you'd pass to `getEvents`, plus
+ *                 `endLedger` to define the upper bound of the range.
+ * @returns        All events plus a `truncated` flag so callers can
+ *                 surface a warning when the full range wasn't covered.
+ */
+export async function getAllEvents(
+  server: SorobanRpcServer,
+  opts: {
+    startLedger: number;
+    endLedger: number;
+    filters: Parameters<SorobanRpcServer['getEvents']>[0]['filters'];
+    limit?: number;
+  },
+): Promise<PaginatedEvents> {
+  const { startLedger, endLedger, filters, limit = 500 } = opts;
+  const allEvents: PaginatedEvents['events'] = [];
+  let cursor = startLedger;
+  let truncated = false;
+  let reachedEnd = false;
+
+  for (let i = 0; i < MAX_EVENT_PAGES; i++) {
+    const response = await server.getEvents({
+      startLedger: cursor,
+      filters,
+      limit,
+    });
+    allEvents.push(...response.events);
+
+    const latestLedger = Number(response.latestLedger ?? 0);
+    // If the server doesn't report a ledger, we can't continue — stop.
+    if (!latestLedger) break;
+    // If we've covered the full range or the page wasn't full, we're done.
+    if (latestLedger >= endLedger || response.events.length < limit) {
+      reachedEnd = true;
+      break;
+    }
+    cursor = latestLedger + 1;
+  }
+
+  // If we exhausted the loop (hit MAX_EVENT_PAGES) without covering the full range, flag it.
+  if (!reachedEnd) truncated = true;
+
+  return { events: allEvents, truncated };
 }
 
 type SorobanEventLike = {
@@ -1891,8 +2425,8 @@ export async function getUserTransactionHistory(
   publicKey: string,
   poolContractIds: string[],
   rpcOverride?: SorobanRpcServer,
-): Promise<TxHistoryEntry[]> {
-  if (!publicKey || poolContractIds.length === 0) return [];
+): Promise<{ entries: TxHistoryEntry[]; truncated: boolean }> {
+  if (!publicKey || poolContractIds.length === 0) return { entries: [], truncated: false };
 
   const server: SorobanRpcServer = rpcOverride ?? rpcServer;
 
@@ -1903,8 +2437,9 @@ export async function getUserTransactionHistory(
     const lockSymbol = xdr.ScVal.scvSymbol('lock_assets').toXDR('base64');
     const unlockSymbol = xdr.ScVal.scvSymbol('unlock_assets').toXDR('base64');
 
-    const response = await server.getEvents({
+    const { events, truncated } = await getAllEvents(server, {
       startLedger,
+      endLedger: latest.sequence,
       filters: [
         {
           type: 'contract',
@@ -1918,18 +2453,25 @@ export async function getUserTransactionHistory(
       limit: 200,
     });
 
+    if (truncated) {
+      console.warn('[SmartDrop] getUserTransactionHistory: event results were truncated — history may be incomplete');
+    }
+
     const entries: TxHistoryEntry[] = [];
-    for (const evt of response.events) {
+    for (const evt of events) {
       const entry = parseTxHistoryEvent(evt as SorobanEventLike, publicKey);
       if (entry) entries.push(entry);
     }
 
     // Newest first
-    return entries.sort(
-      (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime(),
-    );
+    return {
+      entries: entries.sort(
+        (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime(),
+      ),
+      truncated,
+    };
   } catch (error) {
     console.error('Error fetching transaction history:', error);
-    return [];
+    return { entries: [], truncated: false };
   }
 }

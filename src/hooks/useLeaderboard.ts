@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { sorobanService } from "@/lib/soroban";
+import { useUrlPagination } from "./useUrlPagination";
 
 export type SortKey = "credits" | "stake";
 
@@ -7,7 +7,8 @@ export type LeaderboardEntry = {
   address: string;
   totalCredits: number;
   totalStake: number;
-  boostUtilization: number;
+  /** null when unavailable in the current data source (issue #142). */
+  boostUtilization: number | null;
 };
 
 export const PAGE_SIZE = 10;
@@ -17,9 +18,13 @@ const SEARCH_DEBOUNCE_MS = 300;
 export function fetchLeaderboard(
   offset: number,
   limit: number,
-  sortKey: SortKey
+  sortKey: SortKey,
+  search?: string
 ): Promise<{ entries: LeaderboardEntry[]; total: number }> {
-  return sorobanService.getLeaderboard(offset, limit, sortKey);
+  // #498 — loaded on first use rather than at import time.
+  return import("@/lib/soroban").then(({ sorobanService }) =>
+    sorobanService.getLeaderboard(offset, limit, sortKey, search),
+  );
 }
 
 export function useLeaderboard(publicKey: string | null) {
@@ -29,7 +34,8 @@ export function useLeaderboard(publicKey: string | null) {
   const [sortKey, setSortKeyState] = useState<SortKey>("credits");
   const [searchInput, setSearchInput] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
-  const [page, setPageState] = useState(1);
+  // URL-backed so leaderboard pages are shareable and back/forward work (#593).
+  const { page, setPage: setPageState } = useUrlPagination();
   const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null);
 
   useEffect(() => {
@@ -43,7 +49,7 @@ export function useLeaderboard(publicKey: string | null) {
 
   const refresh = useCallback(() => {
     setIsLoading(true);
-    fetchLeaderboard(offset, PAGE_SIZE, sortKey)
+    fetchLeaderboard(offset, PAGE_SIZE, sortKey, searchQuery || undefined)
       .then(({ entries, total }) => {
         setEntries(entries);
         setTotal(total);
@@ -54,7 +60,7 @@ export function useLeaderboard(publicKey: string | null) {
         setTotal(0);
       })
       .finally(() => setIsLoading(false));
-  }, [offset, sortKey]);
+  }, [offset, sortKey, searchQuery]);
 
   useEffect(() => {
     refresh();
@@ -62,11 +68,7 @@ export function useLeaderboard(publicKey: string | null) {
     return () => clearInterval(id);
   }, [refresh]);
 
-  const paged = searchQuery
-    ? entries.filter((e) =>
-        e.address.toLowerCase().includes(searchQuery.toLowerCase())
-      )
-    : entries;
+  const paged = entries;
 
   const connectedRank = (() => {
     if (!publicKey) return 0;
@@ -79,6 +81,13 @@ export function useLeaderboard(publicKey: string | null) {
     setPageState(1);
   };
 
+  // Reset to page 1 when search query changes
+  useEffect(() => {
+    if (searchQuery) {
+      setPageState(1);
+    }
+  }, [searchQuery]);
+
   return {
     paged,
     isLoading,
@@ -90,7 +99,7 @@ export function useLeaderboard(publicKey: string | null) {
     totalPages,
     setPage: setPageState,
     connectedRank,
-    filteredCount: searchQuery ? paged.length : total,
+    filteredCount: total,
     lastRefreshed,
     refresh,
   };

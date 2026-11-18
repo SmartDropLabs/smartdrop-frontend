@@ -4,18 +4,25 @@ import {
     poolContractId,
     stellarNetwork,
 } from "@/config";
+import FieldError from "@/components/FieldError/FieldError";
+import TransactionConfirmModal from "@/components/TransactionConfirmModal/TransactionConfirmModal";
 import { useErrorHandler } from "@/context/ErrorContext";
 import { useStellarWallet } from "@/context/StellarWalletContext";
 import { useCountdown } from "@/hooks/useCountdown";
+import { useDynamicFocusTrap } from "@/hooks/useDynamicFocusTrap";
 import { trackEvent } from "@/lib/analytics";
 import {
     stellarExpertTxUrl,
     unlockAssets,
     computePartialUnlockPreview,
     getContractErrorMessage,
+    type UserPosition,
 } from "@/lib/soroban";
+import { QUERY_KEYS, useUnlockAssetsFeePreview } from "@/hooks/useSorobanQuery";
+import { formatFeeEstimate } from "@/lib/fees";
 import { useFarmStore } from "@/store/farmStore";
 import { unlockAvailableAt } from "@/types/farm";
+import { useQueryClient } from "@tanstack/react-query";
 import {
     Alert,
     AlertIcon,
@@ -34,10 +41,11 @@ import {
     Spinner,
     Text,
 } from "@chakra-ui/react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 
 type UnlockStep =
   | "idle"
+  | "simulating"
   | "signing"
   | "submitting"
   | "confirming"
@@ -47,6 +55,7 @@ type UnlockStep =
 
 const UNLOCK_STEP_LABEL: Record<UnlockStep, string> = {
   idle: "",
+  simulating: "Simulating transaction...",
   signing: "Waiting for Freighter signature...",
   submitting: "Submitting transaction to Stellar...",
   confirming: "Confirming transaction on Stellar...",
@@ -62,17 +71,23 @@ export default function UnlockModal() {
   const position = selectedPosition;
   const { publicKey, walletApi, isNetworkMismatch } = useStellarWallet();
   const toast = useErrorHandler();
+  const queryClient = useQueryClient();
   const [amount, setAmount] = useState("");
   const [step, setStep] = useState<UnlockStep>("idle");
   const [error, setError] = useState<string | null>(null);
   const [txHash, setTxHash] = useState<string | null>(null);
+  const [isConfirmOpen, setIsConfirmOpen] = useState(false);
+  const amountInputRef = useRef<HTMLInputElement>(null);
+  // Callback-ref state (not useRef): ModalContent mounts inside a portal after
+  // the first effect pass, so the trap needs a re-render once it exists.
+  const [contentEl, setContentEl] = useState<HTMLElement | null>(null);
   const selectedPoolContractId = position?.contractAddress || poolContractId;
 
   const unlockAt = position ? unlockAvailableAt(position) : 0;
   const countdown = useCountdown(unlockAt);
   const canUnlock = Boolean(position) && countdown.isElapsed;
   const isProcessing =
-    step === "signing" || step === "submitting" || step === "confirming";
+    step === "simulating" || step === "signing" || step === "submitting" || step === "confirming";
 
   const numericAmount = Number(amount);
   const amountValid =
@@ -80,6 +95,21 @@ export default function UnlockModal() {
     numericAmount >= 0.01 &&
     !!position &&
     numericAmount <= position.lockedAmount;
+  const amountError =
+    !!amount && !amountValid && position
+      ? numericAmount < 0.01
+        ? `Minimum unlock amount is 0.01 ${position.symbol}.`
+        : numericAmount > position.lockedAmount
+          ? `Amount exceeds locked balance of ${position.lockedAmount} ${position.symbol}.`
+          : "Enter a valid amount."
+      : null;
+  const amountErrorId = useId();
+
+  const feePreview = useUnlockAssetsFeePreview({
+    publicKey,
+    poolContractId: selectedPoolContractId,
+    amount: amountValid ? amount : "",
+  });
 
   // Reset transient state whenever the modal opens for a (new) position.
   useEffect(() => {
@@ -88,17 +118,13 @@ export default function UnlockModal() {
       setStep("idle");
       setError(null);
       setTxHash(null);
-
-      // Focus on amount input when modal opens for better accessibility
-      setTimeout(() => {
-        const amountInput = document.querySelector('input[type="number"]') as HTMLInputElement;
-        if (amountInput) {
-          amountInput.focus();
-          amountInput.select();
-        }
-      }, 100);
+      setIsConfirmOpen(false);
     }
   }, [isUnlock, position]);
+
+  // Re-anchor focus inside the dialog when its content changes (form ↔ success
+  // view, controls disabling mid-transaction) so it can't fall back to <body>.
+  useDynamicFocusTrap(contentEl, isUnlock);
 
   const explorerUrl = useMemo(
     () => (txHash ? stellarExpertTxUrl(txHash, stellarNetwork.toLowerCase()) : null),
@@ -122,6 +148,11 @@ export default function UnlockModal() {
     numericDailyRate,
   );
 
+  const handleConfirmUnlock = () => {
+    setIsConfirmOpen(false);
+    void handleUnlock();
+  };
+
   const handleUnlock = async () => {
     if (!publicKey || !walletApi) {
       setError("Connect your Freighter wallet to unlock.");
@@ -130,6 +161,7 @@ export default function UnlockModal() {
     }
     if (isNetworkMismatch) {
       setError(`Switch Freighter to ${stellarNetwork} to unlock.`);
+      setStep("error");
       return;
     }
     if (!selectedPoolContractId) {
@@ -157,7 +189,7 @@ export default function UnlockModal() {
 
     setError(null);
     setTxHash(null);
-    setStep("signing");
+    setStep("simulating");
     const trackingStartTime = Date.now();
     trackEvent("unlock_initiated", {
       farm: position.name,
@@ -168,6 +200,24 @@ export default function UnlockModal() {
       timeRemaining: countdown.remainingMs,
       userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : 'unknown',
     });
+
+    // Snapshot the current position so we can rollback on failure.
+    const positionKey = [QUERY_KEYS.USER_POSITION, selectedPoolContractId, publicKey];
+    const previousPosition = queryClient.getQueryData<UserPosition>(positionKey);
+
+    // Optimistically reduce the locked amount in the cache so the UI
+    // reflects the unlock immediately, before the ledger confirms.
+    if (previousPosition) {
+      const prevAmount = Number(previousPosition.amount);
+      const unlockedAmount = Math.min(numericAmount, prevAmount);
+      const newAmount = Math.max(0, prevAmount - unlockedAmount);
+      queryClient.setQueryData<UserPosition>(positionKey, {
+        ...previousPosition,
+        amount: String(newAmount),
+        isLocked: false,
+        unlockableAt: 0,
+      });
+    }
 
     try {
       const result = await unlockAssets({
@@ -182,6 +232,13 @@ export default function UnlockModal() {
       setTxHash(hash || null);
 
       if (!result.success) {
+        // Roll back the optimistic update for definitive failures.
+        // On TIMEOUT the transaction may still land, so keep the
+        // optimistic state — the next refetch will correct it.
+        if (result.status !== "TIMEOUT" && previousPosition) {
+          queryClient.setQueryData<UserPosition>(positionKey, previousPosition);
+        }
+
         const userMessage =
           result.status === "TIMEOUT"
             ? "Confirmation is taking longer than expected. You can check the transaction manually on Stellar Expert."
@@ -214,10 +271,23 @@ export default function UnlockModal() {
         partial: numericAmount < position.lockedAmount,
         processingTime: Date.now() - trackingStartTime,
       });
-      // TODO(#28): optimistic queryClient.getQueryData update attaches here pending
-      //            maintainer confirmation — see issue discussion
+
+      // Invalidate so the next refetch picks up the real ledger state
+      queryClient.invalidateQueries({ queryKey: [QUERY_KEYS.USER_POSITION, selectedPoolContractId] });
+      queryClient.invalidateQueries({ queryKey: [QUERY_KEYS.USER_POSITION, 'all', publicKey] });
+      queryClient.invalidateQueries({ queryKey: [QUERY_KEYS.USER_CREDITS, selectedPoolContractId] });
+      queryClient.invalidateQueries({ queryKey: [QUERY_KEYS.POOLS] });
+      queryClient.invalidateQueries({ queryKey: [QUERY_KEYS.PLATFORM_STATS] });
     } catch (err) {
-      const normalizedError = toast.handleError(err, "Unlock Transaction");
+      // Roll back the optimistic update on thrown errors
+      if (previousPosition) {
+        queryClient.setQueryData<UserPosition>(positionKey, previousPosition);
+      }
+
+      // Issue #250: let the user retry the same unlock straight from the
+      // error toast instead of having to reopen the modal and re-enter
+      // the amount.
+      const normalizedError = toast.handleError(err, "Unlock Transaction", () => void handleUnlock());
       setError(normalizedError.userMessage);
       setStep("error");
       trackEvent("unlock_failed", {
@@ -238,9 +308,19 @@ export default function UnlockModal() {
   );
 
   return (
-    <Modal isOpen={isUnlock} onClose={handleClose}>
+    <Modal
+      isOpen={isUnlock}
+      onClose={handleClose}
+      lockScrollAcrossViewports
+      // Keep keyboard focus inside the dialog (WCAG 2.1.2 / 2.4.3), start on the
+      // amount field, and hand focus back to the trigger when the dialog closes.
+      trapFocus
+      returnFocusOnClose
+      initialFocusRef={amountInputRef}
+    >
       <ModalOverlay backdropFilter="blur(3px)" />
       <ModalContent
+        ref={setContentEl}
         bg="app.surface"
         color="app.text"
         borderRadius="3xl"
@@ -313,11 +393,11 @@ export default function UnlockModal() {
                 <Alert
                   status="warning"
                   borderRadius="2xl"
-                  bg="#2a2412"
-                  color="#f6c453"
+                  bg="app.warningBg"
+                  color="app.warningFg"
                   fontSize="sm"
                 >
-                  <AlertIcon color="#f6c453" />
+                  <AlertIcon color="app.warningFg" />
                   Assets are time-locked for security. You can unlock once the countdown
                   reaches zero to protect against impulsive withdrawals.
                 </Alert>
@@ -329,6 +409,8 @@ export default function UnlockModal() {
                 </Text>
                 <Box position="relative" w="100%">
                   <Input
+                    ref={amountInputRef}
+                    onFocus={(e) => e.currentTarget.select()}
                     type="number"
                     borderRadius="2xl"
                     placeholder="Amount"
@@ -338,6 +420,8 @@ export default function UnlockModal() {
                     value={amount}
                     onChange={(e) => setAmount(e.target.value)}
                     isDisabled={!canUnlock || isProcessing}
+                    isInvalid={Boolean(amountError)}
+                    aria-describedby={amountErrorId}
                     borderColor="app.border"
                     bg="app.inputBg"
                     color="app.text"
@@ -345,41 +429,59 @@ export default function UnlockModal() {
                     _hover={{ borderColor: "app.accent" }}
                     _focus={{ boxShadow: "none", borderColor: "app.accent" }}
                   />
+                  {/* Tab order (#591): these controls sit visually on the right of
+                      the amount field and come right after it in the DOM, so Tab
+                      walks input → 50% → Max → actions. Real buttons (not click
+                      handlers on Text) so keyboard users can actually reach them. */}
                   <Flex
                     position="absolute"
                     top="50%"
                     right="12px"
                     transform="translateY(-50%)"
-                    gap={3}
+                    gap={2}
                     align="center"
                   >
                     <Text fontSize="sm">{position.symbol}</Text>
-                    <Text
-                      fontSize="xs"
+                    <Button
+                      type="button"
+                      size="xs"
+                      variant="ghost"
                       color="app.accent"
-                      cursor={canUnlock ? "pointer" : "not-allowed"}
-                      onClick={canUnlock ? set50Pct : undefined}
-                      _hover={canUnlock ? { opacity: 0.8 } : {}}
-                      transition="opacity 0.2s"
+                      minW="auto"
+                      h="auto"
+                      px={1}
+                      fontSize="xs"
+                      isDisabled={!canUnlock || isProcessing}
+                      onClick={set50Pct}
                     >
                       50%
-                    </Text>
-                    <Text
-                      fontSize="xs"
+                    </Button>
+                    <Button
+                      type="button"
+                      size="xs"
+                      variant="ghost"
                       color="app.accent"
-                      cursor={canUnlock ? "pointer" : "not-allowed"}
-                      onClick={canUnlock ? setMax : undefined}
-                      _hover={canUnlock ? { opacity: 0.8 } : {}}
-                      transition="opacity 0.2s"
+                      minW="auto"
+                      h="auto"
+                      px={1}
+                      fontSize="xs"
+                      isDisabled={!canUnlock || isProcessing}
+                      onClick={setMax}
                     >
                       Max
-                    </Text>
+                    </Button>
                   </Flex>
                 </Box>
               </Flex>
 
+              <FieldError id={amountErrorId} message={amountError} />
+
               {amountValid && (
                 <Box border="1px solid #303030" borderRadius="2xl" p={3}>
+                  {infoRow(
+                    "Estimated receive",
+                    `${numericAmount.toFixed(4)} ${position.symbol}`,
+                  )}
                   {infoRow(
                     "Remaining stake",
                     `${remainingStake.toFixed(4)} ${position.symbol}`,
@@ -387,6 +489,14 @@ export default function UnlockModal() {
                   {infoRow(
                     "New daily rate",
                     `${newDailyRate.toFixed(6)} credits/day`,
+                  )}
+                  {infoRow(
+                    "Estimated Soroban fee",
+                    feePreview.isFetching
+                      ? "Simulating..."
+                      : feePreview.data
+                        ? formatFeeEstimate(feePreview.data.feePreview) ?? "Unavailable"
+                        : "Unavailable",
                   )}
                 </Box>
               )}
@@ -396,7 +506,7 @@ export default function UnlockModal() {
                   <Flex align="center" gap={3} w="full">
                     <Spinner size="sm" color="app.accent" />
                     <Box>
-                      <Text fontSize="sm" fontWeight="semibold">
+                      <Text fontSize="sm" fontWeight="semibold" aria-live="polite" aria-atomic="true">
                         {UNLOCK_STEP_LABEL[step]}
                       </Text>
                       {step === "confirming" && txHash && explorerUrl && (
@@ -410,8 +520,8 @@ export default function UnlockModal() {
               )}
 
               {step === "timeout" && (
-                <Alert status="warning" borderRadius="2xl" bg="#2a2412" color="#f6c453">
-                  <AlertIcon color="#f6c453" />
+                <Alert status="warning" borderRadius="2xl" bg="app.warningBg" color="app.warningFg" aria-live="assertive" aria-atomic="true">
+                  <AlertIcon color="app.warningFg" />
                   <Flex direction="column" gap={1}>
                     <Text>Confirmation is taking longer than expected.</Text>
                     {explorerUrl && (
@@ -430,11 +540,11 @@ export default function UnlockModal() {
                   <Alert
                     status="warning"
                     borderRadius="2xl"
-                    bg="#2a2412"
-                    color="#f6c453"
+                    bg="app.warningBg"
+                    color="app.warningFg"
                     fontSize="sm"
                   >
-                    <AlertIcon color="#f6c453" />
+                    <AlertIcon color="app.warningFg" />
                     Warning: remaining stake below minimum — the contract will close this position entirely
                   </Alert>
                 )}
@@ -443,11 +553,13 @@ export default function UnlockModal() {
                 <Alert
                   status="error"
                   borderRadius="2xl"
-                  bg="#2a1414"
-                  color="#ff8080"
+                  bg="app.errorBg"
+                  color="app.errorFg"
                   fontSize="sm"
+                  aria-live="assertive"
+                  aria-atomic="true"
                 >
-                  <AlertIcon color="#ff8080" />
+                  <AlertIcon color="app.errorFg" />
                   {error}
                 </Alert>
               )}
@@ -458,7 +570,7 @@ export default function UnlockModal() {
                 color="app.onAccent"
                 _hover={{ opacity: 0.9 }}
                 isDisabled={!canUnlock || !amountValid || isProcessing || isNetworkMismatch}
-                onClick={() => void handleUnlock()}
+                onClick={() => setIsConfirmOpen(true)}
                 w="full"
               >
                 {isProcessing ? (
@@ -474,6 +586,30 @@ export default function UnlockModal() {
           )}
         </ModalBody>
       </ModalContent>
+      <TransactionConfirmModal
+        isOpen={isConfirmOpen}
+        onClose={() => setIsConfirmOpen(false)}
+        onConfirm={handleConfirmUnlock}
+        title="Confirm Unlock"
+        description="Review the details below. You'll be asked to sign this transaction in Freighter."
+        details={[
+          { label: "Pool", value: position.name },
+          { label: "Unlock amount", value: `${numericAmount} ${position.symbol}` },
+          { label: "Remaining stake", value: `${remainingStake.toFixed(4)} ${position.symbol}` },
+          { label: "New daily rate", value: `${newDailyRate.toFixed(6)} credits/day` },
+        ]}
+        fee={{
+          minResourceFee: feePreview.data?.feePreview,
+          isLoading: feePreview.isFetching,
+          isError: feePreview.isError,
+        }}
+        warning={
+          numericAmount < position.lockedAmount
+            ? "Unlocked assets stop earning credits once the transaction confirms."
+            : "This closes your entire position. Unlocked assets stop earning credits once the transaction confirms."
+        }
+        confirmLabel="Confirm Unlock"
+      />
     </Modal>
   );
 }
