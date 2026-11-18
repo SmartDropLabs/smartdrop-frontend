@@ -1,7 +1,9 @@
 import { Button, Flex, Text } from "@chakra-ui/react";
 import NextLink from "next/link";
+import LegacyPathRedirect from "./LegacyPathRedirect";
 
 export default function NotFound() {
+  // Sends legacy /leaderbord typo requests to /leaderboard (#444).
   return (
     <Flex
       direction="column"
@@ -13,6 +15,7 @@ export default function NotFound() {
       py={24}
       minH="60vh"
     >
+      <LegacyPathRedirect />
       <Text
         fontSize={{ base: "5xl", md: "7xl" }}
         fontWeight="extrabold"

@@ -29,7 +29,7 @@ export abstract class SmartDropError extends Error {
     this.originalError = originalError;
 
     // Maintain proper prototype chain for instanceof checks
-    Object.setPrototypeOf(this, SmartDropError.prototype);
+    Object.setPrototypeOf(this, new.target.prototype);
   }
 
   /**
@@ -197,6 +197,33 @@ export class SecurityError extends SmartDropError {
       ...super.getLogContext(),
       errorType: "SecurityError",
       isSigningSafetyIssue: true,
+    };
+  }
+}
+
+/**
+ * Fee-bump sponsorship failures from /api/sign-fee-bump.
+ */
+export class FeeBumpError extends SmartDropError {
+  readonly code = "FEE_BUMP_FAILED";
+  readonly isTransient = true;
+  readonly isCritical = false;
+  readonly status?: number;
+
+  constructor(message: string, status?: number, originalError?: Error) {
+    super(message, originalError);
+    this.status = status;
+    Object.setPrototypeOf(this, FeeBumpError.prototype);
+  }
+
+  readonly userMessage =
+    "Transaction fee sponsorship is temporarily unavailable. Please try again or add XLM to your wallet for regular fees.";
+
+  getLogContext() {
+    return {
+      ...super.getLogContext(),
+      errorType: "FeeBumpError",
+      status: this.status,
     };
   }
 }
@@ -416,7 +443,7 @@ export async function withRetry<T>(
  * In production, can send to an error tracking service.
  */
 export class ErrorLogger {
-  private isDevelopment = typeof window !== "undefined" && !window.location.hostname.includes("localhost") === false;
+  private isDevelopment = process.env.NODE_ENV === "development";
 
   log(error: SmartDropError, context?: string): void {
     const logData = {
@@ -426,9 +453,8 @@ export class ErrorLogger {
       ...error.getLogContext(),
     };
 
-    if (this.isDevelopment) {
-      console.error("[SmartDrop Error]", logData);
-    }
+    // Always log errors to console regardless of environment for visibility
+    console.error("[SmartDrop Error]", logData);
 
     // TODO: Send to error tracking service (Sentry, LogRocket, etc.) in production
     // if (!this.isDevelopment) {

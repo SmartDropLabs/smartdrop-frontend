@@ -1,4 +1,5 @@
 import { backendApiUrl } from "@/config";
+import { readJsonWithLimit, ResponseTooLargeError } from "./safe-fetch";
 
 export class BackendApiError extends Error {
   status: number;
@@ -45,17 +46,29 @@ export const backendQueryRetry = {
   retryDelay: (attemptIndex: number) => Math.min(1000 * 2 ** attemptIndex, 10_000),
 } as const;
 
+const DEFAULT_TIMEOUT = 20_000;
+
 async function request<T>(
   path: string,
-  init?: RequestInit & { apiKey?: string },
+  init?: RequestInit & { apiKey?: string; timeoutMs?: number },
 ): Promise<T> {
-  const { apiKey, ...rest } = init ?? {};
+  const { apiKey, timeoutMs, ...rest } = init ?? {};
   const headers = new Headers(rest.headers);
   headers.set("Content-Type", "application/json");
   if (apiKey) headers.set("Authorization", `Bearer ${apiKey}`);
 
-  const res = await fetch(`${backendApiUrl}${path}`, { ...rest, headers });
-  const body = await res.json().catch(() => null);
+  const timeout = timeoutMs ?? DEFAULT_TIMEOUT;
+  const res = await fetch(`${backendApiUrl}${path}`, {
+    ...rest,
+    headers,
+    signal: rest.signal ?? AbortSignal.timeout(timeout),
+  });
+  // An oversized response is an error, not an empty body (#488).
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const body = await readJsonWithLimit<any>(res).catch((err) => {
+    if (err instanceof ResponseTooLargeError) throw err;
+    return null;
+  });
 
   if (!res.ok) {
     const message =

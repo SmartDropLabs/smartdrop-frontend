@@ -22,6 +22,7 @@ import {
   type Alert,
 } from "@/lib/backend";
 import { QueryErrorAlert } from "@/components/QueryErrorAlert/QueryErrorAlert";
+import FieldError from "@/components/FieldError/FieldError";
 
 export default function AlertsPage() {
   const toast = useToast();
@@ -138,19 +139,15 @@ export default function AlertsPage() {
           placeholder="Your smartdrop-backend API key"
           fontFamily="mono"
           fontSize="sm"
-          borderColor={apiKeyError ? "#ff8080" : "app.border"}
+          borderColor={apiKeyError ? "app.errorFg" : "app.border"}
           bg="app.inputBg"
           isInvalid={Boolean(apiKeyError)}
           aria-invalid={Boolean(apiKeyError)}
-          aria-describedby="api-key-help"
-          _hover={{ borderColor: apiKeyError ? "#ff8080" : "app.accent" }}
-          _focus={{ boxShadow: "none", borderColor: apiKeyError ? "#ff8080" : "app.accent" }}
+          aria-describedby="api-key-error api-key-help"
+          _hover={{ borderColor: apiKeyError ? "app.errorFg" : "app.accent" }}
+          _focus={{ boxShadow: "none", borderColor: apiKeyError ? "app.errorFg" : "app.accent" }}
         />
-        {apiKeyError && (
-          <Text fontSize="xs" color="#ff8080" mt={2}>
-            {apiKeyError}
-          </Text>
-        )}
+        <FieldError id="api-key-error" message={apiKeyError} mt={2} />
         <Text id="api-key-help" fontSize="xs" color="app.muted" mt={2}>
           This endpoint requires backend authentication. The key is only kept in this page&apos;s memory — it is never stored or sent anywhere except the backend API.
         </Text>
@@ -304,7 +301,7 @@ export default function AlertsPage() {
                       size="sm"
                       variant="outline"
                       borderColor="app.border"
-                      color="#ff8080"
+                      color="app.errorFg"
                       onClick={() => deleteMutation.mutate(alert.id)}
                       isLoading={deleteMutation.isPending && deleteMutation.variables === alert.id}
                     >

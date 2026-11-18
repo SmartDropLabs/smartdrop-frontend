@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Alert,
   AlertIcon,
@@ -13,7 +13,7 @@ import {
   Spinner,
   Text,
 } from "@chakra-ui/react";
-import { useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { getPrice, backendQueryRetry } from "@/lib/backend";
 import { QueryErrorAlert } from "@/components/QueryErrorAlert/QueryErrorAlert";
 
@@ -27,24 +27,35 @@ function formatUsd(value: number | null) {
   });
 }
 
-type TimeRange = "1D" | "1W" | "1M" | "1Y";
-const TIME_RANGES: TimeRange[] = ["1D", "1W", "1M", "1Y"];
+/** Minimum time between lookups, so the Look up button cannot be spammed (#486). */
+const LOOKUP_COOLDOWN_MS = 2000;
 
 export default function PricesPage() {
   const [assetCode, setAssetCode] = useState("XLM");
   const [issuer, setIssuer] = useState("");
   const [submitted, setSubmitted] = useState({ assetCode: "XLM", issuer: "" });
-  const [timeRange, setTimeRange] = useState<TimeRange>("1D");
+  const [coolingDown, setCoolingDown] = useState(false);
 
-  const { data, isLoading, isError, error, isFetching, refetch } = useQuery({
+  useEffect(() => {
+    if (!coolingDown) return;
+    const timer = setTimeout(() => setCoolingDown(false), LOOKUP_COOLDOWN_MS);
+    return () => clearTimeout(timer);
+  }, [coolingDown]);
+
+  const { data, isLoading, isError, error, isFetching, isPlaceholderData, refetch } = useQuery({
     queryKey: ["price", submitted.assetCode, submitted.issuer],
     queryFn: () => getPrice(submitted.assetCode, submitted.issuer || undefined),
     enabled: !!submitted.assetCode,
+    // Keep showing the previous result while a new lookup loads, instead of
+    // unmounting the card for a spinner and remounting it (the flash in #567).
+    placeholderData: keepPreviousData,
     ...backendQueryRetry,
   });
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (coolingDown || isFetching) return;
+    setCoolingDown(true);
     setSubmitted({ assetCode: assetCode.trim().toUpperCase(), issuer: issuer.trim() });
   };
 
@@ -111,13 +122,27 @@ export default function PricesPage() {
               _focus={{ boxShadow: "none", borderColor: "app.accent" }}
             />
           </Box>
-          <Button type="submit" bg="app.accent" color="app.onAccent" _hover={{ opacity: 0.9 }} isLoading={isFetching}>
+          <Button
+            type="submit"
+            bg="app.accent"
+            color="app.onAccent"
+            _hover={{ opacity: 0.9 }}
+            isLoading={isFetching}
+            isDisabled={coolingDown}
+          >
             Look up
           </Button>
         </Flex>
       </Box>
 
-      <Box w="100%" maxW="800px">
+      <Box
+        w="100%"
+        maxW="800px"
+        aria-busy={isFetching}
+        // Dim (not replace) the current result while a new one loads (#567).
+        opacity={isPlaceholderData ? 0.6 : 1}
+        transition="opacity 0.2s ease"
+      >
         {isLoading ? (
           <Flex justify="center" py={10}>
             <Spinner color="app.accent" size="xl" thickness="3px" />
@@ -158,26 +183,14 @@ export default function PricesPage() {
                 {data.is_stale ? "Stale" : "Fresh"}
               </Badge>
             </HStack>
-
-            <HStack spacing={1} mb={4}>
-              {TIME_RANGES.map((range) => (
-                <Button
-                  key={range}
-                  size="xs"
-                  variant={timeRange === range ? "solid" : "ghost"}
-                  bg={timeRange === range ? "app.accent" : undefined}
-                  color={timeRange === range ? "app.onAccent" : "app.muted"}
-                  _hover={{ bg: timeRange === range ? "app.accent" : "app.border", opacity: 0.9 }}
-                  borderRadius="md"
-                  onClick={() => setTimeRange(range)}
-                  aria-pressed={timeRange === range}
-                >
-                  {range}
-                </Button>
-              ))}
-            </HStack>
-
-            <Text fontSize="4xl" fontWeight="extrabold" color="app.accent" mb={2}>
+            <Text
+              fontSize="4xl"
+              fontWeight="extrabold"
+              color="app.accent"
+              mb={2}
+              // Fixed-width digits so a changing price doesn't jitter the layout.
+              sx={{ fontVariantNumeric: "tabular-nums" }}
+            >
               {formatUsd(data.price_usd)}
             </Text>
             <Text fontSize="sm" color="app.muted" mb={1}>

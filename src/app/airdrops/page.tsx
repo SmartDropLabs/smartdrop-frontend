@@ -1,6 +1,5 @@
 "use client";
 
-import { useState } from "react";
 import {
   Badge,
   Box,
@@ -13,6 +12,7 @@ import {
 import { useQuery } from "@tanstack/react-query";
 import { listAirdrops, backendQueryRetry } from "@/lib/backend";
 import { QueryErrorAlert } from "@/components/QueryErrorAlert/QueryErrorAlert";
+import { useUrlPagination } from "@/hooks/useUrlPagination";
 
 function statusColor(status: string) {
   switch (status) {
@@ -29,7 +29,8 @@ function statusColor(status: string) {
 }
 
 export default function AirdropsPage() {
-  const [page, setPage] = useState(1);
+  // Page lives in the URL so listings can be shared and the back button works (#593).
+  const { page, setPage } = useUrlPagination();
 
   const { data, isLoading, isError, error, isFetching, refetch } = useQuery({
     queryKey: ["airdrops", page],

@@ -4,7 +4,7 @@ import type { FarmPosition } from "@/types/farm";
 
 type FarmModal = "none" | "unlock" | "deposit" | "boost";
 
-type FarmStore = {
+export type FarmStore = {
   selectedPosition: FarmPosition | null;
   activeModal: FarmModal;
   pendingTxHash: string | null;

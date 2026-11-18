@@ -3,7 +3,9 @@ import { ChakraProvider } from "@chakra-ui/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import NetworkMismatchBanner from "./NetworkMismatchBanner";
+import { ErrorProvider } from "@/context/ErrorContext";
 import {
+  NETWORK_MISMATCH_POLL_MS,
   StellarWalletProvider,
   useStellarWallet,
 } from "@/context/StellarWalletContext";
@@ -31,10 +33,12 @@ function ConnectHarness() {
 function renderBannerHarness() {
   return render(
     <ChakraProvider>
-      <StellarWalletProvider>
-        <NetworkMismatchBanner />
-        <ConnectHarness />
-      </StellarWalletProvider>
+      <ErrorProvider>
+        <StellarWalletProvider>
+          <NetworkMismatchBanner />
+          <ConnectHarness />
+        </StellarWalletProvider>
+      </ErrorProvider>
     </ChakraProvider>,
   );
 }
@@ -100,5 +104,48 @@ describe("NetworkMismatchBanner", () => {
       ).toBeNull();
     });
     expect(freighterMock.getNetworkDetails).toHaveBeenCalledTimes(2);
+  });
+
+  describe("dismisses after a network switch without leaving the tab (#512)", () => {
+    const PUBLIC = {
+      network: "PUBLIC",
+      networkUrl: "https://horizon.stellar.org",
+      networkPassphrase: "Public Global Stellar Network ; September 2015",
+    };
+    const TESTNET = {
+      network: "TESTNET",
+      networkUrl: "https://horizon-testnet.stellar.org",
+      networkPassphrase: "Test SDF Network ; September 2015",
+    };
+    const MISMATCH =
+      /Freighter is set to PUBLIC\. Switch to TESTNET to use SmartDrop\./;
+
+    async function connectOnPublic() {
+      freighterMock.getNetworkDetails
+        .mockResolvedValueOnce(PUBLIC)
+        .mockResolvedValue(TESTNET);
+      renderBannerHarness();
+      fireEvent.click(screen.getByRole("button", { name: "Connect" }));
+      await screen.findByText(MISMATCH);
+    }
+
+    it("re-checks when the window regains focus", async () => {
+      await connectOnPublic();
+
+      window.dispatchEvent(new Event("focus"));
+
+      await waitFor(() => expect(screen.queryByText(MISMATCH)).toBeNull());
+    });
+
+    it("polls Freighter while the network is mismatched", async () => {
+      await connectOnPublic();
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      try {
+        await vi.advanceTimersByTimeAsync(NETWORK_MISMATCH_POLL_MS);
+        await waitFor(() => expect(screen.queryByText(MISMATCH)).toBeNull());
+      } finally {
+        vi.useRealTimers();
+      }
+    });
   });
 });

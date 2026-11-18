@@ -11,7 +11,7 @@ const BASE_ENV = {
   NEXT_PUBLIC_HORIZON_URL: 'https://horizon-testnet.stellar.org',
   NEXT_PUBLIC_BACKEND_API_URL: 'http://localhost:4000/api/v1',
   STELLAR_FEE_SPONSOR_SECRET: 'SABC123',
-} as NodeJS.ProcessEnv;
+} as unknown as NodeJS.ProcessEnv;
 
 describe('collectEnvWarnings', () => {
   it('returns no warnings when every var is present and well-formed', () => {
