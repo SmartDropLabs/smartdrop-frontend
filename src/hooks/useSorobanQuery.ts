@@ -673,5 +673,5 @@ export function useRpcHealth() {
     refetchOnWindowFocus: true,
   });
 
-  return { isUnreachable: query.isError };
+  return { isUnreachable: query.isError, retryConnection: query.refetch };
 }
