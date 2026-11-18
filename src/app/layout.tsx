@@ -1,4 +1,5 @@
 ﻿import AppShell from "@/components/AppShell/AppShell";
+import SkipLink from "@/components/SkipLink/SkipLink";
 import type { Metadata, Viewport } from "next";
 import { Inter } from "next/font/google";
 import { CSP_POLICY } from "../../next.config";
@@ -32,6 +33,7 @@ export default function RootLayout({
         <meta httpEquiv="Content-Security-Policy" content={CSP_POLICY} />
       </head>
       <body suppressHydrationWarning>
+        <SkipLink />
         <AppShell>{children}</AppShell>
       </body>
     </html>

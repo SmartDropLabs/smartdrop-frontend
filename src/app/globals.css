@@ -37,3 +37,23 @@
 ::-webkit-scrollbar-thumb:hover {
   background: #3a413e;
 }
+
+/* SkipLink — visually hidden until focused (WCAG 2.4.1) */
+.skip-link {
+  position: absolute;
+  top: -9999px;
+  left: -9999px;
+  z-index: 9999;
+  padding: 0.5rem 1rem;
+  background: #fff;
+  color: #000;
+  font-weight: 600;
+  text-decoration: none;
+  border-radius: 0 0 4px 4px;
+}
+
+.skip-link:focus {
+  position: fixed;
+  top: 0;
+  left: 0;
+}
