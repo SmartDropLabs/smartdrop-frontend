@@ -99,6 +99,15 @@ export class RateLimiter {
     const windowStart = now - this.windowMs;
     const recent = (this.hits.get(key) ?? []).filter((t) => t > windowStart);
 
+    // Window is empty (first hit, or previous entries expired): drop any
+    // stale timestamps and record THIS hit. Returning early without
+    // recording left every call looking like a fresh window, so the limiter
+    // never throttled anything.
+    if (recent.length === 0) {
+      this.hits.set(key, [now]);
+      return true;
+    }
+
     if (recent.length >= this.maxRequests) {
       this.hits.set(key, recent);
       return false;

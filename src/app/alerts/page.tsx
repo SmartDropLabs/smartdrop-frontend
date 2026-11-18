@@ -22,6 +22,7 @@ import {
   type Alert,
 } from "@/lib/backend";
 import { QueryErrorAlert } from "@/components/QueryErrorAlert/QueryErrorAlert";
+import FieldError from "@/components/FieldError/FieldError";
 
 export default function AlertsPage() {
   const toast = useToast();
@@ -33,18 +34,28 @@ export default function AlertsPage() {
   const [webhookUrl, setWebhookUrl] = useState("");
   const [webhookSecret, setWebhookSecret] = useState("");
 
-  const hasKey = apiKey.trim().length > 0;
+  // Backend API keys are opaque bearer tokens with no documented format —
+  // validate the one thing we can: it must be non-trivial-length, non-blank
+  // input, not just whitespace or a stray keystroke (issue #206).
+  const trimmedApiKey = apiKey.trim();
+  const MIN_API_KEY_LENGTH = 16;
+  const apiKeyTouched = apiKey.length > 0;
+  const apiKeyError =
+    apiKeyTouched && trimmedApiKey.length < MIN_API_KEY_LENGTH
+      ? `API key looks too short (min ${MIN_API_KEY_LENGTH} characters).`
+      : null;
+  const hasKey = trimmedApiKey.length >= MIN_API_KEY_LENGTH;
 
   const { data, isLoading, isError, error, isFetching, refetch } = useQuery({
-    queryKey: ["alerts", apiKey],
-    queryFn: () => listAlerts(apiKey),
+    queryKey: ["alerts", trimmedApiKey],
+    queryFn: () => listAlerts(trimmedApiKey),
     enabled: hasKey,
     ...backendQueryRetry,
   });
 
   const createMutation = useMutation({
     mutationFn: () =>
-      createAlert(apiKey, {
+      createAlert(trimmedApiKey, {
         asset: asset.trim().toUpperCase(),
         type,
         threshold_usd: Number(thresholdUsd),
@@ -57,7 +68,7 @@ export default function AlertsPage() {
       setThresholdUsd("");
       setWebhookUrl("");
       setWebhookSecret("");
-      queryClient.invalidateQueries({ queryKey: ["alerts", apiKey] });
+      queryClient.invalidateQueries({ queryKey: ["alerts", trimmedApiKey] });
     },
     onError: (err) =>
       toast({
@@ -69,8 +80,8 @@ export default function AlertsPage() {
   });
 
   const deleteMutation = useMutation({
-    mutationFn: (id: string) => deleteAlert(apiKey, id),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["alerts", apiKey] }),
+    mutationFn: (id: string) => deleteAlert(trimmedApiKey, id),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["alerts", trimmedApiKey] }),
   });
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -128,12 +139,16 @@ export default function AlertsPage() {
           placeholder="Your smartdrop-backend API key"
           fontFamily="mono"
           fontSize="sm"
-          borderColor="app.border"
+          borderColor={apiKeyError ? "app.errorFg" : "app.border"}
           bg="app.inputBg"
-          _hover={{ borderColor: "app.accent" }}
-          _focus={{ boxShadow: "none", borderColor: "app.accent" }}
+          isInvalid={Boolean(apiKeyError)}
+          aria-invalid={Boolean(apiKeyError)}
+          aria-describedby="api-key-error api-key-help"
+          _hover={{ borderColor: apiKeyError ? "app.errorFg" : "app.accent" }}
+          _focus={{ boxShadow: "none", borderColor: apiKeyError ? "app.errorFg" : "app.accent" }}
         />
-        <Text fontSize="xs" color="app.muted" mt={2}>
+        <FieldError id="api-key-error" message={apiKeyError} mt={2} />
+        <Text id="api-key-help" fontSize="xs" color="app.muted" mt={2}>
           This endpoint requires backend authentication. The key is only kept in this page&apos;s memory — it is never stored or sent anywhere except the backend API.
         </Text>
       </Box>
@@ -286,7 +301,7 @@ export default function AlertsPage() {
                       size="sm"
                       variant="outline"
                       borderColor="app.border"
-                      color="#ff8080"
+                      color="app.errorFg"
                       onClick={() => deleteMutation.mutate(alert.id)}
                       isLoading={deleteMutation.isPending && deleteMutation.variables === alert.id}
                     >

@@ -7,6 +7,7 @@ import {
   HStack,
   Input,
   Select,
+  Skeleton,
   Spinner,
   Table,
   TableContainer,
@@ -21,6 +22,8 @@ import { useStellarWallet } from "@/context/StellarWalletContext";
 import { useLeaderboard, PAGE_SIZE, type SortKey } from "@/hooks/useLeaderboard";
 import { useLiveAnnouncer } from "@/hooks/useLiveAnnouncer";
 import LiveRegion from "@/components/LiveRegion/LiveRegion";
+import CopyAddressButton from "@/components/CopyAddressButton/CopyAddressButton";
+import ShareButton from "@/components/ShareButton/ShareButton";
 
 const LEADERBOARD_TABLE_ID = "leaderboard-table";
 
@@ -55,6 +58,10 @@ export default function LeaderboardPage() {
   // Matches the spinner-vs-table branch below: nothing to announce yet
   // while the very first fetch is still in flight.
   const isInitialLoad = isLoading && paged.length === 0;
+  // A refetch (sort change, search, auto-refresh) while existing rows are
+  // still on screen — dim the table so it's clear new data is loading,
+  // rather than leaving stale rows looking indistinguishable from fresh ones.
+  const isRefreshing = isLoading && paged.length > 0;
   const rangeStart = filteredCount === 0 ? 0 : (currentPage - 1) * PAGE_SIZE + 1;
   const rangeEnd = Math.min(currentPage * PAGE_SIZE, filteredCount);
   const announcementMessage = isInitialLoad
@@ -63,6 +70,7 @@ export default function LeaderboardPage() {
       ? "No results found."
       : `Leaderboard updated, sorted by ${SORT_LABELS[sortKey]}, showing rank ${rangeStart}-${rangeEnd} of ${filteredCount.toLocaleString()}.`;
   const announcement = useLiveAnnouncer(announcementMessage);
+  const shareUrl = typeof window !== "undefined" ? window.location.href : "";
 
   return (
     <Flex direction="column" align="center" px={{ base: 6, md: 16 }} py={10}>
@@ -152,9 +160,39 @@ export default function LeaderboardPage() {
       </Flex>
 
       {isLoading && paged.length === 0 ? (
-        <Flex w="100%" justify="center" py={16}>
-          <Spinner color="app.accent" size="xl" thickness="3px" />
-        </Flex>
+        <TableContainer
+          w="100%"
+          maxW="900px"
+          overflowX="auto"
+          border="1px solid"
+          borderColor="app.border"
+          borderRadius="card"
+          bg="app.surface"
+          boxShadow="card"
+        >
+          <Table variant="unstyled" size="sm">
+            <Thead>
+              <Tr borderBottom="1px solid" borderColor="app.border">
+                <Th color="app.muted" fontWeight="medium" py={4} pl={5}>#</Th>
+                <Th color="app.muted" fontWeight="medium" py={4}>Address</Th>
+                <Th color="app.muted" fontWeight="medium" py={4} px={0} isNumeric>Credits</Th>
+                <Th color="app.muted" fontWeight="medium" py={4} px={0} isNumeric>Stake</Th>
+                <Th color="app.muted" fontWeight="medium" py={4} pr={5} isNumeric>Boost %</Th>
+              </Tr>
+            </Thead>
+            <Tbody>
+              {Array.from({ length: PAGE_SIZE }).map((_, i) => (
+                <Tr key={i} borderTop="1px solid" borderColor="app.border">
+                  <Td py={4} pl={5}><Skeleton height="16px" width="24px" /></Td>
+                  <Td py={4}><Skeleton height="16px" width="120px" /></Td>
+                  <Td py={4} isNumeric><Skeleton height="16px" width="60px" ml="auto" /></Td>
+                  <Td py={4} isNumeric><Skeleton height="16px" width="60px" ml="auto" /></Td>
+                  <Td py={4} pr={5} isNumeric><Skeleton height="16px" width="40px" ml="auto" /></Td>
+                </Tr>
+              ))}
+            </Tbody>
+          </Table>
+        </TableContainer>
       ) : filteredCount === 0 ? (
         <Flex
           w="100%"
@@ -179,6 +217,9 @@ export default function LeaderboardPage() {
             borderRadius="card"
             bg="app.surface"
             boxShadow="card"
+            opacity={isRefreshing ? 0.5 : 1}
+            transition="opacity 0.15s ease"
+            aria-busy={isRefreshing}
           >
             <Table id={LEADERBOARD_TABLE_ID} variant="unstyled" size="sm">
               <Thead>
@@ -196,6 +237,7 @@ export default function LeaderboardPage() {
                     <Button
                       variant="unstyled"
                       onClick={() => setSortKey("credits")}
+                      onTouchEnd={() => setSortKey("credits")}
                       display="flex"
                       alignItems="center"
                       justifyContent="flex-end"
@@ -229,6 +271,7 @@ export default function LeaderboardPage() {
                     <Button
                       variant="unstyled"
                       onClick={() => setSortKey("stake")}
+                      onTouchEnd={() => setSortKey("stake")}
                       display="flex"
                       alignItems="center"
                       justifyContent="flex-end"
@@ -284,6 +327,15 @@ export default function LeaderboardPage() {
                           <Text fontFamily="mono" color="app.text">
                             {truncate(entry.address)}
                           </Text>
+                          <CopyAddressButton address={entry.address} />
+                          <ShareButton
+                            url={shareUrl}
+                            shareText={
+                              isMe
+                                ? `I'm rank ${rank} on the SmartDrop leaderboard!`
+                                : `${truncate(entry.address)} is rank ${rank} on the SmartDrop leaderboard`
+                            }
+                          />
                           {isMe && (
                             <Text
                               fontSize="xs"

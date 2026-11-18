@@ -4,6 +4,9 @@ import { PlatformStats } from "@/components/PlatformStats/PlatformStats";
 import ConnectWalletButton from "@/components/ConnectWalletButton/ConnectWalletButton";
 import UnlockModal from "@/components/UnlockModal/UnlockModal";
 import BoostModal from "@/components/BoostModal/BoostModal";
+import Breadcrumbs from "@/components/Breadcrumbs/Breadcrumbs";
+import TransactionConfirmModal from "@/components/TransactionConfirmModal/TransactionConfirmModal";
+import FieldError from "@/components/FieldError/FieldError";
 import { EarningRow, MetricColumn } from "@/app/farm/EarningRow";
 import { FarmPoolRow } from "@/app/farm/FarmPoolRow";
 import {
@@ -47,7 +50,7 @@ import {
   useToast,
 } from "@chakra-ui/react";
 import { useOwnConnectButton } from "@/context/OwnConnectButtonContext";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 const ACCENT = "#4AE292";
 
@@ -63,6 +66,7 @@ type LivePoolRow = {
   lockedAmount: number;
   lockedAt: number;
   lockPeriodSeconds: number;
+  createdAt: number;
 };
 
 function formatLockPeriod(seconds: number): string {
@@ -93,6 +97,7 @@ function DepositModal({
 }) {
   const { publicKey, walletApi, isConnected, isNetworkMismatch } = useStellarWallet();
   const [amount, setAmount] = useState("");
+  const [isConfirmOpen, setIsConfirmOpen] = useState(false);
 
   const selectedContractAddress = farm?.contractAddress || farm?.id || "";
   const balanceQuery = useStellarBalance(publicKey ?? undefined);
@@ -113,6 +118,13 @@ function DepositModal({
     amountValid &&
     typeof availableBalance === "number" &&
     numericAmount > availableBalance;
+  const amountError =
+    !!trimmedAmount && !amountValid
+      ? "Enter a positive amount with no more than 7 decimals."
+      : exceedsBalance
+        ? "Amount exceeds your Horizon XLM balance."
+        : null;
+  const amountErrorId = useId();
   const feePreview = useLockAssetsFeePreview({
     publicKey,
     poolContractId: selectedContractAddress,
@@ -154,6 +166,7 @@ function DepositModal({
   useEffect(() => {
     if (isOpen) {
       setAmount("");
+      setIsConfirmOpen(false);
       flow.reset();
     }
     // Reset only when the modal opens or the selected pool changes.
@@ -176,10 +189,15 @@ function DepositModal({
     await flow.execute(numericAmount);
   };
 
-  // Auto-close the modal shortly after a successful deposit.
+  const handleConfirmDeposit = () => {
+    setIsConfirmOpen(false);
+    void handleSubmit();
+  };
+
+  // Auto-close the modal after a successful deposit (#416).
   useEffect(() => {
     if (flow.step === "success") {
-      const timer = setTimeout(resetAndClose, 1500);
+      const timer = setTimeout(resetAndClose, 3500);
       return () => clearTimeout(timer);
     }
   }, [flow.step]);
@@ -229,7 +247,7 @@ function DepositModal({
                   {feePreview.isFetching
                     ? "Simulating..."
                     : feePreview.data
-                      ? `${feePreview.data.feePreview} stroops`
+                      ? formatFeeEstimate(feePreview.data.feePreview) ?? "Unavailable"
                       : "Enter amount"}
                 </Text>
               </Flex>
@@ -250,6 +268,8 @@ function DepositModal({
                   value={amount}
                   onChange={(event) => setAmount(event.target.value)}
                   isDisabled={isPending}
+                  isInvalid={Boolean(amountError)}
+                  aria-describedby={amountErrorId}
                   borderRadius="2xl"
                   h="50px"
                   borderColor="app.border"
@@ -271,16 +291,7 @@ function DepositModal({
                   {farm.symbol}
                 </Text>
               </Box>
-              {!!trimmedAmount && !amountValid && (
-                <Text fontSize="xs" color="#ff8080">
-                  Enter a positive amount with no more than 7 decimals.
-                </Text>
-              )}
-              {exceedsBalance && (
-                <Text fontSize="xs" color="#ff8080">
-                  Amount exceeds your Horizon XLM balance.
-                </Text>
-              )}
+              <FieldError id={amountErrorId} message={amountError} />
             </Flex>
 
             {isPending && (
@@ -359,7 +370,7 @@ function DepositModal({
               color="app.onAccent"
               _hover={{ opacity: isPending ? 1 : 0.9 }}
               isDisabled={!canSubmit}
-              onClick={() => void handleSubmit()}
+              onClick={() => setIsConfirmOpen(true)}
               w="full"
             >
               {isPending ? (
@@ -387,6 +398,26 @@ function DepositModal({
           </Flex>
         </ModalBody>
       </ModalContent>
+      <TransactionConfirmModal
+        isOpen={isConfirmOpen}
+        onClose={() => setIsConfirmOpen(false)}
+        onConfirm={handleConfirmDeposit}
+        title="Confirm Deposit"
+        description="Review the details below. You'll be asked to sign this transaction in Freighter."
+        details={[
+          { label: "Pool", value: farm.name },
+          { label: "Deposit amount", value: `${trimmedAmount} ${farm.symbol}` },
+          { label: "Minimum lock period", value: lockPeriod },
+        ]}
+        fee={{
+          minResourceFee: feePreview.data?.feePreview,
+          isLoading: feePreview.isFetching,
+          isError: feePreview.isError,
+          isSponsored: isFeeSponsored,
+        }}
+        warning={`Deposited funds stay locked for at least ${lockPeriod} and can't be withdrawn before then.`}
+        confirmLabel="Confirm Deposit"
+      />
     </Modal>
   );
 }
@@ -501,24 +532,30 @@ export default function Farm() {
         lockedAt: position?.lockedAt ?? 0,
         lockPeriodSeconds: pool.minLockPeriod,
         boostAllocation: position?.boostAllocation,
+        createdAt: pool.createdAt,
       };
     });
   }, [pools, userPositions]);
 
-  const handleDepositClick = (pool: LivePoolRow) => {
+  // Stable references so the memoized FarmPoolRow children
+  // don't receive a new callback on every wallet or query update.
+  const handleDepositClick = useCallback((pool: LivePoolRow) => {
     setSelectedFarm(pool);
     setIsDepositOpen(true);
-  };
+  }, []);
 
-  const handleDepositClose = () => {
+  const handleDepositClose = useCallback(() => {
     setIsDepositOpen(false);
     setSelectedFarm(null);
-  };
+  }, []);
 
   const hasPositions = myPositions.length > 0;
 
   return (
     <Flex direction="column" align="center" gap={6} px={{ base: 4, md: 8 }} py={6}>
+      <Flex w="full" maxW="1200px">
+        <Breadcrumbs items={[{ label: "Farm" }]} />
+      </Flex>
       <PlatformStats />
       <Text fontSize="xs" color="app.muted" textAlign="center" overflowWrap="anywhere">
         Network: {stellarNetwork}
