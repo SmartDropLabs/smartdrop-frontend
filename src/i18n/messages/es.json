@@ -1,0 +1,52 @@
+{
+  "common": {
+    "welcome": "Bienvenido a Smartdrop",
+    "loading": "Cargando...",
+    "error": "Algo salió mal",
+    "tryAgain": "Intentar de nuevo",
+    "cancel": "Cancelar",
+    "confirm": "Confirmar",
+    "back": "Atrás"
+  },
+  "farm": {
+    "title": "Granja",
+    "backToFarm": "Volver a Granja",
+    "poolNotFound": "Grupo no encontrado",
+    "failedToLoadPool": "Error al cargar los datos del grupo",
+    "deposit": "Depositar",
+    "dailyRate": "Tasa Diaria",
+    "minLockPeriod": "Período Mínimo de Bloqueo",
+    "totalUsers": "Total de Usuarios",
+    "totalLocked": "Total Bloqueado",
+    "tvlChart": "TVL de 7 Días",
+    "topDepositors": "Mejores 20 Depositantes",
+    "noDepositors": "Sin depositantes aún",
+    "address": "Dirección",
+    "amount": "Cantidad",
+    "credits": "Créditos",
+    "lockAssets": "Bloquear Activos",
+    "unlockAssets": "Desbloquear Activos",
+    "connectWalletToDeposit": "Conectar Billetera para Depositar",
+    "yourFeesAreSponsored": "Tus comisiones están patrocinadas para esta transacción",
+    "confirmLockTransaction": "Confirmar Transacción de Bloqueo",
+    "youAreAboutToLock": "Estás a punto de bloquear {{amount}} {{symbol}} por un período mínimo de {{period}}. Esta acción no se puede revertir hasta que expire el período de bloqueo.",
+    "waitingForSignature": "Esperando firma...",
+    "processing": "Procesando...",
+    "earningsBreakdown": "Desglose de Ganancias",
+    "dailyEarnings": "Ganancias Diarias",
+    "weeklyEarnings": "Ganancias Semanales",
+    "totalEarnings": "Ganancias Totales"
+  },
+  "leaderboard": {
+    "title": "Tabla de Clasificación",
+    "rank": "Clasificación",
+    "user": "Usuario",
+    "earnings": "Ganancias"
+  },
+  "wallet": {
+    "connectWallet": "Conectar Billetera",
+    "connected": "Conectado",
+    "disconnected": "Desconectado",
+    "networkMismatch": "Falta de coincidencia de red"
+  }
+}

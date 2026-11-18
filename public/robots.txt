@@ -1,0 +1,6 @@
+User-agent: *
+Allow: /
+Disallow: /webhooks
+Disallow: /alerts
+
+Sitemap: https://smartdrop.io/sitemap.xml

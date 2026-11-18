@@ -50,6 +50,14 @@ export const factoryContractId =
 export const poolContractId = process.env.NEXT_PUBLIC_POOL_CONTRACT_ID ?? "";
 
 /**
+ * Stellar account used as the source for read-only Soroban simulation calls
+ * (getFactoryPools, getUserPosition, calculateUserCredits). Must be funded on
+ * the configured network. No hardcoded fallback — must be set explicitly per
+ * environment to avoid silent failures when switching networks.
+ */
+export const simulationAccount = process.env.NEXT_PUBLIC_SIMULATION_ACCOUNT ?? "";
+
+/**
  * Minimum lock period (in seconds) enforced by the pool contract before a
  * position can be unlocked. Mirrors the on-chain `unlock_assets` time-lock so
  * the UI can disable the action and show an accurate countdown. Defaults to 7
@@ -59,3 +67,10 @@ export const minLockPeriodSeconds = (() => {
   const raw = Number(process.env.NEXT_PUBLIC_MIN_LOCK_PERIOD_SECONDS);
   return Number.isFinite(raw) && raw > 0 ? raw : 7 * 24 * 60 * 60;
 })();
+
+/**
+ * Base URL for the smartdrop-backend API (price oracle, airdrops, webhooks,
+ * alerts). Defaults to the local dev server from that repo's README.
+ */
+export const backendApiUrl =
+  process.env.NEXT_PUBLIC_BACKEND_API_URL ?? "http://localhost:4000/api/v1";

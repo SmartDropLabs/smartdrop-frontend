@@ -1,8 +1,49 @@
 "use client";
 
-import { Flex, Text } from "@chakra-ui/react";
-import { useStellarWallet } from "@/context/StellarWalletContext";
-import Link from "next/link";
+import {
+  Drawer,
+  DrawerBody,
+  DrawerCloseButton,
+  DrawerContent,
+  DrawerHeader,
+  DrawerOverlay,
+  IconButton,
+  Menu,
+  MenuButton,
+  MenuItem,
+  MenuList,
+  VStack,
+  useDisclosure,
+} from "@chakra-ui/react";
+import { ChevronDownIcon, HamburgerIcon } from "@chakra-ui/icons";
+import {
+  useStellarWallet,
+  useStellarWalletActions,
+} from "@/context/StellarWalletContext";
+import NextLink from "next/link";
+import { usePathname } from "next/navigation";
+import ThemeToggle from "@/components/ThemeToggle/ThemeToggle";
+import { usePlatformStats } from "@/hooks/useSorobanQuery";
+import { useToast } from "@/hooks/useToast";
+import { memo, useCallback, useEffect, useState } from "react";
+
+const MORE_LINKS = [
+  { href: "/prices", label: "Prices" },
+  { href: "/airdrops", label: "Airdrops" },
+  { href: "/webhooks", label: "Webhooks" },
+  { href: "/alerts", label: "Alerts" },
+];
+
+/**
+ * Whether `href` is the current section (#547). Home matches only "/"; other
+ * links also match nested routes ("/airdrops/123") and a trailing slash.
+ */
+export function isActiveRoute(pathname: string | null, href: string): boolean {
+  if (!pathname) return false;
+  const path = pathname.length > 1 ? pathname.replace(/\/+$/, "") : pathname;
+  if (href === "/") return path === "/";
+  return path === href || path.startsWith(`${href}/`);
+}
 
 function shortenStellarAddress(address: string) {
   if (!address || address.length < 12) {
@@ -11,59 +52,260 @@ function shortenStellarAddress(address: string) {
   return `${address.slice(0, 4)}…${address.slice(-4)}`;
 }
 
+const Logo = memo(function Logo() {
+  return (
+    <NextLink
+      href="/"
+      aria-label="SmartDrop home"
+      className="flex items-center gap-2 hover:opacity-85"
+    >
+      <div
+        role="img"
+        aria-label="SmartDrop logo"
+        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-[#6dffb8] to-[#0f7a4e]"
+      >
+        <div className="h-2.5 w-2.5 rotate-45 rounded-sm bg-[#0b0d0c]" />
+      </div>
+      <span className="text-lg font-extrabold tracking-tight text-[color:var(--chakra-colors-app-text)]">
+        SmartDrop
+      </span>
+    </NextLink>
+  );
+});
+
+const NavLink = memo(function NavLink({
+  href,
+  children,
+  onClick,
+}: {
+  href: string;
+  children: React.ReactNode;
+  onClick?: () => void;
+}) {
+  const pathname = usePathname();
+  const isActive = isActiveRoute(pathname, href);
+  return (
+    <NextLink
+      href={href}
+      onClick={onClick}
+      aria-current={isActive ? "page" : undefined}
+      className={`text-sm transition-colors hover:text-[color:var(--chakra-colors-app-accent)] ${
+        isActive
+          ? "font-semibold text-[color:var(--chakra-colors-app-accent)]"
+          : "font-medium text-[color:var(--chakra-colors-app-text)]"
+      }`}
+    >
+      {children}
+    </NextLink>
+  );
+});
+
+const MoreMenu = memo(function MoreMenu() {
+  const pathname = usePathname();
+  const isActive = MORE_LINKS.some((link) => isActiveRoute(pathname, link.href));
+  return (
+    <Menu>
+      <MenuButton
+        aria-label="More navigation links"
+        fontSize="sm"
+        fontWeight={isActive ? "semibold" : "medium"}
+        color={isActive ? "app.accent" : "app.text"}
+        _hover={{ color: "app.accent" }}
+        transition="color 0.15s ease"
+      >
+        More <ChevronDownIcon />
+      </MenuButton>
+      <MenuList bg="app.surface" borderColor="app.border">
+        {MORE_LINKS.map((link) => (
+          <MenuItem
+            key={link.href}
+            as={NextLink}
+            href={link.href}
+            bg="app.surface"
+            aria-current={isActiveRoute(pathname, link.href) ? "page" : undefined}
+            fontWeight={isActiveRoute(pathname, link.href) ? "semibold" : "normal"}
+            color={isActiveRoute(pathname, link.href) ? "app.accent" : "app.text"}
+            _hover={{ bg: "app.surfaceHover" }}
+          >
+            {link.label}
+          </MenuItem>
+        ))}
+      </MenuList>
+    </Menu>
+  );
+});
+
+const StatPill = memo(function StatPill({ label, value, pulse = false }: { label: string; value: string; pulse?: boolean }) {
+  return (
+    <div className="flex items-center gap-1.5 rounded-full border border-[color:var(--chakra-colors-app-border)] bg-[color:var(--chakra-colors-app-surface)] px-3 py-1 text-xs whitespace-nowrap">
+      {pulse && (
+        <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-[color:var(--chakra-colors-app-accent)]" />
+      )}
+      <span className="text-[color:var(--chakra-colors-app-muted)]">{label}</span>
+      <span className="font-bold text-[color:var(--chakra-colors-app-text)]">{value}</span>
+    </div>
+  );
+});
+
+function formatCount(value: number | undefined | null): string {
+  return value || value === 0 ? value.toLocaleString() : "—";
+}
+
+// Issue #236 (copy-to-clipboard) + #237 (disconnect button): the Navbar's
+// wallet pill used to be a plain, non-interactive display of the shortened
+// address, with the only disconnect affordance living in the separate
+// floating ConnectWalletButton. Fold both into a menu on the pill itself.
+const WalletMenu = memo(function WalletMenu({ publicKey }: { publicKey: string }) {
+  const { disconnect } = useStellarWalletActions();
+  const [copied, setCopied] = useState(false);
+  const { error: toastError } = useToast();
+
+  const handleCopy = useCallback(async () => {
+    try {
+      await navigator.clipboard.writeText(publicKey);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // navigator.clipboard is unavailable in non-secure/hardened contexts —
+      // surface it instead of failing silently, and include the address so
+      // the user can still copy it manually.
+      toastError("Couldn't copy address", publicKey);
+    }
+  }, [publicKey, toastError]);
+
+  return (
+    <Menu placement="bottom-end">
+      <MenuButton
+        aria-label="Wallet menu"
+        className="flex items-center gap-1.5 rounded-full border border-[color:var(--chakra-colors-app-border)] bg-[color:var(--chakra-colors-app-surface)] px-3 py-1 text-xs whitespace-nowrap"
+      >
+        <span className="text-[color:var(--chakra-colors-app-muted)]">Wallet</span>{" "}
+        <span className="font-bold text-[color:var(--chakra-colors-app-text)]">
+          {shortenStellarAddress(publicKey)}
+        </span>
+      </MenuButton>
+      <MenuList bg="app.surface" borderColor="app.border">
+        <MenuItem
+          bg="app.surface"
+          color="app.text"
+          _hover={{ bg: "app.surfaceHover" }}
+          onClick={() => void handleCopy()}
+        >
+          {copied ? "Copied!" : "Copy address"}
+        </MenuItem>
+        <MenuItem
+          bg="app.surface"
+          color="app.text"
+          _hover={{ bg: "app.surfaceHover" }}
+          onClick={disconnect}
+        >
+          Disconnect
+        </MenuItem>
+      </MenuList>
+    </Menu>
+  );
+});
+
+function MobileNavDrawer({
+  isOpen,
+  onClose,
+  isConnected,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  isConnected: boolean;
+}) {
+  // Closing only via each NavLink's onClick misses browser back/forward and
+  // any programmatic navigation, leaving the drawer open over the new page
+  // (#382). Closing on every pathname change covers all of those the same
+  // way, since it's a no-op against an already-closed drawer.
+  const pathname = usePathname();
+  useEffect(() => {
+    onClose();
+  }, [pathname, onClose]);
+
+  return (
+    <Drawer isOpen={isOpen} placement="right" onClose={onClose}>
+      <DrawerOverlay />
+      <DrawerContent bg="app.surface">
+        <DrawerCloseButton color="app.text" />
+        <DrawerHeader borderBottom="1px solid" borderColor="app.border">
+          <Logo />
+        </DrawerHeader>
+        <DrawerBody pt={6}>
+          <VStack align="stretch" spacing={5} fontSize="lg">
+            <NavLink href="/" onClick={onClose}>Home</NavLink>
+            {isConnected && <NavLink href="/farm" onClick={onClose}>Farm</NavLink>}
+            <NavLink href="/history" onClick={onClose}>History</NavLink>
+            {isConnected && <NavLink href="/leaderboard" onClick={onClose}>Leaderboard</NavLink>}
+            <NavLink href="/contributors" onClick={onClose}>Contributors</NavLink>
+            {MORE_LINKS.map((link) => (
+              <NavLink key={link.href} href={link.href} onClick={onClose}>
+                {link.label}
+              </NavLink>
+            ))}
+          </VStack>
+        </DrawerBody>
+      </DrawerContent>
+    </Drawer>
+  );
+}
+
 export default function Navbar() {
   const { isConnected, publicKey } = useStellarWallet();
+  const { data: stats } = usePlatformStats();
+  const { isOpen, onOpen, onClose } = useDisclosure();
 
-  return isConnected && publicKey ? (
-    <Flex
-      w="95%"
-      h={20}
-      mx="auto"
-      align="center"
-      justify="space-between"
-      borderTop="1px solid #454545"
-      borderBottom="1px solid #454545"
+  return (
+    <nav
+      className="sticky top-0 z-20 w-full border-b backdrop-blur-md"
+      style={{
+        backgroundColor: "color-mix(in srgb, var(--chakra-colors-app-bg) 80%, transparent)",
+        borderColor: "var(--chakra-colors-app-border)",
+      }}
     >
-      <Text px={8}>{shortenStellarAddress(publicKey)}</Text>
-      <Flex gap={8} p={8}>
-        <Link href="/" style={{ color: "white" }}>
-          Home
-        </Link>
-        <Link href="/farm" style={{ color: "white" }}>
-          Farm
-        </Link>
-        <Link href="/leaderboard" style={{ color: "white" }}>
-          Leaderboard
-        </Link>
-        <Link href="/contributors" style={{ color: "white" }}>
-          Contributors
-        </Link>
-      </Flex>
-      <Text px={8} fontWeight="bold">
-        SMARTDROP
-      </Text>
-    </Flex>
-  ) : (
-    <Flex
-      w="95%"
-      h={20}
-      mx="auto"
-      align="center"
-      justify="space-between"
-      borderTop="1px solid #454545"
-      borderBottom="1px solid #454545"
-    >
-      <Text px={8} fontWeight="bold">
-        SMARTDROP
-      </Text>
-      <Flex gap={8} p={8} align="center" flexWrap="wrap" justify="flex-end">
-        <Link href="/contributors" style={{ color: "white", textDecoration: "underline" }}>
-          Contributors
-        </Link>
-        <Text>Users online: 213</Text>
-        <Text>Total Users: 30,738</Text>
-        <Text>Total Value Locked: $302M</Text>
-      </Flex>
-    </Flex>
+      <div className="mx-auto flex w-full max-w-[1400px] flex-col gap-3 px-4 py-4 lg:h-20 lg:min-h-20 lg:w-[95%] lg:flex-row lg:items-center lg:justify-between lg:gap-4 lg:px-0 lg:py-0">
+        <div className="flex w-full items-center justify-between lg:w-auto">
+          <Logo />
+          <div className="flex items-center gap-2 lg:hidden">
+            <ThemeToggle />
+            <IconButton
+              aria-label="Open menu"
+              icon={<HamburgerIcon />}
+              variant="ghost"
+              color="app.text"
+              size="sm"
+              onClick={onOpen}
+            />
+          </div>
+        </div>
+
+        <div className="hidden items-center gap-4 lg:flex lg:gap-7">
+          <NavLink href="/">Home</NavLink>
+          {isConnected && <NavLink href="/farm">Farm</NavLink>}
+          <NavLink href="/history">History</NavLink>
+          {isConnected && <NavLink href="/leaderboard">Leaderboard</NavLink>}
+          <NavLink href="/contributors">Contributors</NavLink>
+          <MoreMenu />
+        </div>
+
+        <div className="flex flex-wrap items-center gap-3">
+          {isConnected && publicKey ? (
+            <WalletMenu publicKey={publicKey} />
+          ) : (
+            <>
+              <StatPill label="Online" value={formatCount(stats?.onlineUsers)} pulse />
+              <StatPill label="Users" value={formatCount(stats?.totalUsers)} />
+              <StatPill label="TVL" value={stats?.tvl || "—"} />
+            </>
+          )}
+          <div className="hidden lg:block">
+            <ThemeToggle />
+          </div>
+        </div>
+      </div>
+
+      <MobileNavDrawer isOpen={isOpen} onClose={onClose} isConnected={isConnected} />
+    </nav>
   );
 }

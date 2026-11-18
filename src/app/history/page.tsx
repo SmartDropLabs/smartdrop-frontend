@@ -1,0 +1,434 @@
+"use client";
+
+import { memo, useEffect, useMemo, useState } from "react";
+import {
+  Alert,
+  AlertIcon,
+  Badge,
+  Box,
+  Button,
+  Flex,
+  HStack,
+  Link,
+  Spinner,
+  Stack,
+  Table,
+  TableContainer,
+  Tbody,
+  Td,
+  Text,
+  Th,
+  Thead,
+  Tr,
+  useBreakpointValue,
+  VStack,
+} from "@chakra-ui/react";
+import NextLink from "next/link";
+import { useStellarWallet } from "@/context/StellarWalletContext";
+import ConnectWalletButton from "@/components/ConnectWalletButton/ConnectWalletButton";
+import LiveRegion from "@/components/LiveRegion/LiveRegion";
+import { useLiveAnnouncer } from "@/hooks/useLiveAnnouncer";
+import { useUrlPagination } from "@/hooks/useUrlPagination";
+import {
+  getUserTransactionHistory,
+  stellarExpertTxUrl,
+  type TxHistoryEntry,
+} from "@/lib/soroban";
+import { stellarNetwork } from "@/config";
+import { usePools } from "@/hooks/useSorobanQuery";
+
+const PAGE_SIZE = 20;
+
+function truncateHash(hash: string): string {
+  if (hash.length <= 12) return hash;
+  return `${hash.slice(0, 8)}…${hash.slice(-6)}`;
+}
+
+function formatDate(iso: string): string {
+  return new Date(iso).toLocaleString(undefined, {
+    dateStyle: "medium",
+    timeStyle: "short",
+  });
+}
+
+function formatAmount(amount: string, symbol: string): string {
+  const num = parseFloat(amount);
+  if (isNaN(num)) return `${amount} ${symbol}`;
+  return `${(num / 1e7).toLocaleString(undefined, { maximumFractionDigits: 4 })} ${symbol}`;
+}
+
+function EmptyState({ children }: { children: React.ReactNode }) {
+  return (
+    <Flex
+      direction="column"
+      align="center"
+      gap={4}
+      w="100%"
+      maxW="1000px"
+      mt={10}
+      py={16}
+      border="1px dashed"
+      borderColor="app.border"
+      borderRadius="card"
+      bg="app.surface"
+    >
+      {children}
+    </Flex>
+  );
+}
+
+const HistoryCard = memo(function HistoryCard({ entry }: { entry: TxHistoryEntry }) {
+  return (
+    <Box
+      w="100%"
+      p={4}
+      border="1px solid"
+      borderColor="app.border"
+      borderRadius="card"
+      bg="app.surface"
+    >
+      <Flex justify="space-between" align="center" mb={3}>
+        <Badge
+          colorScheme={entry.action === "lock" ? "green" : "yellow"}
+          borderRadius="full"
+          px={2.5}
+          py={0.5}
+          textTransform="capitalize"
+          fontWeight="semibold"
+        >
+          {entry.action}
+        </Badge>
+        <Text fontSize="xs" color="app.muted" whiteSpace="nowrap">
+          {formatDate(entry.date)}
+        </Text>
+      </Flex>
+
+      <VStack align="stretch" spacing={2}>
+        <Flex justify="space-between">
+          <Text fontSize="sm" color="app.muted">Amount</Text>
+          <Text fontSize="sm" color="app.text" fontWeight="medium">
+            {formatAmount(entry.amount, entry.symbol)}
+          </Text>
+        </Flex>
+        <Flex justify="space-between">
+          <Text fontSize="sm" color="app.muted">Credits Earned</Text>
+          <Text fontSize="sm" color="app.text" fontWeight="medium">
+            {entry.creditsEarned != null
+              ? Number(entry.creditsEarned).toLocaleString()
+              : "—"}
+          </Text>
+        </Flex>
+        <Flex justify="space-between" align="center">
+          <Text fontSize="sm" color="app.muted">Transaction</Text>
+          <Link
+            href={stellarExpertTxUrl(entry.txHash, stellarNetwork.toLowerCase())}
+            isExternal
+            color="app.accent"
+            fontFamily="mono"
+            fontSize="xs"
+            _hover={{ textDecoration: "underline" }}
+          >
+            {truncateHash(entry.txHash)}
+          </Link>
+        </Flex>
+      </VStack>
+    </Box>
+  );
+});
+
+export default function HistoryPage() {
+  // Chakra's `ssr` option is inverted from what the name suggests: `ssr: false`
+  // means "evaluate window.matchMedia immediately" (assumes a client-only app,
+  // no server render), which crashes `next build`'s static export at
+  // prerender time. `ssr: true` (the safe default) instead uses `fallback`
+  // during the server render and only switches to the real value after
+  // client hydration.
+  const isMobile = useBreakpointValue(
+    { base: true, md: false },
+    { ssr: true, fallback: "base" },
+  );
+  const { publicKey, isConnected } = useStellarWallet();
+  const { data: pools } = usePools();
+  const [entries, setEntries] = useState<TxHistoryEntry[]>([]);
+  const [truncated, setTruncated] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  // Page lives in the URL so history pages can be shared (#593).
+  const { page, setPage } = useUrlPagination();
+  const [error, setError] = useState<string | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
+
+  const poolContractIds = useMemo(
+    () => (pools ?? []).map((p) => p.contractAddress).filter(Boolean),
+    [pools],
+  );
+
+  useEffect(() => {
+    if (!publicKey || poolContractIds.length === 0) return;
+    let cancelled = false;
+    setIsLoading(true);
+    setError(null);
+    setPage(1);
+    getUserTransactionHistory(publicKey, poolContractIds)
+      .then(({ entries, truncated }) => {
+        if (cancelled) return;
+        setEntries(entries);
+        setTruncated(truncated);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        console.error("Failed to load history:", err);
+        setEntries([]);
+        setTruncated(false);
+        setError("Failed to load transaction history. Please try again.");
+      })
+      .finally(() => {
+        if (!cancelled) setIsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [publicKey, poolContractIds, reloadKey]);
+
+  const totalPages = Math.max(1, Math.ceil(entries.length / PAGE_SIZE));
+  const paged = entries.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+
+  const rangeStart = entries.length === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
+  const rangeEnd = Math.min(page * PAGE_SIZE, entries.length);
+  const announcementMessage =
+    !isConnected || isLoading
+      ? ""
+      : error
+        ? error
+        : entries.length === 0
+        ? "No farming history found."
+        : `History updated, showing ${rangeStart}-${rangeEnd} of ${entries.length.toLocaleString()} transactions.`;
+  const announcement = useLiveAnnouncer(announcementMessage);
+
+  return (
+    <Flex direction="column" align="center" px={{ base: 6, md: 16 }} py={10} gap={2}>
+      <LiveRegion message={announcement} />
+      <Box w="100%" maxW="1000px" mb={4}>
+        <HStack spacing={2} mb={5}>
+          <Box w="6px" h="6px" borderRadius="full" bg="app.accent" boxShadow="0 0 8px var(--chakra-colors-app-accent)" />
+          <Text fontSize="xs" fontWeight="semibold" letterSpacing="wide" color="app.muted" textTransform="uppercase">
+            Activity
+          </Text>
+        </HStack>
+        <Text
+          fontSize={{ base: "4xl", md: "5xl" }}
+          fontWeight="extrabold"
+          letterSpacing="tight"
+          mb={3}
+          bgGradient="linear(to-r, app.text, app.accent)"
+          bgClip="text"
+        >
+          History
+        </Text>
+        <Text color="app.muted" fontSize="lg">
+          Your past lock and unlock events across SmartDrop pools.
+        </Text>
+      </Box>
+
+      {!isConnected ? (
+        <EmptyState>
+          <Text color="app.muted">Connect your wallet to view your farming history.</Text>
+          <ConnectWalletButton position="static" bottom="auto" right="auto" left="auto" />
+        </EmptyState>
+      ) : isLoading ? (
+        <Flex w="100%" justify="center" py={16}>
+          <Spinner color="app.accent" size="xl" thickness="3px" />
+        </Flex>
+      ) : error ? (
+        <EmptyState>
+          <Alert status="error" borderRadius="2xl" w="full">
+            <AlertIcon />
+            <Text fontSize="sm">{error}</Text>
+          </Alert>
+          <Button
+            size="sm"
+            borderRadius="2xl"
+            bg="app.accent"
+            color="app.onAccent"
+            _hover={{ opacity: 0.9 }}
+            onClick={() => setReloadKey((k) => k + 1)}
+          >
+            Retry
+          </Button>
+        </EmptyState>
+      ) : entries.length === 0 ? (
+        <EmptyState>
+          <Text color="app.muted" textAlign="center">
+            No transactions yet — start by locking assets in a pool.
+          </Text>
+          <Button
+            as={NextLink}
+            href="/farm"
+            size="sm"
+            borderRadius="2xl"
+            bg="app.accent"
+            color="app.onAccent"
+            _hover={{ opacity: 0.9 }}
+          >
+            Go to Farm
+          </Button>
+        </EmptyState>
+      ) : (
+        <>
+          {isMobile ? (
+            <Stack w="100%" maxW="1000px" mt={6} spacing={3}>
+              {paged.map((entry) => (
+                <HistoryCard key={entry.txHash} entry={entry} />
+              ))}
+            </Stack>
+          ) : (
+            <TableContainer
+              w="100%"
+              maxW="1000px"
+              mt={6}
+              overflowX="auto"
+              border="1px solid"
+              borderColor="app.border"
+              borderRadius="card"
+              bg="app.surface"
+              boxShadow="card"
+            >
+              <Table variant="unstyled" size="sm">
+                <Thead>
+                  <Tr borderBottom="1px solid" borderColor="app.border">
+                    <Th color="app.muted" fontWeight="medium" py={4} pl={5}>Date</Th>
+                    <Th color="app.muted" fontWeight="medium" py={4}>Action</Th>
+                    <Th color="app.muted" fontWeight="medium" py={4} isNumeric>Amount</Th>
+                    <Th color="app.muted" fontWeight="medium" py={4} isNumeric>Credits Earned</Th>
+                    <Th color="app.muted" fontWeight="medium" py={4} pr={5}>Transaction</Th>
+                  </Tr>
+                </Thead>
+                <Tbody>
+                  {paged.map((entry) => (
+                    <Tr
+                      key={entry.txHash}
+                      borderTop="1px solid"
+                      borderColor="app.border"
+                      _hover={{ bg: "app.surfaceHover" }}
+                      transition="background 0.15s ease"
+                    >
+                      <Td py={4} pl={5} color="app.text" whiteSpace="nowrap">
+                        {formatDate(entry.date)}
+                      </Td>
+                      <Td py={4}>
+                        <Badge
+                          colorScheme={entry.action === "lock" ? "green" : "yellow"}
+                          borderRadius="full"
+                          px={2.5}
+                          py={0.5}
+                          textTransform="capitalize"
+                          fontWeight="semibold"
+                        >
+                          {entry.action}
+                        </Badge>
+                      </Td>
+                      <Td py={4} isNumeric color="app.text">
+                        {formatAmount(entry.amount, entry.symbol)}
+                      </Td>
+                      <Td py={4} isNumeric color="app.text">
+                        {entry.creditsEarned != null
+                          ? Number(entry.creditsEarned).toLocaleString()
+                          : "—"}
+                      </Td>
+                      <Td py={4} pr={5}>
+                        <Link
+                          href={stellarExpertTxUrl(entry.txHash, stellarNetwork.toLowerCase())}
+                          isExternal
+                          color="app.accent"
+                          fontFamily="mono"
+                          fontSize="xs"
+                          _hover={{ textDecoration: "underline" }}
+                        >
+                          {truncateHash(entry.txHash)}
+                        </Link>
+                      </Td>
+                    </Tr>
+                  ))}
+                </Tbody>
+              </Table>
+            </TableContainer>
+          )}
+
+          {truncated && (
+            <Alert status="warning" borderRadius="2xl" mt={4} bg="app.warningBg" color="app.warningFg" maxW="1000px" w="full">
+              <AlertIcon color="app.warningFg" />
+              <Text fontSize="sm">Some history may be missing — the result was truncated. Older transactions may not be shown.</Text>
+            </Alert>
+          )}
+
+          {totalPages > 1 && (
+            <Flex gap={2} mt={6} align="center" wrap="wrap" justify="center">
+              <Button
+                size="sm"
+                borderRadius="2xl"
+                variant="outline"
+                borderColor="app.border"
+                color="app.text"
+                isDisabled={page === 1}
+                onClick={() => setPage((p) => p - 1)}
+                _hover={{ borderColor: "app.accent", color: "app.accent" }}
+              >
+                Prev
+              </Button>
+
+              {Array.from({ length: totalPages }, (_, i) => i + 1).map((p) => (
+                <Button
+                  key={p}
+                  size="sm"
+                  borderRadius="2xl"
+                  variant={p === page ? "solid" : "outline"}
+                  bg={p === page ? "app.accent" : undefined}
+                  color={p === page ? "app.onAccent" : "app.text"}
+                  borderColor="app.border"
+                  onClick={() => setPage(p)}
+                  _hover={{
+                    borderColor: "app.accent",
+                    color: p === page ? "app.onAccent" : "app.accent",
+                  }}
+                >
+                  {p}
+                </Button>
+              ))}
+
+              <Button
+                size="sm"
+                borderRadius="2xl"
+                variant="outline"
+                borderColor="app.border"
+                color="app.text"
+                isDisabled={page === totalPages}
+                onClick={() => setPage((p) => p + 1)}
+                _hover={{ borderColor: "app.accent", color: "app.accent" }}
+              >
+                Next
+              </Button>
+            </Flex>
+          )}
+
+          {page === totalPages && entries.length >= PAGE_SIZE && (
+            <Button
+              mt={6}
+              mb={8}
+              size="sm"
+              borderRadius="2xl"
+              variant="outline"
+              borderColor="app.border"
+              color="app.text"
+              isDisabled
+            >
+              No more entries
+            </Button>
+          )}
+
+          <Text fontSize="xs" color="app.muted" mt={4} mb={8}>
+            Showing events from the past 7 days
+          </Text>
+        </>
+      )}
+    </Flex>
+  );
+}

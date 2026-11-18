@@ -1,0 +1,677 @@
+/**
+ * Custom React Query hooks for Soroban contract interactions
+ * Provides caching, error handling, and automatic refetching
+ */
+
+import { useEffect, useRef, useState } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import type { UserPosition, TransactionResult } from '@/lib/soroban';
+import { useStellarWallet } from '@/context/StellarWalletContext';
+import { useToast } from '@chakra-ui/react';
+
+// #498 — the Soroban service is loaded on first use instead of when this module
+// is imported, so the RPC client is not created during app boot before any
+// query needs it.
+const loadSoroban = () => import('@/lib/soroban');
+
+// Query Keys
+export const QUERY_KEYS = {
+  POOLS: 'pools',
+  USER_POSITION: 'userPosition',
+  USER_CREDITS: 'userCredits',
+  PLATFORM_STATS: 'platformStats',
+  BOOST_CONFIG: 'boostConfig',
+} as const;
+
+// Shared cache-staleness buckets (#669) so hooks over the same class of data
+// refresh on the same cadence.
+export const STALE_TIME = {
+  POOLS: 30_000,
+  USER_DATA: 15_000,
+  STATS: 60_000,
+} as const;
+
+/**
+ * Hook to fetch all available farming pools
+ */
+export const usePools = () => {
+  return useQuery({
+    queryKey: [QUERY_KEYS.POOLS],
+    queryFn: async () => (await loadSoroban()).sorobanService.getFactoryPools(),
+    staleTime: STALE_TIME.POOLS,
+    gcTime: 5 * 60 * 1000, // 5 minutes
+    refetchInterval: 60000, // 1 minute
+    retry: 3,
+    retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 30000),
+  });
+};
+
+/**
+ * Hook to fetch a pool's top depositors, replacing the one-shot
+ * getPoolDepositors() useEffect PoolDetailClient used to call directly
+ * (#143) — this way depositor data also refreshes on an interval instead
+ * of being frozen at mount for the lifetime of the page view.
+ */
+export const usePoolDepositors = (poolId: string, limit: number = 20) => {
+  return useQuery({
+    queryKey: ['poolDepositors', poolId, limit],
+    queryFn: async () => (await loadSoroban()).sorobanService.getPoolDepositors(poolId, limit),
+    enabled: !!poolId,
+    staleTime: STALE_TIME.POOLS,
+    gcTime: 5 * 60 * 1000,
+    refetchInterval: 60000,
+    retry: 2,
+  });
+};
+
+/**
+ * Hook to fetch user position for a specific pool
+ */
+export const useUserPosition = (poolId: string, enabled: boolean = true) => {
+  const { publicKey } = useStellarWallet();
+
+  return useQuery({
+    queryKey: [QUERY_KEYS.USER_POSITION, poolId, publicKey],
+    queryFn: async () => (await loadSoroban()).sorobanService.getUserPosition(poolId, publicKey!),
+    enabled: enabled && !!publicKey && !!poolId,
+    staleTime: STALE_TIME.USER_DATA,
+    gcTime: 5 * 60 * 1000,
+    refetchInterval: 30000, // 30 seconds
+    retry: 2,
+  });
+};
+
+/**
+ * Hook to calculate user credits for a specific pool
+ */
+export const useUserCredits = (poolId: string, enabled: boolean = true) => {
+  const { publicKey } = useStellarWallet();
+
+  return useQuery({
+    queryKey: [QUERY_KEYS.USER_CREDITS, poolId, publicKey],
+    queryFn: async () => (await loadSoroban()).sorobanService.calculateUserCredits(poolId, publicKey!),
+    enabled: enabled && !!publicKey && !!poolId,
+    staleTime: STALE_TIME.USER_DATA,
+    gcTime: 5 * 60 * 1000,
+    refetchInterval: 10000, // 10 seconds
+    retry: 2,
+  });
+};
+
+export const useStellarBalance = (publicKey?: string) => {
+  return useQuery({
+    queryKey: ['stellarBalance', publicKey],
+    queryFn: async ({ signal }) => (await loadSoroban()).getStellarBalance(publicKey!, signal),
+    enabled: !!publicKey,
+    staleTime: STALE_TIME.USER_DATA,
+    gcTime: 5 * 60 * 1000,
+    retry: 2,
+  });
+};
+
+// Matches the debounce pattern already used for search input elsewhere in
+// this codebase (`useLeaderboard`'s `SEARCH_DEBOUNCE_MS`).
+const LOCK_ASSETS_FEE_PREVIEW_DEBOUNCE_MS = 350;
+
+/**
+ * Debounced so a keystroke burst in the deposit amount field doesn't fire a
+ * `simulateTransaction` RPC round trip per keystroke (#134) — the query
+ * only keys/fires on `amount` once it has stopped changing for
+ * `LOCK_ASSETS_FEE_PREVIEW_DEBOUNCE_MS`. Debouncing here, inside the hook,
+ * means every caller gets the fix automatically rather than each call site
+ * having to remember to debounce its own input state.
+ */
+export const useLockAssetsFeePreview = (args: {
+  publicKey?: string | null;
+  poolContractId?: string | null;
+  amount?: string;
+}) => {
+  const amount = args.amount?.trim() ?? '';
+  // Starts empty (not seeded from `amount`) so a caller that mounts with a
+  // non-empty amount already still goes through the debounce window once,
+  // the same as any other change — matching `useLeaderboard`'s
+  // `searchQuery`/`searchInput` split, which starts `searchQuery` at `""`
+  // rather than at the initial `searchInput` value.
+  const [debouncedAmount, setDebouncedAmount] = useState('');
+
+  useEffect(() => {
+    const id = setTimeout(
+      () => setDebouncedAmount(amount),
+      LOCK_ASSETS_FEE_PREVIEW_DEBOUNCE_MS,
+    );
+    return () => clearTimeout(id);
+  }, [amount]);
+
+  const numericAmount = Number(debouncedAmount);
+  // A live amount that hasn't settled into debouncedAmount yet is not
+  // reflected in the query at all (queryKey/queryFn/enabled all read
+  // debouncedAmount below) — surface that as "still fetching" so UI keyed
+  // off isFetching shows a pending state for the whole debounce window,
+  // not just the network request that follows it.
+  const isDebouncing = amount !== debouncedAmount;
+
+  const query = useQuery({
+    queryKey: [
+      'lockAssetsFeePreview',
+      args.publicKey,
+      args.poolContractId,
+      debouncedAmount,
+    ],
+    queryFn: async () =>
+      (await loadSoroban()).simulateLockAssets({
+        publicKey: args.publicKey!,
+        poolContractId: args.poolContractId!,
+        amount: debouncedAmount,
+      }),
+    enabled:
+      !!args.publicKey &&
+      !!args.poolContractId &&
+      !!debouncedAmount &&
+      Number.isFinite(numericAmount) &&
+      numericAmount > 0,
+    staleTime: 10000,
+    gcTime: 5 * 60 * 1000,
+    retry: 1,
+  });
+
+  return { ...query, isFetching: query.isFetching || isDebouncing };
+};
+
+/**
+ * Same live, debounced fee-preview pattern as useLockAssetsFeePreview, for
+ * unlock_assets — issue #240: UnlockModal submitted transactions with no fee
+ * estimate shown before the Freighter signing prompt.
+ */
+export const useUnlockAssetsFeePreview = (args: {
+  publicKey?: string | null;
+  poolContractId?: string | null;
+  amount?: string;
+}) => {
+  const amount = args.amount?.trim() ?? '';
+  const [debouncedAmount, setDebouncedAmount] = useState('');
+
+  useEffect(() => {
+    const id = setTimeout(
+      () => setDebouncedAmount(amount),
+      LOCK_ASSETS_FEE_PREVIEW_DEBOUNCE_MS,
+    );
+    return () => clearTimeout(id);
+  }, [amount]);
+
+  const numericAmount = Number(debouncedAmount);
+  const isDebouncing = amount !== debouncedAmount;
+
+  const query = useQuery({
+    queryKey: [
+      'unlockAssetsFeePreview',
+      args.publicKey,
+      args.poolContractId,
+      debouncedAmount,
+    ],
+    queryFn: async () =>
+      (await loadSoroban()).simulateUnlockAssets({
+        publicKey: args.publicKey!,
+        poolContractId: args.poolContractId!,
+        amount: debouncedAmount,
+      }),
+    enabled:
+      !!args.publicKey &&
+      !!args.poolContractId &&
+      !!debouncedAmount &&
+      Number.isFinite(numericAmount) &&
+      numericAmount > 0,
+    staleTime: 10000,
+    gcTime: 5 * 60 * 1000,
+    retry: 1,
+  });
+
+  return { ...query, isFetching: query.isFetching || isDebouncing };
+};
+
+/**
+ * Live, debounced fee preview for set_boost so BoostModal can show the
+ * estimated fee before the Freighter signing prompt. Debounced on the
+ * slider value so dragging doesn't fire a simulation per step.
+ */
+export const useSetBoostFeePreview = (args: {
+  publicKey?: string | null;
+  poolContractId?: string | null;
+  allocationPercentage?: number | null;
+  enabled?: boolean;
+}) => {
+  const allocation = args.allocationPercentage ?? null;
+  const [debouncedAllocation, setDebouncedAllocation] = useState<number | null>(null);
+
+  useEffect(() => {
+    const id = setTimeout(
+      () => setDebouncedAllocation(allocation),
+      LOCK_ASSETS_FEE_PREVIEW_DEBOUNCE_MS,
+    );
+    return () => clearTimeout(id);
+  }, [allocation]);
+
+  const isDebouncing = allocation !== debouncedAllocation;
+
+  const query = useQuery({
+    queryKey: [
+      'setBoostFeePreview',
+      args.publicKey,
+      args.poolContractId,
+      debouncedAllocation,
+    ],
+    queryFn: async () =>
+      (await loadSoroban()).simulateSetBoost({
+        publicKey: args.publicKey!,
+        poolContractId: args.poolContractId!,
+        allocationPercentage: debouncedAllocation!,
+      }),
+    enabled:
+      (args.enabled ?? true) &&
+      !!args.publicKey &&
+      !!args.poolContractId &&
+      debouncedAllocation !== null &&
+      Number.isInteger(debouncedAllocation) &&
+      debouncedAllocation >= 0 &&
+      debouncedAllocation <= 100,
+    staleTime: 10000,
+    gcTime: 5 * 60 * 1000,
+    retry: 1,
+  });
+
+  return { ...query, isFetching: query.isFetching || isDebouncing };
+};
+
+/**
+ * Hook to lock assets in a pool.
+ *
+ * Accepts an optional onStep callback so callers can drive step-by-step UI
+ * without coupling the mutation to internal implementation details.
+ */
+export const useLockAssets = (options?: {
+  onHash?: (hash: string) => void;
+  onStep?: (step: "simulating" | "signing" | "submitting") => void;
+}) => {
+  const { walletApi, publicKey } = useStellarWallet();
+  const queryClient = useQueryClient();
+  const toast = useToast();
+  const walletApiRef = useRef(walletApi);
+  walletApiRef.current = walletApi;
+
+  return useMutation({
+    mutationFn: async ({
+      poolId,
+      amount,
+    }: {
+      poolId: string;
+      amount: string;
+    }) => {
+      if (!walletApi || !publicKey) {
+        throw new Error('Wallet not connected. Please connect Freighter before depositing.');
+      }
+      const { sorobanService } = await loadSoroban();
+      const result = await sorobanService.lockAssets(
+        poolId,
+        publicKey,
+        amount,
+        walletApi,
+        {
+          onHash: options?.onHash,
+          onStep: options?.onStep,
+        },
+        () => walletApiRef.current === walletApi,
+      );
+      return result;
+    },
+    onSuccess: (result: TransactionResult, variables) => {
+      if (result.success) {
+        const shortHash = (result.transactionHash ?? result.hash ?? "").slice(0, 10);
+        toast({
+          title: 'Assets locked',
+          description: shortHash ? `Tx ${shortHash}… confirmed` : 'Deposit confirmed on Stellar',
+          status: 'success',
+          duration: 6000,
+          isClosable: true,
+        });
+
+        queryClient.invalidateQueries({ queryKey: [QUERY_KEYS.POOLS] });
+        queryClient.invalidateQueries({ queryKey: [QUERY_KEYS.USER_POSITION] });
+        queryClient.invalidateQueries({ queryKey: [QUERY_KEYS.USER_POSITION, variables.poolId] });
+        queryClient.invalidateQueries({ queryKey: [QUERY_KEYS.USER_POSITION, 'all', publicKey] });
+        queryClient.invalidateQueries({ queryKey: [QUERY_KEYS.USER_CREDITS, variables.poolId] });
+        queryClient.invalidateQueries({ queryKey: [QUERY_KEYS.PLATFORM_STATS] });
+        queryClient.invalidateQueries({ queryKey: ['stellarBalance', publicKey] });
+      } else {
+        toast({
+          title: 'Deposit failed',
+          description: result.error ?? 'Unknown error — please try again',
+          status: 'error',
+          duration: 8000,
+          isClosable: true,
+        });
+      }
+    },
+    onError: (error: Error) => {
+      toast({
+        title: 'Transaction error',
+        description: error.message,
+        status: 'error',
+        duration: 8000,
+        isClosable: true,
+      });
+    },
+  });
+};
+
+/**
+ * Hook to unlock assets from a pool
+ */
+export const useUnlockAssets = () => {
+  const { walletApi, publicKey } = useStellarWallet();
+  const queryClient = useQueryClient();
+  const toast = useToast();
+  const walletApiRef = useRef(walletApi);
+  walletApiRef.current = walletApi;
+
+  return useMutation({
+    mutationFn: async ({
+      poolId,
+      amount,
+    }: {
+      poolId: string;
+      amount: string;
+    }) => {
+      if (!walletApi || !publicKey) {
+        throw new Error('Wallet not connected');
+      }
+      const { sorobanService } = await loadSoroban();
+      return sorobanService.unlockAssets(
+        poolId,
+        publicKey,
+        amount,
+        walletApi,
+        undefined,
+        () => walletApiRef.current === walletApi,
+      );
+    },
+    onSuccess: (result: TransactionResult, variables) => {
+      if (result.success) {
+        toast({
+          title: 'Assets Unlocked Successfully',
+          description: `Transaction: ${result.transactionHash?.slice(0, 8)}...`,
+          status: 'success',
+          duration: 5000,
+          isClosable: true,
+        });
+
+        // Invalidate related queries
+        queryClient.invalidateQueries({
+          queryKey: [QUERY_KEYS.USER_POSITION, variables.poolId],
+        });
+        queryClient.invalidateQueries({
+          queryKey: [QUERY_KEYS.USER_CREDITS, variables.poolId],
+        });
+        queryClient.invalidateQueries({
+          queryKey: [QUERY_KEYS.PLATFORM_STATS],
+        });
+        queryClient.invalidateQueries({
+          queryKey: [QUERY_KEYS.POOLS],
+        });
+        // Unlocking returns principal to the user's own account, directly
+        // changing spendable balance — must invalidate like useLockAssets
+        // does, or "Available balance" in the Deposit modal serves a stale
+        // value for up to staleTime (issue #138).
+        queryClient.invalidateQueries({
+          queryKey: ['stellarBalance', publicKey],
+        });
+      } else {
+        toast({
+          title: 'Unlock Assets Failed',
+          description: result.error || 'Unknown error occurred',
+          status: 'error',
+          duration: 8000,
+          isClosable: true,
+        });
+      }
+    },
+    onError: (error: Error) => {
+      toast({
+        title: 'Transaction Error',
+        description: error.message,
+        status: 'error',
+        duration: 8000,
+        isClosable: true,
+      });
+    },
+  });
+};
+
+/**
+ * Hook to set boost configuration
+ */
+export const useSetBoost = () => {
+  const { walletApi, publicKey } = useStellarWallet();
+  const queryClient = useQueryClient();
+  const toast = useToast();
+
+  return useMutation({
+    mutationFn: async ({
+      poolId,
+      allocationPercentage,
+    }: {
+      poolId: string;
+      allocationPercentage: number;
+    }) => {
+      if (!walletApi || !publicKey) {
+        throw new Error('Wallet not connected');
+      }
+      const { sorobanService } = await loadSoroban();
+      return sorobanService.setBoost(poolId, publicKey, allocationPercentage, walletApi);
+    },
+    onSuccess: (result: TransactionResult, variables) => {
+      if (result.success) {
+        toast({
+          title: 'Boost Configuration Updated',
+          description: `Boost set to ${variables.allocationPercentage}%`,
+          status: 'success',
+          duration: 5000,
+          isClosable: true,
+        });
+
+        // Invalidate related queries
+        queryClient.invalidateQueries({
+          queryKey: [QUERY_KEYS.USER_POSITION, variables.poolId],
+        });
+        queryClient.invalidateQueries({
+          queryKey: [QUERY_KEYS.USER_CREDITS, variables.poolId],
+        });
+        queryClient.invalidateQueries({
+          queryKey: [QUERY_KEYS.BOOST_CONFIG, variables.poolId],
+        });
+      } else {
+        toast({
+          title: 'Boost Configuration Failed',
+          description: result.error || 'Unknown error occurred',
+          status: 'error',
+          duration: 8000,
+          isClosable: true,
+        });
+      }
+    },
+    onError: (error: Error) => {
+      toast({
+        title: 'Transaction Error',
+        description: error.message,
+        status: 'error',
+        duration: 8000,
+        isClosable: true,
+      });
+    },
+  });
+};
+
+/**
+ * Hook to get all user positions across all pools
+ */
+export const useAllUserPositions = () => {
+  const { publicKey } = useStellarWallet();
+  const { data: pools } = usePools();
+
+  return useQuery({
+    queryKey: [QUERY_KEYS.USER_POSITION, 'all', publicKey],
+    queryFn: async () => {
+      if (!publicKey || !pools) return [];
+
+      const { sorobanService } = await loadSoroban();
+      const positions = await Promise.allSettled(
+        pools.map(pool => sorobanService.getUserPosition(pool.id, publicKey))
+      );
+
+      return positions
+        .map((result, index) => ({
+          pool: pools[index],
+          position: result.status === 'fulfilled' ? result.value : null,
+        }))
+        .filter(item => item.position !== null);
+    },
+    enabled: !!publicKey && !!pools && pools.length > 0,
+    staleTime: STALE_TIME.USER_DATA,
+    gcTime: 5 * 60 * 1000,
+    refetchInterval: 30000,
+  });
+};
+
+/**
+ * Hook to get total user credits across all pools
+ */
+export const useTotalUserCredits = () => {
+  const { publicKey } = useStellarWallet();
+  const { data: pools } = usePools();
+
+  return useQuery({
+    queryKey: [QUERY_KEYS.USER_CREDITS, 'total', publicKey],
+    queryFn: async () => {
+      if (!publicKey || !pools) return '0';
+
+      const { sorobanService } = await loadSoroban();
+      const credits = await Promise.allSettled(
+        pools.map(pool => sorobanService.calculateUserCredits(pool.id, publicKey))
+      );
+
+      const totalCredits = credits.reduce((total, result) => {
+        if (result.status === 'fulfilled') {
+          return total + parseFloat(result.value);
+        }
+        return total;
+      }, 0);
+
+      return totalCredits.toString();
+    },
+    enabled: !!publicKey && !!pools && pools.length > 0,
+    staleTime: STALE_TIME.USER_DATA,
+    gcTime: 5 * 60 * 1000,
+    refetchInterval: 15000,
+  });
+};
+
+/**
+ * Hook for real-time updates with optimistic UI updates
+ */
+export const useOptimisticUpdate = () => {
+  const queryClient = useQueryClient();
+
+  const updateUserPosition = (
+    poolId: string,
+    userAddress: string,
+    updateFn: (old: UserPosition | null) => UserPosition | null
+  ) => {
+    queryClient.setQueryData(
+      [QUERY_KEYS.USER_POSITION, poolId, userAddress],
+      updateFn
+    );
+  };
+
+  const updateCredits = (
+    poolId: string,
+    userAddress: string,
+    newCredits: string
+  ) => {
+    queryClient.setQueryData(
+      [QUERY_KEYS.USER_CREDITS, poolId, userAddress],
+      newCredits
+    );
+  };
+
+  const updatePlatformStats = (
+    updateFn: (old: UIPlatformStats | undefined) => UIPlatformStats
+  ) => {
+    queryClient.setQueryData([QUERY_KEYS.PLATFORM_STATS], updateFn);
+  };
+
+  return {
+    updateUserPosition,
+    updateCredits,
+    updatePlatformStats,
+  };
+};
+
+export interface UIPlatformStats {
+  tvl: string;
+  activePools: number;
+  totalFarmers: number;
+  creditVelocity: string;
+  totalValueLocked?: string;
+  totalPools?: number;
+  totalUsers?: number;
+  onlineUsers?: number;
+}
+
+export function usePlatformStats(initialData?: UIPlatformStats) {
+  return useQuery<UIPlatformStats>({
+    queryKey: [QUERY_KEYS.PLATFORM_STATS],
+    queryFn: async () => {
+      const { sorobanService } = await loadSoroban();
+      const [stats, velocity] = await Promise.all([
+        sorobanService.getPlatformStats(),
+        sorobanService.getCreditVelocity(24)
+      ]);
+
+      return {
+        tvl: stats.totalValueLocked || "0",
+        activePools: stats.totalPools || 0,
+        totalFarmers: stats.totalUsers || 0,
+        creditVelocity: velocity,
+        totalValueLocked: stats.totalValueLocked,
+        totalPools: stats.totalPools,
+        totalUsers: stats.totalUsers,
+        onlineUsers: stats.onlineUsers,
+      };
+    },
+    staleTime: STALE_TIME.STATS,   // Keeps data fresh for 1 minute
+    gcTime: 5 * 60 * 1000,
+    refetchInterval: 120000, // Re-checks the blockchain automatically every 2 minutes
+    initialData: initialData
+  });
+}
+
+/**
+ * Global Soroban RPC connectivity check (issue #248). When the RPC endpoint
+ * is unreachable, individual pages each show their own query error with no
+ * indication it's a shared, RPC-wide outage rather than a one-off failure.
+ * A single, cheap getHealth() poll gives a global "is the chain reachable"
+ * signal a top-level banner can react to.
+ */
+export function useRpcHealth() {
+  const query = useQuery({
+    queryKey: ['rpcHealth'],
+    queryFn: async () => (await loadSoroban()).rpcServer.getHealth(),
+    staleTime: 15000,
+    gcTime: 5 * 60 * 1000,
+    refetchInterval: 30000,
+    retry: 1,
+    // Never let this surface a spinner/blank state anywhere it's used —
+    // it's a background signal, not something a page should block on.
+    refetchOnWindowFocus: true,
+  });
+
+  return { isUnreachable: query.isError };
+}

@@ -1,18 +1,33 @@
 "use client";
+
 import { useErrorHandler } from "@/context/ErrorContext";
 import { useStellarWallet } from "@/context/StellarWalletContext";
-import { Button } from "@chakra-ui/react";
+import { Button, Flex, Text, Tooltip, type ButtonProps } from "@chakra-ui/react";
 import { useState } from "react";
 
-export default function ConnectWalletButton() {
-  const { connect } = useStellarWallet();
+const ACCENT = "#4AE292";
+
+type ConnectWalletButtonProps = ButtonProps & {
+  label?: string;
+};
+
+function truncateKey(key: string): string {
+  return `${key.slice(0, 4)}...${key.slice(-4)}`;
+}
+
+export default function ConnectWalletButton({
+  label = "Connect Freighter",
+  ...buttonProps
+}: ConnectWalletButtonProps) {
+  const { connect, disconnect, publicKey, isConnected } = useStellarWallet();
   const toast = useErrorHandler();
-  const [isLoading, setIsLoading] = useState(false);
+  const [isConnecting, setIsConnecting] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   const CONNECT_TIMEOUT_MS = 30_000;
 
   const handleConnect = async () => {
-    setIsLoading(true);
+    setIsConnecting(true);
     try {
       const timeout = new Promise<never>((_, reject) =>
         setTimeout(
@@ -22,27 +37,112 @@ export default function ConnectWalletButton() {
       );
       await Promise.race([connect(), timeout]);
       toast.success("Wallet Connected", "Your wallet has been connected successfully");
+      await connect();
+      toast.success("Wallet connected", "Freighter is now linked to SmartDrop");
     } catch (error) {
-      toast.handleError(error, "Wallet Connection");
+      // Issue #250: offer a Retry action right on the error toast, so a
+      // failed connect (wrong network, rejected prompt, timeout) doesn't
+      // force the user to dismiss the toast and click Connect all over
+      // again from scratch.
+      toast.handleError(error, "Wallet Connection", () => void handleConnect());
     } finally {
-      setIsLoading(false);
+      setIsConnecting(false);
     }
   };
 
+  const handleCopy = async () => {
+    if (!publicKey) return;
+    try {
+      await navigator.clipboard.writeText(publicKey);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // Clipboard may be unavailable in hardened browser contexts.
+    }
+  };
+
+  if (isConnected && publicKey) {
+    return (
+      <Flex
+        align="center"
+        gap={2}
+        position="fixed"
+        bottom={{ base: "16px", md: "20px" }}
+        right={{ base: "16px", md: "20px" }}
+        left={{ base: "16px", md: "auto" }}
+        w={{ base: "calc(100% - 32px)", md: "auto" }}
+        justify={{ base: "center", md: "flex-start" }}
+        bg="#1a1a1a"
+        border="1px solid #333"
+        borderRadius="3xl"
+        px={4}
+        py={2}
+      >
+        <Tooltip
+          label={copied ? "Copied!" : publicKey}
+          hasArrow
+          bg="#222"
+          color="#fff"
+          fontSize="xs"
+        >
+          {/* A real button so the tooltip also opens on keyboard focus, and
+              the full address is in the accessible name, not hover-only (#571). */}
+          <Text
+            as="button"
+            type="button"
+            aria-label={copied ? "Address copied" : `Copy wallet address ${publicKey}`}
+            bg="transparent"
+            border="none"
+            p={0}
+            fontSize="sm"
+            fontFamily="mono"
+            color={ACCENT}
+            cursor="pointer"
+            onClick={() => void handleCopy()}
+            _hover={{ opacity: 0.8 }}
+            userSelect="none"
+          >
+            {truncateKey(publicKey)}
+          </Text>
+        </Tooltip>
+        <Text color="#555" fontSize="xs">
+          |
+        </Text>
+        <Text
+          fontSize="xs"
+          color="#A2A2A2"
+          cursor="pointer"
+          _hover={{ color: "#fff" }}
+          onClick={disconnect}
+          userSelect="none"
+        >
+          Disconnect
+        </Text>
+      </Flex>
+    );
+  }
+
   return (
     <Button
-      bgColor="#4AE292"
+      bgColor={ACCENT}
       color="#000"
       borderRadius="3xl"
       position="fixed"
-      bottom="20px"
-      right="20px"
-      p={4}
-      onClick={handleConnect}
-      isLoading={isLoading}
-      loadingText="Connecting..."
+      bottom={{ base: "16px", md: "20px" }}
+      right={{ base: "16px", md: "20px" }}
+      left={{ base: "16px", md: "auto" }}
+      w={{ base: "calc(100% - 32px)", md: "auto" }}
+      px={6}
+      py={4}
+      fontWeight="bold"
+      transition="box-shadow 0.2s ease, opacity 0.2s ease"
+      _hover={{ opacity: 0.9, boxShadow: "glow" }}
+      {...buttonProps}
+      onClick={() => void handleConnect()}
+      isLoading={isConnecting || Boolean(buttonProps.isLoading)}
+      loadingText={buttonProps.loadingText ?? "Connecting..."}
     >
-      Connect Freighter
+      {label}
     </Button>
   );
 }

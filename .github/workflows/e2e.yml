@@ -1,0 +1,78 @@
+name: E2E Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - uses: pnpm/action-setup@v4
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: TypeScript strict typecheck
+        run: pnpm run typecheck
+
+      - name: Dependency vulnerability audit
+        run: pnpm run audit:high
+
+      - name: Install Playwright browsers
+        run: pnpm exec playwright install chromium --with-deps
+
+      - name: Build application
+        run: pnpm run build
+        env:
+          NEXT_PUBLIC_E2E: 'true'
+          NEXT_PUBLIC_STELLAR_NETWORK: TESTNET
+          NEXT_PUBLIC_MIN_LOCK_PERIOD_SECONDS: '604800'
+
+      - name: Check bundle size budget
+        run: pnpm run bundle:budget
+
+      - name: Lighthouse performance audit
+        run: pnpm run lighthouse
+        env:
+          CI: true
+          NEXT_PUBLIC_E2E: 'true'
+          NEXT_PUBLIC_STELLAR_NETWORK: TESTNET
+          NEXT_PUBLIC_MIN_LOCK_PERIOD_SECONDS: '604800'
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: lighthouse-report
+          path: .lighthouseci/
+          retention-days: 7
+
+      - name: Run Playwright E2E tests
+        run: pnpm run playwright
+        env:
+          CI: true
+          NEXT_PUBLIC_E2E: 'true'
+          NEXT_PUBLIC_STELLAR_NETWORK: TESTNET
+          NEXT_PUBLIC_MIN_LOCK_PERIOD_SECONDS: '604800'
+
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          # e2e/playwright.config.ts doesn't configure the html reporter, so
+          # playwright-report/ is never written -- this was uploading nothing
+          # on every failure. test-results/ is where traces, error-context.md,
+          # and screenshots actually land regardless of reporter config.
+          path: test-results/
+          retention-days: 7

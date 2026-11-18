@@ -1,0 +1,162 @@
+"use client";
+
+/**
+ * useLockFlow — encapsulates the full simulate → sign → submit → confirm
+ * deposit state machine for the farm page deposit modal.
+ *
+ * Consumers get a single `execute()` function and reactive state that drives
+ * the step-by-step UI without any business logic leaking into the component.
+ */
+
+import { useCallback, useRef, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { lockAssets, type FreighterWalletApi } from "@/lib/soroban";
+import { normalizeError } from "@/lib/error-handler";
+import { trackEvent } from "@/lib/analytics";
+import {
+  type DepositRecord,
+  type DepositStep,
+  isDepositPending,
+} from "@/types/farm";
+import { QUERY_KEYS } from "@/hooks/useSorobanQuery";
+
+export interface LockFlowParams {
+  poolId: string;
+  symbol: string;
+  publicKey: string;
+  walletApi: FreighterWalletApi | null;
+}
+
+export interface LockFlowState {
+  step: DepositStep;
+  record: DepositRecord | null;
+  error: string | null;
+  isPending: boolean;
+  execute: (displayAmount: number) => Promise<void>;
+  reset: () => void;
+}
+
+export function useLockFlow({
+  poolId,
+  symbol,
+  publicKey,
+  walletApi,
+}: LockFlowParams): LockFlowState {
+  const queryClient = useQueryClient();
+  const [step, setStep] = useState<DepositStep>("idle");
+  const [record, setRecord] = useState<DepositRecord | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  
+  // Use refs to avoid recreating execute callback when step or walletApi change during execution
+  const walletApiRef = useRef(walletApi);
+  walletApiRef.current = walletApi;
+  // step changes throughout the flow (idle -> simulating -> signing ->
+  // submitting -> success/error), so depending on it directly recreated
+  // `execute` mid-flow -- a caller holding an earlier reference to `execute`
+  // (e.g. captured in a prop before a re-render propagates) could call a
+  // stale closure whose in-flight guard check below never sees the update
+  // (#396). Reading the current step through a ref keeps that guard live
+  // without making `execute` itself change identity every time step does.
+  const stepRef = useRef(step);
+  stepRef.current = step;
+  const walletApiRef = useRef(walletApi);
+  walletApiRef.current = walletApi;
+
+  const reset = useCallback(() => {
+    setStep("idle");
+    setRecord(null);
+    setError(null);
+  }, []);
+
+  const execute = useCallback(
+    async (displayAmount: number) => {
+      // Use ref to read current step without causing execute to recreate on step changes
+      if (isDepositPending(stepRef.current)) return;
+
+      setError(null);
+      setRecord(null);
+
+      const start = Date.now();
+      trackEvent("deposit_initiated", { poolId, symbol, displayAmount });
+
+      try {
+        if (!walletApiRef.current || !publicKey) {
+          throw new Error("Wallet not connected. Please connect Freighter before depositing.");
+        }
+
+        setStep("simulating");
+
+        const result = await lockAssets({
+          poolContractId: poolId,
+          publicKey,
+          amount: String(displayAmount),
+          walletApi: walletApiRef.current,
+          onStep: setStep,
+          isStillConnected: () => walletApiRef.current === walletApi,
+        });
+
+        if (!result.success) {
+          throw new Error(result.error ?? "Transaction failed");
+        }
+
+        setStep("submitting");
+
+        const txHash = result.hash ?? result.transactionHash ?? "";
+        const depositRecord: DepositRecord = {
+          poolId,
+          symbol,
+          displayAmount,
+          txHash,
+          confirmedAt: Date.now(),
+        };
+
+        setRecord(depositRecord);
+        setStep("success");
+
+        trackEvent("deposit_succeeded", {
+          poolId,
+          symbol,
+          displayAmount,
+          txHash,
+          durationMs: Date.now() - start,
+        });
+
+        // Invalidate position and pool caches so the UI reflects the new stake.
+        // This is the superset of both useLockAssets' onSuccess invalidations
+        // (#83) and useLockFlow's original set, ensuring no stale data regardless
+        // of which entry point triggered the deposit.
+        queryClient.invalidateQueries({ queryKey: [QUERY_KEYS.POOLS] });
+        queryClient.invalidateQueries({ queryKey: [QUERY_KEYS.USER_POSITION] });
+        queryClient.invalidateQueries({ queryKey: [QUERY_KEYS.USER_POSITION, poolId] });
+        queryClient.invalidateQueries({ queryKey: [QUERY_KEYS.USER_POSITION, 'all', publicKey] });
+        queryClient.invalidateQueries({ queryKey: [QUERY_KEYS.USER_CREDITS, poolId] });
+        queryClient.invalidateQueries({ queryKey: [QUERY_KEYS.PLATFORM_STATS] });
+        queryClient.invalidateQueries({ queryKey: ['stellarBalance', publicKey] });
+
+      } catch (err) {
+        const normalized = normalizeError(err, "Deposit");
+        setError(normalized.userMessage ?? normalized.message);
+        setStep("error");
+
+        trackEvent("deposit_failed", {
+          poolId,
+          symbol,
+          displayAmount,
+          errorCode: normalized.code,
+          durationMs: Date.now() - start,
+        });
+      }
+    },
+    // Removed 'step' and 'walletApi' from deps - now using refs to prevent unnecessary recreations
+    [poolId, symbol, publicKey, queryClient],
+  );
+
+  return {
+    step,
+    record,
+    error,
+    isPending: isDepositPending(step),
+    execute,
+    reset,
+  };
+}

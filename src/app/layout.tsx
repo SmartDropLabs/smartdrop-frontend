@@ -1,20 +1,93 @@
 import AppShell from "@/components/AppShell/AppShell";
-import type { Metadata } from "next";
+import PageTransition from "@/components/PageTransition/PageTransition";
+import type { Metadata, Viewport } from "next";
+import { headers } from "next/headers";
+import { Inter } from "next/font/google";
+import { ColorModeScript } from "@chakra-ui/react";
+import { CSP_POLICY } from "../../next.config";
+import "./globals.css";
+
+// #555: preload the self-hosted Inter subset and expose it as --font-inter so
+// the Chakra theme (src/lib/theme.ts) uses this exact preloaded face.
+// adjustFontFallback sizes the system fallback to Inter's metrics, so the
+// swap from fallback to Inter causes no layout shift.
+const inter = Inter({
+  subsets: ["latin"],
+  display: "swap",
+  preload: true,
+  variable: "--font-inter",
+  adjustFontFallback: true,
+  fallback: ["-apple-system", "BlinkMacSystemFont", "Segoe UI", "sans-serif"],
+});
+
+const SITE_NAME = "SmartDrop";
+const SITE_TITLE = "SmartDrop — Stellar Liquidity Farming";
+const SITE_DESCRIPTION = "Stellar-based liquidity-oriented airdrop experiment";
+const INITIAL_COLOR_MODE = "dark";
 
 export const metadata: Metadata = {
-  title: "SmartDrop",
-  description: "Stellar-based liquidity-oriented airdrop experiment",
+  title: {
+    default: SITE_TITLE,
+    template: "%s · SmartDrop",
+  },
+  description: SITE_DESCRIPTION,
+  openGraph: {
+    title: SITE_TITLE,
+    description: SITE_DESCRIPTION,
+    siteName: SITE_NAME,
+    type: "website",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: SITE_TITLE,
+    description: SITE_DESCRIPTION,
+  },
 };
 
-export default function RootLayout({
+export const viewport: Viewport = {
+  themeColor: "#0b0d0c",
+};
+
+const isStaticExport = process.env.NEXT_EXPORT === "true";
+
+export default async function RootLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
+  let nonce = "";
+  if (!isStaticExport) {
+    const headersList = await headers();
+    nonce = headersList.get("x-nonce") ?? "";
+  }
+
   return (
-    <html lang="en">
-      <body>
-        <AppShell>{children}</AppShell>
+    <html lang="en" className={`${inter.variable} ${inter.className}`} suppressHydrationWarning>
+      <head>
+        <link rel="preconnect" href="https://horizon.stellar.org" />
+        <link rel="preconnect" href="https://soroban-testnet.stellar.org" />
+        <link rel="preconnect" href="https://soroban.stellar.org" />
+        <link rel="preconnect" href="https://stellar.expert" />
+        <link rel="dns-prefetch" href="https://horizon.stellar.org" />
+        <link rel="dns-prefetch" href="https://soroban-testnet.stellar.org" />
+        <link rel="dns-prefetch" href="https://soroban.stellar.org" />
+        <link rel="dns-prefetch" href="https://stellar.expert" />
+        {/* #404 — In server mode the middleware sets a nonce-bearing CSP header,
+            so the static meta tag would duplicate/override it. Only render the
+            meta tag in static-export mode where no middleware runs. */}
+        {isStaticExport && (
+          <meta httpEquiv="Content-Security-Policy" content={CSP_POLICY} />
+        )}
+        <ColorModeScript
+          nonce={nonce}
+          initialColorMode={INITIAL_COLOR_MODE}
+          storageKey="chakra-ui-color-mode"
+        />
+      </head>
+      <body suppressHydrationWarning>
+        <AppShell>
+          <PageTransition>{children}</PageTransition>
+        </AppShell>
       </body>
     </html>
   );
