@@ -1,5 +1,3 @@
-﻿import AppShell from "@/components/AppShell/AppShell";
-import SkipLink from "@/components/SkipLink/SkipLink";
 import AppShell from "@/components/AppShell/AppShell";
 import PageTransition from "@/components/PageTransition/PageTransition";
 import type { Metadata, Viewport } from "next";
@@ -7,6 +5,7 @@ import { headers } from "next/headers";
 import { Inter } from "next/font/google";
 import { ColorModeScript } from "@chakra-ui/react";
 import { CSP_POLICY } from "../../next.config";
+import theme from "@/lib/theme";
 import "./globals.css";
 
 // #555: preload the self-hosted Inter subset and expose it as --font-inter so
@@ -25,7 +24,14 @@ const inter = Inter({
 const SITE_NAME = "SmartDrop";
 const SITE_TITLE = "SmartDrop — Stellar Liquidity Farming";
 const SITE_DESCRIPTION = "Stellar-based liquidity-oriented airdrop experiment";
-const INITIAL_COLOR_MODE = "dark";
+// #782 — dark mode is provided by ChakraProvider (theme + localStorage color
+// mode manager) inside AppShell's ContextProvider. The pre-hydration script
+// must start from the same config, or the first paint can disagree with what
+// the provider then applies: follow the system preference when the theme says
+// so, otherwise the theme's initial mode.
+const INITIAL_COLOR_MODE = theme.config.useSystemColorMode
+  ? "system"
+  : theme.config.initialColorMode;
 
 export const metadata: Metadata = {
   title: {
@@ -87,8 +93,9 @@ export default async function RootLayout({
         />
       </head>
       <body suppressHydrationWarning>
-        <SkipLink />
-        <AppShell>{children}</AppShell>
+        {/* AppShell renders the skip link and every provider (theme, wallet,
+            query, error) exactly once; rendering it twice duplicated the
+            whole page. */}
         <AppShell>
           <PageTransition>{children}</PageTransition>
         </AppShell>

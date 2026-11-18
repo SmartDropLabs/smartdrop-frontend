@@ -1,7 +1,57 @@
 "use client";
 
 import { usePathname } from "next/navigation";
-import { Box, Flex, Spinner, Text, type BoxProps } from "@chakra-ui/react";
+import { useEffect, useState } from "react";
+import { Box, Flex, Progress, Spinner, Text, type BoxProps } from "@chakra-ui/react";
+
+/** After this long the loader says so, so a slow load isn't read as stuck (#783). */
+const SLOW_LOAD_MS = 5000;
+
+/**
+ * Indeterminate top-of-page progress bar shown with every loading variant,
+ * plus a "still loading" note once the load runs past SLOW_LOAD_MS (#783).
+ * The real duration isn't knowable for a Suspense fallback, so the bar is
+ * indeterminate rather than a fake percentage.
+ */
+function LoadingProgress() {
+  const [slow, setSlow] = useState(false);
+
+  useEffect(() => {
+    const timer = setTimeout(() => setSlow(true), SLOW_LOAD_MS);
+    return () => clearTimeout(timer);
+  }, []);
+
+  return (
+    <>
+      <Progress
+        size="xs"
+        isIndeterminate
+        colorScheme="green"
+        position="fixed"
+        top={0}
+        left={0}
+        right={0}
+        zIndex="banner"
+        aria-label="Loading page"
+      />
+      {slow && (
+        <Text
+          role="status"
+          color="app.muted"
+          fontSize="sm"
+          textAlign="center"
+          position="fixed"
+          top={2}
+          left={0}
+          right={0}
+          zIndex="banner"
+        >
+          Still loading — this is taking longer than usual.
+        </Text>
+      )}
+    </>
+  );
+}
 
 function SkeletonBar({
   w = "100%",
@@ -109,7 +159,14 @@ function DefaultLoading() {
 export default function Loading() {
   const pathname = usePathname();
 
-  if (pathname?.startsWith("/farm")) return <FarmSkeleton />;
-  if (pathname?.startsWith("/leaderboard")) return <LeaderboardSkeleton />;
-  return <DefaultLoading />;
+  let skeleton = <DefaultLoading />;
+  if (pathname?.startsWith("/farm")) skeleton = <FarmSkeleton />;
+  else if (pathname?.startsWith("/leaderboard")) skeleton = <LeaderboardSkeleton />;
+
+  return (
+    <>
+      <LoadingProgress />
+      {skeleton}
+    </>
+  );
 }

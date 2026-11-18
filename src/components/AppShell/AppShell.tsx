@@ -7,6 +7,7 @@ import NetworkMismatchBanner from "@/components/NetworkMismatchBanner/NetworkMis
 import OfflineBanner from "@/components/OfflineBanner/OfflineBanner";
 import RefetchIndicator from "@/components/RefetchIndicator/RefetchIndicator";
 import RpcUnreachableBanner from "@/components/RpcUnreachableBanner/RpcUnreachableBanner";
+import ServiceWorkerRegistrar from "@/components/ServiceWorkerRegistrar/ServiceWorkerRegistrar";
 import SkipLink, { MAIN_CONTENT_ID } from "@/components/SkipLink/SkipLink";
 import ContextProvider from "@/context";
 import {
@@ -14,8 +15,10 @@ import {
   useHasOwnConnectButton,
 } from "@/context/OwnConnectButtonContext";
 import { useStellarWallet } from "@/context/StellarWalletContext";
+import { recordRecentPage } from "@/lib/recentPages";
 import { Box } from "@chakra-ui/react";
 import { usePathname } from "next/navigation";
+import { useEffect } from "react";
 
 // Routes where the page itself always renders an inline Connect Wallet button
 // in the disconnected state — no dynamic condition, just pathname matching.
@@ -34,6 +37,11 @@ function LayoutWrapper({ children }: { children: React.ReactNode }) {
   const hasStaticCTA = STATIC_OWN_CONNECT_ROUTES.includes(pathname ?? "");
 
   const hasOwnConnectButton = hasContextCTA || hasStaticCTA;
+
+  // Feeds the 404 page's "recently visited" suggestions (#784).
+  useEffect(() => {
+    if (pathname) recordRecentPage(pathname);
+  }, [pathname]);
 
   return (
     <Box
