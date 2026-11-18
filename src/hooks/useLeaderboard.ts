@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { onLeaderboardInvalidated } from "@/lib/leaderboard-events";
 import { useUrlPagination } from "./useUrlPagination";
 
 export type SortKey = "credits" | "stake";
@@ -65,7 +66,13 @@ export function useLeaderboard(publicKey: string | null) {
   useEffect(() => {
     refresh();
     const id = setInterval(refresh, REFRESH_MS);
-    return () => clearInterval(id);
+    // Refetch immediately after a stake/unlock instead of waiting for the
+    // next interval tick (#761).
+    const unsubscribe = onLeaderboardInvalidated(refresh);
+    return () => {
+      clearInterval(id);
+      unsubscribe();
+    };
   }, [refresh]);
 
   const paged = entries;
@@ -76,15 +83,17 @@ export function useLeaderboard(publicKey: string | null) {
     return idx === -1 ? 0 : offset + idx + 1;
   })();
 
+  // Resetting to page 1 is a side effect of changing sort/search, not a page
+  // the user navigated to, so it replaces the history entry (#760).
   const setSortKey = (key: SortKey) => {
     setSortKeyState(key);
-    setPageState(1);
+    setPageState(1, { replace: true });
   };
 
   // Reset to page 1 when search query changes
   useEffect(() => {
     if (searchQuery) {
-      setPageState(1);
+      setPageState(1, { replace: true });
     }
   }, [searchQuery]);
 

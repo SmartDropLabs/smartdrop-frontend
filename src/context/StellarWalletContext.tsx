@@ -10,6 +10,7 @@ import {
     useContext,
     useEffect,
     useMemo,
+    useRef,
     useState,
     type ReactNode,
 } from "react";
@@ -103,11 +104,29 @@ async function withFreighterConnectTimeout<T>(
 /** How often to re-read Freighter's network while it is mismatched (#512). */
 export const NETWORK_MISMATCH_POLL_MS = 3_000;
 
+/**
+ * Cross-tab wallet sync (#758). Connecting or disconnecting in one tab is
+ * announced on this channel so every other open tab follows, instead of each
+ * tab needing its own reconnect. BroadcastChannel never delivers a message
+ * back to the tab that sent it, and received messages are applied with the
+ * plain state setters, so a message is never re-broadcast.
+ */
+export const WALLET_SYNC_CHANNEL = "smartdrop-wallet";
+
+export type WalletSyncMessage =
+  | { type: "connected"; publicKey: string }
+  | { type: "disconnected" };
+
 export function StellarWalletProvider({ children }: { children: ReactNode }) {
   const [publicKey, setPublicKey] = useState<string | null>(null);
   const [walletApi, setWalletApi] = useState<FreighterWalletApi | null>(null);
   const [networkName, setNetworkName] = useState<string | null>(null);
   const toast = useErrorHandler();
+  const syncChannelRef = useRef<BroadcastChannel | null>(null);
+
+  const announce = useCallback((message: WalletSyncMessage) => {
+    syncChannelRef.current?.postMessage(message);
+  }, []);
 
   const refreshNetworkDetails = useCallback(
     async (freighterModule?: FreighterModule, deadlineMs?: number) => {
@@ -180,6 +199,7 @@ export function StellarWalletProvider({ children }: { children: ReactNode }) {
         await refreshNetworkDetails(freighter, deadlineMs);
         setPublicKey(access.address);
         setWalletApi(signingApi);
+        announce({ type: "connected", publicKey: access.address });
         return;
       }
 
@@ -213,10 +233,12 @@ export function StellarWalletProvider({ children }: { children: ReactNode }) {
         await refreshNetworkDetails(freighter, deadlineMs);
         setPublicKey(access.address);
         setWalletApi(signingApi);
+        announce({ type: "connected", publicKey: access.address });
       } else {
         await refreshNetworkDetails(freighter, deadlineMs);
         setPublicKey(addr.address);
         setWalletApi(signingApi);
+        announce({ type: "connected", publicKey: addr.address });
       }
     } catch (error) {
       // Re-throw FreighterErrors as-is
@@ -229,13 +251,50 @@ export function StellarWalletProvider({ children }: { children: ReactNode }) {
         error instanceof Error ? error.message : "Failed to connect wallet"
       );
     }
-  }, [refreshNetworkDetails]);
+  }, [refreshNetworkDetails, announce]);
 
   const disconnect = useCallback(() => {
     setPublicKey(null);
     setWalletApi(null);
     setNetworkName(null);
-  }, []);
+    announce({ type: "disconnected" });
+  }, [announce]);
+
+  // Follow connects/disconnects made in other tabs (#758). The address that
+  // arrives is re-checked against Freighter by the health check and watcher
+  // below, so a stale or wrong announcement is corrected within seconds.
+  useEffect(() => {
+    if (typeof BroadcastChannel === "undefined") return undefined;
+
+    const channel = new BroadcastChannel(WALLET_SYNC_CHANNEL);
+    syncChannelRef.current = channel;
+    channel.onmessage = (event: MessageEvent<WalletSyncMessage>) => {
+      const message = event.data;
+      if (message?.type === "disconnected") {
+        setPublicKey(null);
+        setWalletApi(null);
+        setNetworkName(null);
+        return;
+      }
+      if (message?.type === "connected" && typeof message.publicKey === "string") {
+        void (async () => {
+          try {
+            const freighter = await import("@stellar/freighter-api");
+            setWalletApi(freighter as unknown as FreighterWalletApi);
+            setPublicKey(message.publicKey);
+            await refreshNetworkDetails(freighter);
+          } catch {
+            // Freighter unavailable in this tab — stay disconnected here.
+          }
+        })();
+      }
+    };
+
+    return () => {
+      channel.close();
+      syncChannelRef.current = null;
+    };
+  }, [refreshNetworkDetails]);
 
   // Issue #226: disconnect() itself stays silent — it's also called for an
   // explicit, user-initiated "Disconnect" click, which needs no toast. Use

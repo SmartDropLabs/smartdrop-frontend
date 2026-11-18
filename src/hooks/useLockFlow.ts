@@ -13,6 +13,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { lockAssets, type FreighterWalletApi, type UserPosition } from "@/lib/soroban";
 import { normalizeError } from "@/lib/error-handler";
 import { trackEvent } from "@/lib/analytics";
+import { invalidateLeaderboard } from "@/lib/leaderboard-events";
 import {
   type DepositRecord,
   type DepositStep,
@@ -148,6 +149,7 @@ export function useLockFlow({
         queryClient.invalidateQueries({ queryKey: [QUERY_KEYS.USER_CREDITS, poolId] });
         queryClient.invalidateQueries({ queryKey: [QUERY_KEYS.PLATFORM_STATS] });
         queryClient.invalidateQueries({ queryKey: ['stellarBalance', publicKey] });
+        invalidateLeaderboard();
 
       } catch (err) {
         if (previousPosition && !timedOut) {
