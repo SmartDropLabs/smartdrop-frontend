@@ -1,3 +1,5 @@
+﻿import AppShell from "@/components/AppShell/AppShell";
+import SkipLink from "@/components/SkipLink/SkipLink";
 import AppShell from "@/components/AppShell/AppShell";
 import PageTransition from "@/components/PageTransition/PageTransition";
 import type { Metadata, Viewport } from "next";
@@ -85,6 +87,8 @@ export default async function RootLayout({
         />
       </head>
       <body suppressHydrationWarning>
+        <SkipLink />
+        <AppShell>{children}</AppShell>
         <AppShell>
           <PageTransition>{children}</PageTransition>
         </AppShell>
