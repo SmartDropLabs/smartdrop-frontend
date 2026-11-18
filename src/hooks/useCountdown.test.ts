@@ -76,4 +76,41 @@ describe("useCountdown", () => {
 
     expect(result.current.label).toBe("1d 01h 01m 01s");
   });
+
+  it("Test 6 — pause freezes the countdown and resume picks the real clock back up (#763)", () => {
+    const unlockAtMs = Date.now() + 60_000;
+    const { result } = renderHook(() => useCountdown(unlockAtMs));
+
+    act(() => {
+      result.current.pause();
+    });
+    expect(result.current.isPaused).toBe(true);
+    const frozen = result.current.remainingMs;
+
+    act(() => {
+      vi.advanceTimersByTime(10_000);
+    });
+    expect(result.current.remainingMs).toBe(frozen);
+    expect(vi.getTimerCount()).toBe(0);
+
+    act(() => {
+      result.current.resume();
+    });
+    expect(result.current.isPaused).toBe(false);
+    expect(result.current.remainingMs).toBeLessThanOrEqual(frozen - 10_000 + 50);
+  });
+
+  it("Test 7 — togglePause flips between paused and running", () => {
+    const { result } = renderHook(() => useCountdown(Date.now() + 5_000));
+
+    act(() => {
+      result.current.togglePause();
+    });
+    expect(result.current.isPaused).toBe(true);
+
+    act(() => {
+      result.current.togglePause();
+    });
+    expect(result.current.isPaused).toBe(false);
+  });
 });

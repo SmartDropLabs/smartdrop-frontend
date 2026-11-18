@@ -10,7 +10,7 @@
 
 import { useCallback, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { lockAssets, type FreighterWalletApi } from "@/lib/soroban";
+import { lockAssets, type FreighterWalletApi, type UserPosition } from "@/lib/soroban";
 import { normalizeError } from "@/lib/error-handler";
 import { trackEvent } from "@/lib/analytics";
 import {
@@ -59,8 +59,6 @@ export function useLockFlow({
   // without making `execute` itself change identity every time step does.
   const stepRef = useRef(step);
   stepRef.current = step;
-  const walletApiRef = useRef(walletApi);
-  walletApiRef.current = walletApi;
 
   const reset = useCallback(() => {
     setStep("idle");
@@ -79,9 +77,26 @@ export function useLockFlow({
       const start = Date.now();
       trackEvent("deposit_initiated", { poolId, symbol, displayAmount });
 
+      const positionKey = [QUERY_KEYS.USER_POSITION, poolId, publicKey];
+      let previousPosition: UserPosition | undefined;
+      let timedOut = false;
+
       try {
         if (!walletApiRef.current || !publicKey) {
           throw new Error("Wallet not connected. Please connect Freighter before depositing.");
+        }
+
+        // Optimistically add the deposit to the cached position (#762) so the
+        // UI reflects the lock immediately, mirroring UnlockModal's unlock
+        // path. Rolled back on a definitive failure; a timeout keeps it, since
+        // the transaction may still land and the next refetch corrects it.
+        previousPosition = queryClient.getQueryData<UserPosition>(positionKey);
+        if (previousPosition) {
+          queryClient.setQueryData<UserPosition>(positionKey, {
+            ...previousPosition,
+            amount: String(Number(previousPosition.amount) + displayAmount),
+            isLocked: true,
+          });
         }
 
         setStep("simulating");
@@ -96,6 +111,7 @@ export function useLockFlow({
         });
 
         if (!result.success) {
+          timedOut = result.status === "TIMEOUT";
           throw new Error(result.error ?? "Transaction failed");
         }
 
@@ -134,6 +150,9 @@ export function useLockFlow({
         queryClient.invalidateQueries({ queryKey: ['stellarBalance', publicKey] });
 
       } catch (err) {
+        if (previousPosition && !timedOut) {
+          queryClient.setQueryData<UserPosition>(positionKey, previousPosition);
+        }
         const normalized = normalizeError(err, "Deposit");
         setError(normalized.userMessage ?? normalized.message);
         setStep("error");

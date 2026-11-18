@@ -1,85 +1,3 @@
-'use client';
-
-import { useEffect, useRef } from 'react';
-
-const FOCUSABLE = [
-  'a[href]',
-  'button:not([disabled])',
-  'input:not([disabled])',
-  'select:not([disabled])',
-  'textarea:not([disabled])',
-  '[tabindex]:not([tabindex="-1"])',
-].join(',');
-
-interface UseDynamicFocusTrapOptions {
-  /** Whether the trap is currently active. */
-  active: boolean;
-  /** Called when Escape is pressed — the caller should close the overlay. */
-  onClose: () => void;
-}
-
-/**
- * Traps keyboard focus inside `containerRef` while `active` is true.
- * Restores focus to the element that was focused before the trap activated
- * when Escape is pressed or the trap is deactivated (#697).
- */
-export function useDynamicFocusTrap<T extends HTMLElement>(
-  options: UseDynamicFocusTrapOptions,
-) {
-  const { active, onClose } = options;
-  const containerRef  = useRef<T>(null);
-  const triggerRef    = useRef<Element | null>(null);
-
-  useEffect(() => {
-    if (!active) return;
-
-    // Remember the element that had focus before the trap opened.
-    triggerRef.current = document.activeElement;
-
-    // Move focus into the container.
-    const container = containerRef.current;
-    if (container) {
-      const first = container.querySelector<HTMLElement>(FOCUSABLE);
-      first?.focus();
-    }
-
-    function handleKeyDown(e: KeyboardEvent) {
-      if (e.key === 'Escape') {
-        (triggerRef.current as HTMLElement | null)?.focus();
-        onClose();
-        return;
-      }
-
-      if (e.key !== 'Tab' || !container) return;
-
-      const focusable = Array.from(container.querySelectorAll<HTMLElement>(FOCUSABLE));
-      if (focusable.length === 0) return;
-
-      const first = focusable[0];
-      const last  = focusable[focusable.length - 1];
-
-      if (e.shiftKey) {
-        if (document.activeElement === first) {
-          e.preventDefault();
-          last.focus();
-        }
-      } else {
-        if (document.activeElement === last) {
-          e.preventDefault();
-          first.focus();
-        }
-      }
-    }
-
-    document.addEventListener('keydown', handleKeyDown);
-    return () => {
-      document.removeEventListener('keydown', handleKeyDown);
-      // Restore focus when the trap deactivates for any reason.
-      (triggerRef.current as HTMLElement | null)?.focus();
-    };
-  }, [active, onClose]);
-
-  return containerRef;
 "use client";
 
 import { useEffect } from "react";
@@ -111,6 +29,21 @@ export function getFirstTabbable(container: HTMLElement): HTMLElement | null {
 }
 
 /**
+ * Containers with an active trap, most recently enabled last (#764). With
+ * nested modals only the topmost one owns focus: a lost focus is restored
+ * into it rather than into whichever dialog's DOM happened to change.
+ */
+const trapStack: HTMLElement[] = [];
+
+function focusInto(container: HTMLElement) {
+  const target = getFirstTabbable(container) ?? container;
+  if (target === container && !container.hasAttribute("tabindex")) {
+    container.setAttribute("tabindex", "-1");
+  }
+  target.focus({ preventScroll: true });
+}
+
+/**
  * Keeps keyboard focus inside a dialog while its content changes underneath
  * the user.
  *
@@ -125,27 +58,30 @@ export function getFirstTabbable(container: HTMLElement): HTMLElement | null {
  * that way, moves it to the first tabbable element inside the dialog (or the
  * dialog itself). Focus that legitimately lives elsewhere — like a nested
  * confirmation modal portalled outside `container` — is left alone.
+ *
+ * Nested traps (#764): when a second trapped dialog opens on top, it becomes
+ * the focus owner. Focus left behind in the outer dialog is moved into the
+ * top one, and when the top one closes, focus dropped to `<body>` returns to
+ * the dialog underneath.
  */
 export function useDynamicFocusTrap(container: HTMLElement | null, enabled = true) {
   useEffect(() => {
     if (!enabled || !container || typeof MutationObserver === "undefined") return;
 
     let frame: number | null = null;
+    trapStack.push(container);
 
     const restoreFocus = () => {
       frame = null;
+      const top = trapStack[trapStack.length - 1] ?? container;
       const active = document.activeElement;
       const lost =
         !active ||
         active === document.body ||
-        (container.contains(active) && !isFocusable(active));
+        (top.contains(active) ? !isFocusable(active) : container.contains(active));
       if (!lost) return;
 
-      const target = getFirstTabbable(container) ?? container;
-      if (target === container && !container.hasAttribute("tabindex")) {
-        container.setAttribute("tabindex", "-1");
-      }
-      target.focus({ preventScroll: true });
+      focusInto(top);
     };
 
     const observer = new MutationObserver(() => {
@@ -164,6 +100,20 @@ export function useDynamicFocusTrap(container: HTMLElement | null, enabled = tru
     return () => {
       observer.disconnect();
       if (frame !== null) cancelAnimationFrame(frame);
+
+      const index = trapStack.lastIndexOf(container);
+      if (index !== -1) trapStack.splice(index, 1);
+
+      // Hand focus back to the dialog underneath if closing this one dropped
+      // it to <body>.
+      const next = trapStack[trapStack.length - 1];
+      if (next) {
+        requestAnimationFrame(() => {
+          const active = document.activeElement;
+          const stillTop = trapStack[trapStack.length - 1] === next;
+          if (stillTop && (!active || active === document.body)) focusInto(next);
+        });
+      }
     };
   }, [container, enabled]);
 }
