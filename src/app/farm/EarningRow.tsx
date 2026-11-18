@@ -17,7 +17,7 @@ import {
   Tooltip,
   VisuallyHidden,
 } from "@chakra-ui/react";
-import { memo, useId, type ReactNode } from "react";
+import { memo, useId, useState, type ReactNode } from "react";
 
 export function MetricColumn({
   label,
@@ -80,6 +80,8 @@ export const EarningRow = memo(function EarningRow({
 }: EarningRowProps) {
   const openUnlock = useFarmStore((s) => s.openUnlock);
   const openBoost = useFarmStore((s) => s.openBoost);
+  const openClaim = useFarmStore((s) => s.openClaim);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const { isNetworkMismatch } = useStellarWallet();
   const countdown = useCountdown(unlockAvailableAt(position));
   const hasStake = position.lockedAmount > 0;
@@ -161,6 +163,26 @@ export const EarningRow = memo(function EarningRow({
         direction={{ base: "column", md: "row" }}
         w={{ base: "full", md: "auto" }}
       >
+        <Button
+          borderRadius="3xl"
+          bg="app.accent2"
+          color="app.onAccent"
+          _hover={{ opacity: 0.9 }}
+          isDisabled={isSubmitting || position.earned <= 0 || isNetworkMismatch}
+          isLoading={isSubmitting}
+          loadingText="Claiming…"
+          onClick={() => {
+            setIsSubmitting(true);
+            try {
+              openClaim(position);
+            } finally {
+              setIsSubmitting(false);
+            }
+          }}
+          w={{ base: "full", md: "auto" }}
+        >
+          Claim
+        </Button>
         <Tooltip
           label={boostTooltipLabel}
           isDisabled={!boostDisabled}
