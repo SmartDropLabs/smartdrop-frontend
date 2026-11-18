@@ -3,15 +3,22 @@
 import React from 'react';
 import { SimpleGrid, Stat, StatLabel, StatNumber, Box, Skeleton } from '@chakra-ui/react';
 import { usePlatformStats, UIPlatformStats } from '@/hooks/useSorobanQuery';
-
-const formatCredits = (value: string): string => {
-  const num = parseFloat(value) || 0;
-  return `${(num / 1_000_000).toFixed(1)}M XLM`;
-};
+import { formatCredits } from '@/lib/soroban';
 
 interface PlatformStatsProps {
   initialData?: UIPlatformStats;
 }
+
+const PlatformStatsSkeleton: React.FC = () => (
+  <SimpleGrid columns={{ base: 2, md: 4 }} spacing={5} mb={8} width="100%">
+    {Array.from({ length: 4 }).map((_, i) => (
+      <Box key={i} {...cardProps}>
+        <Skeleton height="16px" width="60%" mb={3} startColor="app.border" endColor="app.surfaceHover" />
+        <Skeleton height="32px" width="80%" startColor="app.border" endColor="app.surfaceHover" />
+      </Box>
+    ))}
+  </SimpleGrid>
+);
 
 const cardProps = {
   p: 5,
@@ -28,6 +35,8 @@ export const PlatformStats: React.FC<PlatformStatsProps> = ({ initialData }) => 
   const { data, isLoading } = usePlatformStats(initialData);
   const stats = data || initialData;
 
+  if (isLoading && !stats) return <PlatformStatsSkeleton />;
+
   return (
     <SimpleGrid columns={{ base: 2, md: 4 }} spacing={5} mb={8} width="100%">
       <Box {...cardProps}>
@@ -35,7 +44,7 @@ export const PlatformStats: React.FC<PlatformStatsProps> = ({ initialData }) => 
           <StatLabel color="app.muted">Total Value Locked</StatLabel>
           <Skeleton isLoaded={!isLoading || !!stats} startColor="app.border" endColor="app.surfaceHover">
             <StatNumber fontSize="2xl" fontWeight="extrabold" color="app.accent">
-              {stats ? formatCredits(stats.tvl) : '0.0M XLM'}
+              {stats ? stats.tvl : '$0'}
             </StatNumber>
           </Skeleton>
         </Stat>
@@ -68,7 +77,7 @@ export const PlatformStats: React.FC<PlatformStatsProps> = ({ initialData }) => 
           <StatLabel color="app.muted">24h Credit Velocity</StatLabel>
           <Skeleton isLoaded={!isLoading || !!stats} startColor="app.border" endColor="app.surfaceHover">
             <StatNumber fontSize="2xl" fontWeight="extrabold" color="app.accent2">
-              {stats ? formatCredits(stats.creditVelocity) : '0.0M XLM'}
+              {stats ? `${formatCredits(stats.creditVelocity)} XLM` : '0 XLM'}
             </StatNumber>
           </Skeleton>
         </Stat>

@@ -134,4 +134,43 @@ describe("EarningRow render isolation", () => {
         .disabled,
     ).toBe(true);
   });
+
+  it("exposes why boost/unlock are disabled to assistive tech (#571)", () => {
+    useStellarWalletMock.mockReturnValue({
+      ...defaultWallet,
+      isNetworkMismatch: true,
+    });
+
+    render(<EarningRow position={positions[0]} />);
+
+    const boost = screen.getByRole("button", { name: /boost/i });
+    const unlock = screen.getByRole("button", { name: /unlock/i });
+    const boostDesc = document.getElementById(
+      boost.getAttribute("aria-describedby") ?? "",
+    );
+    const unlockDesc = document.getElementById(
+      unlock.getAttribute("aria-describedby") ?? "",
+    );
+    expect(boostDesc?.textContent).toMatch(/to set boost/);
+    expect(unlockDesc?.textContent).toMatch(/to unlock/);
+  });
+
+  it("describes the remaining lock time on a still-locked unlock button (#571)", () => {
+    useCountdownMock.mockReturnValue({
+      remainingMs: 60_000,
+      isElapsed: false,
+      label: "00h 01m 00s",
+    });
+    render(<EarningRow position={positions[0]} />);
+
+    const unlock = screen.getByRole("button", { name: /unlock/i });
+    const desc = document.getElementById(
+      unlock.getAttribute("aria-describedby") ?? "",
+    );
+    expect(desc?.textContent).toBe("Locked for another 00h 01m 00s");
+    // Boost is enabled (there is a stake, right network), so no description.
+    expect(
+      screen.getByRole("button", { name: /boost/i }).hasAttribute("aria-describedby"),
+    ).toBe(false);
+  });
 });

@@ -1,6 +1,6 @@
 # SmartDrop (frontend)
 
-This repository is the **Next.js web app** for SmartDrop, hosted under [**SmartDropLabs/smartdrop-frontend**](https://github.com/SmartDropLabs/smartdrop-frontend). Soroban contracts live in [**smartdrop-contracts**](https://github.com/SmartDropLabs/smartdrop-contracts); the API and indexing service lives in [**smartdrop-backend**](https://github.com/SmartDropLabs/smartdrop-backend).
+This repository is the **Next.js web app** for SmartDrop, hosted under [**Mainnet-ops/smartdrop-frontend**](https://github.com/Mainnet-ops/smartdrop-frontend). Soroban contracts live in [**smartdrop-contracts**](https://github.com/Mainnet-ops/smartdrop-contracts); the API and indexing service lives in [**smartdrop-backend**](https://github.com/Mainnet-ops/smartdrop-backend).
 
 **SmartDrop** is a liquidity-oriented airdrop experiment on **Stellar**: participants lock **Stellar assets** in **Soroban** farming pools and accrue **airdrop credits** over time instead of passive "click to claim" drops. The goal is to reward people who materially back a project early while discouraging purely extractive behavior.
 
@@ -10,19 +10,19 @@ This repository is the **Next.js web app** for SmartDrop, hosted under [**SmartD
 
 At a high level, SmartDrop has two layers:
 
-1. **Smart contracts (Soroban / Rust)** — developed in [**smartdrop-contracts**](https://github.com/SmartDropLabs/smartdrop-contracts)
+1. **Smart contracts (Soroban / Rust)** — developed in [**smartdrop-contracts**](https://github.com/Mainnet-ops/smartdrop-contracts)
    - A **factory** registers or deploys isolated **farming pool** instances per campaign.
    - Each pool accepts a configurable **staking asset** (classic asset + trustline and/or Soroban token contract, depending on your design). Participants **lock** balances, **earn credits** from elapsed time × amount × rate multipliers, can opt into **boost** rules, and **unlock** when policy allows.
 
 2. **Web app (this repo)**
-   A Chakra UI + Tailwind CSS front end with **Freighter** for wallet connection and Stellar network settings in `src/config/`. The **Farm** flow is wired to **Soroban RPC** (`invoke`, simulation, transaction submission); dashboard numbers reflect live contract state where a factory is configured, and fall back to clear "not available" states otherwise. Off-chain pages (**Prices**, **Airdrops**, **Webhooks**, **Alerts**) call [**smartdrop-backend**](https://github.com/SmartDropLabs/smartdrop-backend) directly over REST — see `src/lib/backend.ts` and `NEXT_PUBLIC_BACKEND_API_URL` below.
+   A Chakra UI + Tailwind CSS front end with **Freighter** for wallet connection and Stellar network settings in `src/config/`. The **Farm** flow is wired to **Soroban RPC** (`invoke`, simulation, transaction submission); dashboard numbers reflect live contract state where a factory is configured, and fall back to clear "not available" states otherwise. Off-chain pages (**Prices**, **Airdrops**, **Webhooks**, **Alerts**) call [**smartdrop-backend**](https://github.com/Mainnet-ops/smartdrop-backend) directly over REST — see `src/lib/backend.ts` and `NEXT_PUBLIC_BACKEND_API_URL` below.
 
 ### Pages
 
 | Route | Talks to | Auth |
 |---|---|---|
 | `/` | Soroban RPC | — |
-| `/farm`, `/farm/[poolId]` | Soroban RPC + Freighter | Wallet |
+| `/farm`, `/farm/[poolId]` | Soroban RPC + Freighter | Wallet (shows total credits badge when connected) |
 | `/history` | Soroban RPC (Horizon) + Freighter | Wallet |
 | `/leaderboard` | Soroban RPC | — |
 | `/contributors` | Static, GitHub API–sourced at build time | — |
@@ -81,6 +81,8 @@ This does not replace legal, compliance, or token-design work; it is a **mechani
 | `src/config/` | Stellar network, Horizon, Soroban RPC, optional factory contract id |
 | `src/data/contributors.json` | Live-synced contributor data (regenerate via the GitHub contributors API) |
 | `src/app/icon.svg` | Favicon / brand mark |
+| `public/sw.js` | Service worker: offline support and static-asset caching (see [Offline support](#offline-support)) |
+| `public/offline.html` | Fallback page served when offline and the page isn't cached |
 
 **Stack:** Next.js 15, React 19, TypeScript, Chakra UI, Tailwind CSS, **@stellar/freighter-api**, TanStack Query, Recharts. The app builds as a **static export** (`output: "export"`) so only the front end is shipped — no Node server.
 
@@ -99,25 +101,25 @@ Workflow: [`.github/workflows/deploy-github-pages.yml`](./.github/workflows/depl
 
 **One-time setup (required):**
 
-1. Open **`https://github.com/SmartDropLabs/smartdrop-frontend/settings/pages`**
+1. Open **`https://github.com/Mainnet-ops/smartdrop-frontend/settings/pages`**
 2. **Build and deployment → Source:** choose **Deploy from a branch** (not "GitHub Actions").
 3. **Branch:** `gh-pages`, folder **`/ (root)`**, then **Save**.
 4. Wait 1–2 minutes after the workflow turns green (**Actions** tab).
 
-**Link:** **`https://smartdroplabs.github.io/smartdrop-frontend/`**
+**Link:** **`https://mainnet-ops.github.io/smartdrop-frontend/`**
 
 Local preview with the same asset paths: `BASE_PATH=/smartdrop-frontend npm run build` and `npx serve out` → open **`http://localhost:3000/smartdrop-frontend/`**.
 
 ### Vercel
 
 1. Sign in at [vercel.com](https://vercel.com) and click **Add New… → Project**.
-2. **Import** `SmartDropLabs/smartdrop-frontend` (or your fork). Leave the root directory as the repo root (where `package.json` lives).
+2. **Import** `Mainnet-ops/smartdrop-frontend` (or your fork). Leave the root directory as the repo root (where `package.json` lives).
 3. Vercel should detect **Next.js**. `vercel.json` runs **`npm ci`** + **`npm run build`**; **`.npmrc`** enables `legacy-peer-deps` so Chakra + React resolve like your lockfile. The app is a **static export** (`next.config.ts`): no Node server, only HTML/JS/CSS.
 4. Under **Environment Variables**, add any optional `NEXT_PUBLIC_*` values from above (defaults work for testnet without them).
 5. In **Settings → General**, set **Node.js** to **20.x** (see `.nvmrc` / `package.json` `engines`).
 6. **Deploy.** Pushes to the connected branch trigger new deployments.
 
-**Routes:** use **`/leaderboard`**. The old **`/leaderbord`** path still loads a tiny page that redirects to `/leaderboard`.
+**Routes:** use **`/leaderboard`**. The old typo'd **`/leaderbord`** path is handled by the shared 404 page, which redirects to `/leaderboard`.
 
 **Freighter:** For wallet connect on your `*.vercel.app` URL, ensure the site is allowed in Freighter / use a network that matches your `NEXT_PUBLIC_STELLAR_NETWORK` settings.
 
@@ -147,6 +149,8 @@ NEXT_PUBLIC_STELLAR_NETWORK=TESTNET
 # NEXT_PUBLIC_POOL_CONTRACT_ID=C...            # pool that custodies locked positions
 # NEXT_PUBLIC_MIN_LOCK_PERIOD_SECONDS=604800   # min lock before unlock (default 7 days)
 # NEXT_PUBLIC_BACKEND_API_URL=http://localhost:4000/api/v1   # smartdrop-backend, for /prices /airdrops /webhooks /alerts
+# API_ALLOWED_ORIGINS=https://partner.example   # extra origins allowed to call /api/* cross-origin (server-only; same-origin always allowed, #559)
+# NEXT_PUBLIC_ENABLE_SW=false                  # disable service worker registration in production builds (#528)
 ```
 
 Then, pick one:
@@ -156,13 +160,28 @@ npm run dev          # frontend only — on-chain pages work, backend pages show
 npm run dev:stack    # frontend + smartdrop-backend + an in-memory Redis, all in one command
 ```
 
-`dev:stack` (`scripts/dev-stack.sh`) expects [`smartdrop-backend`](https://github.com/SmartDropLabs/smartdrop-backend) cloned as a sibling directory (`../smartdrop-backend`), or point it elsewhere with `SMARTDROP_BACKEND_DIR=/path npm run dev:stack`. It needs no Docker or system Redis install — the first run installs a small in-memory Redis under `~/.smartdrop-dev/` and reuses it on every subsequent run, along with a persisted admin API key (printed on startup, needed for `/alerts`). Ctrl+C stops all three processes; logs land in `~/.smartdrop-dev/logs/`.
+`dev:stack` (`scripts/dev-stack.sh`) expects [`smartdrop-backend`](https://github.com/Mainnet-ops/smartdrop-backend) cloned as a sibling directory (`../smartdrop-backend`), or point it elsewhere with `SMARTDROP_BACKEND_DIR=/path npm run dev:stack`. It needs no Docker or system Redis install — the first run installs a small in-memory Redis under `~/.smartdrop-dev/` and reuses it on every subsequent run, along with a persisted admin API key (printed on startup, needed for `/alerts`). Ctrl+C stops all three processes; logs land in `~/.smartdrop-dev/logs/`. See [`docs/dev-stack.md`](docs/dev-stack.md) for what it does, when to use it, and troubleshooting.
 
 Open [http://localhost:3000](http://localhost:3000). Production: `npm run build` / `npm start`.
 
+### Offline support
+
+The app ships a service worker (`public/sw.js`, #528) registered by `ServiceWorkerRegistrar` in `AppShell`. It is **production-only**: `npm run dev` never registers it, because a caching worker would serve stale bundles and break HMR. Set `NEXT_PUBLIC_ENABLE_SW=false` to opt out of registration in a production build.
+
+| Request | Strategy |
+|---------|----------|
+| Page navigations | Network-first; offline, serve the last cached copy of the page, else `public/offline.html` |
+| Same-origin static assets (`/_next/static/*`, images, icons, fonts) | Stale-while-revalidate |
+| `/api/*`, non-GET requests, all cross-origin requests (Horizon, Soroban RPC, backend) | Never cached — balances, positions and transactions are always live |
+
+- **Updating:** bump `CACHE_VERSION` in `public/sw.js` when changing caching behaviour; old `smartdrop-*` caches are deleted on activate. The page cache is capped at 30 entries.
+- **Freshness:** `/sw.js` is served with `Cache-Control: no-cache` (`next.config.ts`) so worker updates reach users on their next visit.
+- **GitHub Pages:** the worker is registered at `<BASE_PATH>/sw.js` with a matching scope, so it works under `/smartdrop-frontend/`.
+- **Testing locally:** `npm run build && npm start`, open DevTools → **Application → Service Workers**, then tick **Offline** under **Network** and reload. Use **Unregister** / **Clear storage** there to reset.
+
 ### Soroban contracts
 
-See the [**smartdrop-contracts**](https://github.com/SmartDropLabs/smartdrop-contracts) repository. Use the official **Stellar / Soroban** CLI and Rust toolchain to scaffold, test, and deploy; then connect the UI via RPC and Freighter-signed transactions.
+See the [**smartdrop-contracts**](https://github.com/Mainnet-ops/smartdrop-contracts) repository. Use the official **Stellar / Soroban** CLI and Rust toolchain to scaffold, test, and deploy; then connect the UI via RPC and Freighter-signed transactions.
 
 **Never commit** signing keys or sponsor secrets.
 
@@ -176,6 +195,8 @@ This codebase is **not** presented as audited production infrastructure. Pool ec
 - Start on **test networks** and conservative parameters
 - Treat privileged functions (`pause`, parameter updates, rescues) as governance-sensitive
 
+How users are authenticated (wallet signatures per action, no sessions), and the rules any future session-based auth must follow, are in [docs/auth-model.md](docs/auth-model.md).
+
 ---
 
 ## Roadmap
@@ -186,12 +207,13 @@ This codebase is **not** presented as audited production infrastructure. Pool ec
 | **Boost & donations** | Wire boosts to explicit token transfer rules in contracts. |
 | **Frontend** | Continue migrating layout/responsive styling to Tailwind. |
 | **Horizon + Soroban** | Optional account balance reads via Horizon alongside contract state. |
+| **Credits visibility** | Total credits badge on farm page header — users no longer need to navigate home to see their balance. |
 
 ---
 
 ## Contributors
 
-SmartDrop is built by the SmartDropLabs org across three repos: this frontend, [`smartdrop-backend`](https://github.com/SmartDropLabs/smartdrop-backend), and [`smartdrop-contracts`](https://github.com/SmartDropLabs/smartdrop-contracts). See **[`CONTRIBUTORS.md`](./CONTRIBUTORS.md)** or the in-app [`/contributors`](https://smartdroplabs.github.io/smartdrop-frontend/contributors) page for the full list, sourced directly from each repo's GitHub contributors API.
+SmartDrop is built by the Mainnet-ops org across three repos: this frontend, [`smartdrop-backend`](https://github.com/Mainnet-ops/smartdrop-backend), and [`smartdrop-contracts`](https://github.com/Mainnet-ops/smartdrop-contracts). See **[`CONTRIBUTORS.md`](./CONTRIBUTORS.md)** or the in-app [`/contributors`](https://mainnet-ops.github.io/smartdrop-frontend/contributors) page for the full list, sourced directly from each repo's GitHub contributors API.
 
 ---
 

@@ -11,9 +11,11 @@
  * timeout now bounds both call sites.
  */
 
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { ChakraProvider } from "@chakra-ui/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { ErrorProvider } from "@/context/ErrorContext";
 import {
   FREIGHTER_CONNECT_TIMEOUT_MS,
   StellarWalletProvider,
@@ -59,9 +61,13 @@ function Harness() {
 
 function renderHarness() {
   return render(
-    <StellarWalletProvider>
-      <Harness />
-    </StellarWalletProvider>,
+    <ChakraProvider>
+      <ErrorProvider>
+        <StellarWalletProvider>
+          <Harness />
+        </StellarWalletProvider>
+      </ErrorProvider>
+    </ChakraProvider>,
   );
 }
 
@@ -82,7 +88,9 @@ function fireVisibilityChange() {
 
 describe("StellarWalletContext visibilitychange refresh", () => {
   beforeEach(() => {
-    vi.useFakeTimers();
+    vi.useFakeTimers({
+      toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval", "Date"],
+    });
     vi.clearAllMocks();
     freighterMock.isConnected.mockResolvedValue({ isConnected: true });
     freighterMock.isAllowed.mockResolvedValue({ isAllowed: true });
@@ -93,6 +101,12 @@ describe("StellarWalletContext visibilitychange refresh", () => {
   });
 
   afterEach(() => {
+    // Explicit cleanup: with ErrorProvider now in the tree, a component left
+    // mounted from a previous test (this project has no RTL setupFiles
+    // wiring auto-cleanup) can still be listening for visibilitychange and
+    // consuming later tests' mocked responses. Unmount everything before
+    // swapping back to real timers.
+    cleanup();
     vi.useRealTimers();
   });
 
