@@ -101,3 +101,50 @@ describe("POST /api/sign-fee-bump", () => {
     expect(body.error).not.toContain("pool factory");
   });
 });
+
+describe("POST /api/sign-fee-bump request logging (#787)", () => {
+  beforeEach(() => {
+    process.env.STELLAR_FEE_SPONSOR_SECRET =
+      "SCE5D5DUEXQDIB6E3AZ6RN53JIGNVAP6JMOZQTXNMXFACLA6MU5V4QGB";
+  });
+
+  it("logs one line per request with id, status and latency", async () => {
+    const info = vi.spyOn(console, "info").mockImplementation(() => {});
+    const request = new Request("http://localhost/api/sign-fee-bump", {
+      method: "POST",
+      headers: { "x-request-id": "req-787" },
+      body: JSON.stringify({}),
+    });
+
+    const response = await POST(request);
+
+    expect(response.headers.get("x-request-id")).toBe("req-787");
+    expect(info).toHaveBeenCalledTimes(1);
+    const [, line] = info.mock.calls[0] as [string, string];
+    const entry = JSON.parse(line) as Record<string, unknown>;
+    expect(entry).toMatchObject({ route: "/api/sign-fee-bump", requestId: "req-787", status: 400 });
+    expect(typeof entry.durationMs).toBe("number");
+    info.mockRestore();
+  });
+
+  it("logs server errors at error level without the body or the sponsor secret", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    await POST(makeRequest({ innerTxXdr: "AAAA" }));
+
+    const requestLine = error.mock.calls.find(([tag]) => tag === "[SignFeeBump] request");
+    expect(requestLine).toBeDefined();
+    const line = String(requestLine?.[1]);
+    expect(JSON.parse(line)).toMatchObject({ status: 500 });
+    expect(line).not.toContain("AAAA");
+    expect(line).not.toContain(process.env.STELLAR_FEE_SPONSOR_SECRET as string);
+    error.mockRestore();
+  });
+
+  it("generates a request id when the caller sends none", async () => {
+    vi.spyOn(console, "info").mockImplementation(() => {});
+    const response = await POST(makeRequest({}));
+
+    expect(response.headers.get("x-request-id")).toMatch(/^[0-9a-f-]{36}$/);
+    vi.restoreAllMocks();
+  });
+});

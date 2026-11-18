@@ -45,6 +45,9 @@ function renderBannerHarness() {
 
 describe("NetworkMismatchBanner", () => {
   beforeEach(() => {
+    // connect() now remembers the wallet for auto-reconnect (#789); start
+    // each test with no remembered wallet so mounts stay disconnected.
+    window.localStorage.clear();
     vi.clearAllMocks();
     freighterMock.isConnected.mockResolvedValue({ isConnected: true });
     freighterMock.isAllowed.mockResolvedValue({ isAllowed: true });

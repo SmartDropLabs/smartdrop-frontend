@@ -103,6 +103,38 @@ async function withFreighterConnectTimeout<T>(
 /** How often to re-read Freighter's network while it is mismatched (#512). */
 export const NETWORK_MISMATCH_POLL_MS = 3_000;
 
+/**
+ * Remembers that this browser connected a wallet, so the next page load can
+ * reconnect silently (#789). Holds no key material — only a flag. Set on a
+ * successful connect(), cleared by an explicit disconnect() or when Freighter
+ * reports site access was revoked.
+ */
+export const WALLET_AUTOCONNECT_STORAGE_KEY = "smartdrop:wallet:autoconnect";
+
+function rememberWallet() {
+  try {
+    window.localStorage.setItem(WALLET_AUTOCONNECT_STORAGE_KEY, "1");
+  } catch {
+    // Storage blocked: the user just reconnects manually next visit.
+  }
+}
+
+function forgetWallet() {
+  try {
+    window.localStorage.removeItem(WALLET_AUTOCONNECT_STORAGE_KEY);
+  } catch {
+    // ignore
+  }
+}
+
+function isWalletRemembered() {
+  try {
+    return window.localStorage.getItem(WALLET_AUTOCONNECT_STORAGE_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
 export function StellarWalletProvider({ children }: { children: ReactNode }) {
   const [publicKey, setPublicKey] = useState<string | null>(null);
   const [walletApi, setWalletApi] = useState<FreighterWalletApi | null>(null);
@@ -180,6 +212,7 @@ export function StellarWalletProvider({ children }: { children: ReactNode }) {
         await refreshNetworkDetails(freighter, deadlineMs);
         setPublicKey(access.address);
         setWalletApi(signingApi);
+        rememberWallet();
         return;
       }
 
@@ -213,10 +246,12 @@ export function StellarWalletProvider({ children }: { children: ReactNode }) {
         await refreshNetworkDetails(freighter, deadlineMs);
         setPublicKey(access.address);
         setWalletApi(signingApi);
+        rememberWallet();
       } else {
         await refreshNetworkDetails(freighter, deadlineMs);
         setPublicKey(addr.address);
         setWalletApi(signingApi);
+        rememberWallet();
       }
     } catch (error) {
       // Re-throw FreighterErrors as-is
@@ -231,11 +266,18 @@ export function StellarWalletProvider({ children }: { children: ReactNode }) {
     }
   }, [refreshNetworkDetails]);
 
-  const disconnect = useCallback(() => {
+  const clearWalletState = useCallback(() => {
     setPublicKey(null);
     setWalletApi(null);
     setNetworkName(null);
   }, []);
+
+  // An explicit disconnect also forgets the wallet, so the next visit does
+  // not silently reconnect an account the user chose to disconnect (#789).
+  const disconnect = useCallback(() => {
+    forgetWallet();
+    clearWalletState();
+  }, [clearWalletState]);
 
   // Issue #226: disconnect() itself stays silent — it's also called for an
   // explicit, user-initiated "Disconnect" click, which needs no toast. Use
@@ -244,13 +286,69 @@ export function StellarWalletProvider({ children }: { children: ReactNode }) {
   // access revoked, network unreachable), so they aren't left interacting
   // with a UI that silently stopped being connected.
   const { warning: toastWarning } = toast;
+  // Keeps the remembered flag: a locked extension or a dropped connection is
+  // not the user choosing to disconnect, so the next load may still restore
+  // the session if Freighter allows it.
   const disconnectUnexpectedly = useCallback(() => {
-    disconnect();
+    clearWalletState();
     toastWarning(
       "Wallet disconnected",
       "Freighter is no longer connected. Reconnect to continue.",
     );
-  }, [disconnect, toastWarning]);
+  }, [clearWalletState, toastWarning]);
+
+  // Auto-reconnect on page load (#789). Only for a browser that connected
+  // before, and only through Freighter's non-prompting calls (isConnected,
+  // isAllowed, getAddress) — this never opens a Freighter popup. If the site
+  // no longer has access, the remembered flag is dropped; any other failure
+  // is silent and the user can still connect manually.
+  useEffect(() => {
+    if (!isWalletRemembered()) return undefined;
+
+    let cancelled = false;
+    void (async () => {
+      try {
+        const freighter = await import("@stellar/freighter-api");
+        const deadlineMs = Date.now() + FREIGHTER_CONNECT_TIMEOUT_MS;
+        const connected = await withFreighterConnectTimeout(
+          freighter.isConnected(),
+          deadlineMs,
+        );
+        if (cancelled || !connected.isConnected || connected.error) return;
+
+        const allowed = await withFreighterConnectTimeout(
+          freighter.isAllowed(),
+          deadlineMs,
+        );
+        if (cancelled) return;
+        if (!allowed.isAllowed || allowed.error) {
+          forgetWallet();
+          return;
+        }
+
+        const addr = await withFreighterConnectTimeout(
+          freighter.getAddress(),
+          deadlineMs,
+        );
+        if (cancelled || addr.error || !addr.address) return;
+
+        await refreshNetworkDetails(freighter, deadlineMs).catch(() => {});
+        if (cancelled) return;
+        const address = addr.address;
+        // A manual connect() that finished first wins.
+        setPublicKey((current) => current ?? address);
+        setWalletApi(
+          (current) => current ?? (freighter as unknown as FreighterWalletApi),
+        );
+      } catch {
+        // Silent: auto-reconnect is best-effort.
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [refreshNetworkDetails]);
 
   // Periodic health check for Freighter extension (#222)
   useEffect(() => {

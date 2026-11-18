@@ -1,5 +1,6 @@
 "use client";
 
+import Breadcrumbs from "@/components/Breadcrumbs/Breadcrumbs";
 import ConnectWalletButton from "@/components/ConnectWalletButton/ConnectWalletButton";
 import Footer from "@/components/Footer/Footer";
 import Navbar from "@/components/Navbar/Navbar";
@@ -7,6 +8,7 @@ import NetworkMismatchBanner from "@/components/NetworkMismatchBanner/NetworkMis
 import OfflineBanner from "@/components/OfflineBanner/OfflineBanner";
 import RefetchIndicator from "@/components/RefetchIndicator/RefetchIndicator";
 import RpcUnreachableBanner from "@/components/RpcUnreachableBanner/RpcUnreachableBanner";
+import ServiceWorkerRegistrar from "@/components/ServiceWorkerRegistrar/ServiceWorkerRegistrar";
 import SkipLink, { MAIN_CONTENT_ID } from "@/components/SkipLink/SkipLink";
 import ContextProvider from "@/context";
 import {
@@ -16,6 +18,7 @@ import {
 import { useStellarWallet } from "@/context/StellarWalletContext";
 import { Box } from "@chakra-ui/react";
 import { usePathname } from "next/navigation";
+import { buildRouteBreadcrumbs } from "./routeBreadcrumbs";
 
 // Routes where the page itself always renders an inline Connect Wallet button
 // in the disconnected state — no dynamic condition, just pathname matching.
@@ -34,6 +37,10 @@ function LayoutWrapper({ children }: { children: React.ReactNode }) {
   const hasStaticCTA = STATIC_OWN_CONNECT_ROUTES.includes(pathname ?? "");
 
   const hasOwnConnectButton = hasContextCTA || hasStaticCTA;
+
+  // Breadcrumb trail for nested routes (#786); null for top-level pages and
+  // for routes that render their own trail.
+  const breadcrumbs = buildRouteBreadcrumbs(pathname);
 
   return (
     <Box
@@ -64,6 +71,11 @@ function LayoutWrapper({ children }: { children: React.ReactNode }) {
         flex={1}
         _focus={{ outline: "none" }}
       >
+        {breadcrumbs && (
+          <Box px={{ base: 4, md: 8 }} pt={4}>
+            <Breadcrumbs items={breadcrumbs} />
+          </Box>
+        )}
         {children}
       </Box>
       <Footer />

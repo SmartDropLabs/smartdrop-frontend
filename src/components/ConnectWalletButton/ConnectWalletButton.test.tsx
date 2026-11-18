@@ -45,6 +45,9 @@ function renderConnectButton() {
 
 describe("ConnectWalletButton", () => {
   beforeEach(() => {
+    // connect() now remembers the wallet for auto-reconnect (#789); start
+    // each test with no remembered wallet so mounts stay disconnected.
+    window.localStorage.clear();
     vi.useFakeTimers();
     vi.clearAllMocks();
     vi.mocked(useErrorHandler).mockReturnValue(errorHandlerMock);
