@@ -76,3 +76,79 @@ body {
   top: 0;
   left: 0;
 }
+
+/* Print styles (#781). Printed pages get black-on-white content only: site
+   chrome (nav, footer, skip link, banners, toasts), decorative backgrounds and
+   shadows are dropped, and link targets are spelled out so a printed page
+   still says where each link goes. */
+@media print {
+  :root {
+    --navbar-height: 0px;
+  }
+
+  html,
+  body,
+  .chakra-ui-light body,
+  .chakra-ui-dark body {
+    background: #ffffff !important;
+    background-image: none !important;
+    color: #000000 !important;
+  }
+
+  nav,
+  footer,
+  .skip-link,
+  [role="alert"],
+  [role="status"],
+  .chakra-toast,
+  .chakra-portal,
+  button {
+    display: none !important;
+  }
+
+  main {
+    margin: 0 !important;
+    padding: 0 !important;
+    max-width: none !important;
+  }
+
+  *,
+  *::before,
+  *::after {
+    box-shadow: none !important;
+    text-shadow: none !important;
+    animation: none !important;
+    transition: none !important;
+  }
+
+  /* Gradient "clip-text" headings render transparent on paper. */
+  [style*="background-clip"],
+  .chakra-text {
+    -webkit-text-fill-color: currentColor !important;
+    background: none !important;
+  }
+
+  a[href^="http"]::after {
+    content: " (" attr(href) ")";
+    font-size: 0.85em;
+    word-break: break-all;
+  }
+
+  table,
+  img,
+  svg,
+  pre,
+  blockquote {
+    break-inside: avoid;
+  }
+
+  h1,
+  h2,
+  h3 {
+    break-after: avoid;
+  }
+}
+
+@page {
+  margin: 1.5cm;
+}

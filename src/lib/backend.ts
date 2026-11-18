@@ -183,6 +183,28 @@ export function testWebhook(id: string): Promise<{ delivery: { id: string; statu
   return request(`/webhooks/${encodeURIComponent(id)}/test`, { method: "POST" });
 }
 
+/** One delivery attempt record, as returned by `GET /webhooks/:id/deliveries` (#778). */
+export type WebhookDelivery = {
+  id: string;
+  webhook_id: string;
+  event_id: string | null;
+  event_type: string;
+  status: string;
+  attempts: number;
+  last_error: string | null;
+  last_attempt_at: string | null;
+  next_retry_at: string | null;
+  response_status: number | null;
+  created_at: string;
+};
+
+export function listWebhookDeliveries(
+  id: string,
+  limit = 20,
+): Promise<{ deliveries: WebhookDelivery[] }> {
+  return request(`/webhooks/${encodeURIComponent(id)}/deliveries?limit=${limit}`);
+}
+
 // ---------- Alerts (require an API key) ----------
 
 export type Alert = {
