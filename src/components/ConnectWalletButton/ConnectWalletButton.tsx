@@ -24,9 +24,19 @@ export default function ConnectWalletButton({
   const [isConnecting, setIsConnecting] = useState(false);
   const [copied, setCopied] = useState(false);
 
+  const CONNECT_TIMEOUT_MS = 30_000;
+
   const handleConnect = async () => {
     setIsConnecting(true);
     try {
+      const timeout = new Promise<never>((_, reject) =>
+        setTimeout(
+          () => reject(new Error("Connection timed out. Please try again.")),
+          CONNECT_TIMEOUT_MS,
+        ),
+      );
+      await Promise.race([connect(), timeout]);
+      toast.success("Wallet Connected", "Your wallet has been connected successfully");
       await connect();
       toast.success("Wallet connected", "Freighter is now linked to SmartDrop");
     } catch (error) {
