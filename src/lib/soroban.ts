@@ -27,6 +27,7 @@ import {
 import { ConfigError, FeeBumpError, FreighterError, SecurityError } from './error-handler';
 import { fetchAccountBalances, fetchHorizonAccount } from './stellar';
 import { readJsonWithLimit } from './safe-fetch';
+import { getRpcServer } from './rpc-pool';
 import {
   bigintToDisplayAmount,
   parsePoolsFromNative,
@@ -66,7 +67,7 @@ export interface LeaderboardPage {
 }
 
 // Initialize Soroban RPC Server
-export const rpcServer = new rpc.Server(sorobanRpcUrl);
+export const rpcServer = getRpcServer(sorobanRpcUrl);
 
 export interface BoostConfig {
   multiplier: number;
