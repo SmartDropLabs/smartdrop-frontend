@@ -43,6 +43,7 @@ export function QueryErrorAlert({
           onClick={onRetry}
           isLoading={isRetrying}
           loadingText="Retrying"
+          aria-label="Retry failed request"
         >
           Retry
         </Button>
