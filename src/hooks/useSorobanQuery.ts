@@ -41,7 +41,7 @@ export const usePools = () => {
     staleTime: STALE_TIME.POOLS,
     gcTime: 5 * 60 * 1000, // 5 minutes
     refetchInterval: 60000, // 1 minute
-    retry: 3,
+    retry: shouldRetry,
     retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 30000),
   });
 };
@@ -60,7 +60,7 @@ export const usePoolDepositors = (poolId: string, limit: number = 20) => {
     staleTime: STALE_TIME.POOLS,
     gcTime: 5 * 60 * 1000,
     refetchInterval: 60000,
-    retry: 2,
+    retry: shouldRetry,
   });
 };
 
@@ -77,7 +77,7 @@ export const useUserPosition = (poolId: string, enabled: boolean = true) => {
     staleTime: STALE_TIME.USER_DATA,
     gcTime: 5 * 60 * 1000,
     refetchInterval: 30000, // 30 seconds
-    retry: 2,
+    retry: shouldRetry,
   });
 };
 
@@ -94,7 +94,7 @@ export const useUserCredits = (poolId: string, enabled: boolean = true) => {
     staleTime: STALE_TIME.USER_DATA,
     gcTime: 5 * 60 * 1000,
     refetchInterval: 10000, // 10 seconds
-    retry: 2,
+    retry: shouldRetry,
   });
 };
 
