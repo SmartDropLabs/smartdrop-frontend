@@ -14,6 +14,7 @@ exports[`<PlatformStats /> Layout Component > matches baseline style design snap
         <dl>
           <dt
             class="chakra-stat__label css-ig4s8n"
+            tabindex="0"
           >
             Total Value Locked
           </dt>
@@ -38,6 +39,7 @@ exports[`<PlatformStats /> Layout Component > matches baseline style design snap
         <dl>
           <dt
             class="chakra-stat__label css-ig4s8n"
+            tabindex="0"
           >
             Active Pools
           </dt>
@@ -62,6 +64,7 @@ exports[`<PlatformStats /> Layout Component > matches baseline style design snap
         <dl>
           <dt
             class="chakra-stat__label css-ig4s8n"
+            tabindex="0"
           >
             Total Farmers
           </dt>
@@ -86,6 +89,7 @@ exports[`<PlatformStats /> Layout Component > matches baseline style design snap
         <dl>
           <dt
             class="chakra-stat__label css-ig4s8n"
+            tabindex="0"
           >
             24h Credit Velocity
           </dt>
