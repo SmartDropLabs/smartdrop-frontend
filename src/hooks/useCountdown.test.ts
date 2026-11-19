@@ -100,6 +100,30 @@ describe("useCountdown", () => {
     expect(result.current.remainingMs).toBeLessThanOrEqual(frozen - 10_000 + 50);
   });
 
+  it("Test 8 — invokes onComplete callback once when countdown reaches zero (#794)", () => {
+    const onComplete = vi.fn();
+    const unlockAtMs = Date.now() + 3_000;
+
+    const { result } = renderHook(() => useCountdown(unlockAtMs, { onComplete }));
+    expect(onComplete).not.toHaveBeenCalled();
+
+    act(() => {
+      vi.advanceTimersByTime(2_000);
+    });
+    expect(onComplete).not.toHaveBeenCalled();
+
+    act(() => {
+      vi.advanceTimersByTime(1_000);
+    });
+    expect(result.current.isElapsed).toBe(true);
+    expect(onComplete).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      vi.advanceTimersByTime(5_000);
+    });
+    expect(onComplete).toHaveBeenCalledTimes(1);
+  });
+
   it("Test 7 — togglePause flips between paused and running", () => {
     const { result } = renderHook(() => useCountdown(Date.now() + 5_000));
 
