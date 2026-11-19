@@ -1,6 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+
+export interface UseCountdownOptions {
+  /** Callback fired once when the countdown transitions from active (> 0) to elapsed (0). */
+  onComplete?: () => void;
+  /** Alias for `onComplete`. */
+  onCompletion?: () => void;
+}
 
 export type Countdown = {
   /** Milliseconds remaining until the target time (0 once elapsed). */
@@ -46,9 +53,21 @@ function formatRemaining(ms: number): string {
  * the real clock back up (#763). The target is an absolute time, so pausing
  * only holds the display — the unlock moment itself does not move.
  */
-export function useCountdown(unlockAtMs: number): Countdown {
+export function useCountdown(
+  unlockAtMs: number,
+  optionsOrCallback?: UseCountdownOptions | (() => void),
+): Countdown {
   const [now, setNow] = useState(() => Date.now());
   const [isPaused, setIsPaused] = useState(false);
+
+  const callback =
+    typeof optionsOrCallback === "function"
+      ? optionsOrCallback
+      : optionsOrCallback?.onComplete ?? optionsOrCallback?.onCompletion;
+  const callbackRef = useRef(callback);
+  callbackRef.current = callback;
+
+  const notifiedForTargetRef = useRef<number | null>(null);
 
   useEffect(() => {
     if (isPaused) return;
@@ -57,12 +76,21 @@ export function useCountdown(unlockAtMs: number): Countdown {
     setNow(current);
     if (current >= unlockAtMs) return;
 
+    notifiedForTargetRef.current = null;
     let handle: ReturnType<typeof setTimeout>;
+
+    function notifyOnce() {
+      if (notifiedForTargetRef.current !== unlockAtMs) {
+        notifiedForTargetRef.current = unlockAtMs;
+        callbackRef.current?.();
+      }
+    }
 
     function schedule() {
       const remaining = unlockAtMs - Date.now();
       if (remaining <= 0) {
         setNow(Date.now());
+        notifyOnce();
         return;
       }
       // Fire at the next whole-second boundary so the display ticks cleanly,
