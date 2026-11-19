@@ -3,7 +3,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { renderHook, act } from "@/test/renderHook";
-import { useLockFlow } from "./useLockFlow";
+import { useLockFlow, LOCK_PERIOD_PRESETS } from "./useLockFlow";
 
 vi.mock("@/lib/soroban", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/soroban")>();
@@ -205,5 +205,36 @@ describe("useLockFlow optimistic position update (#762)", () => {
     });
 
     expect(testQueryClient.getQueryData(positionKey)).toMatchObject({ amount: "125" });
+  });
+});
+
+describe("useLockFlow lock period presets (#793)", () => {
+  const stableWalletApi = {} as never;
+
+  it("exposes standard lock period presets (30d, 90d, 180d, 365d) and updates selection", () => {
+    const { result } = renderHook(
+      () =>
+        useLockFlow({
+          poolId: "pool-1",
+          symbol: "XLM",
+          publicKey: "GABC",
+          walletApi: stableWalletApi,
+        }),
+      { wrapper },
+    );
+
+    expect(result.current.presets).toEqual(LOCK_PERIOD_PRESETS);
+    expect(result.current.presets.map((p) => p.days)).toEqual([30, 90, 180, 365]);
+    expect(result.current.lockPeriodDays).toBe(30);
+
+    act(() => {
+      result.current.selectPreset(180);
+    });
+    expect(result.current.lockPeriodDays).toBe(180);
+
+    act(() => {
+      result.current.reset();
+    });
+    expect(result.current.lockPeriodDays).toBe(30);
   });
 });
