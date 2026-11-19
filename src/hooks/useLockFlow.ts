@@ -21,6 +21,19 @@ import {
 } from "@/types/farm";
 import { QUERY_KEYS } from "@/hooks/useSorobanQuery";
 
+export interface LockPeriodPreset {
+  label: string;
+  days: 30 | 90 | 180 | 365;
+  durationSeconds: number;
+}
+
+export const LOCK_PERIOD_PRESETS: readonly LockPeriodPreset[] = [
+  { label: "30 Days", days: 30, durationSeconds: 30 * 86400 },
+  { label: "90 Days", days: 90, durationSeconds: 90 * 86400 },
+  { label: "180 Days", days: 180, durationSeconds: 180 * 86400 },
+  { label: "365 Days", days: 365, durationSeconds: 365 * 86400 },
+] as const;
+
 export interface LockFlowParams {
   poolId: string;
   symbol: string;
@@ -33,6 +46,9 @@ export interface LockFlowState {
   record: DepositRecord | null;
   error: string | null;
   isPending: boolean;
+  lockPeriodDays: number;
+  presets: readonly LockPeriodPreset[];
+  selectPreset: (days: number) => void;
   execute: (displayAmount: number) => Promise<void>;
   reset: () => void;
 }
@@ -47,6 +63,13 @@ export function useLockFlow({
   const [step, setStep] = useState<DepositStep>("idle");
   const [record, setRecord] = useState<DepositRecord | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [lockPeriodDays, setLockPeriodDays] = useState<number>(LOCK_PERIOD_PRESETS[0].days);
+
+  const selectPreset = useCallback((days: number) => {
+    if (Number.isFinite(days) && days > 0) {
+      setLockPeriodDays(days);
+    }
+  }, []);
   
   // Use refs to avoid recreating execute callback when step or walletApi change during execution
   const walletApiRef = useRef(walletApi);
@@ -65,6 +88,7 @@ export function useLockFlow({
     setStep("idle");
     setRecord(null);
     setError(null);
+    setLockPeriodDays(LOCK_PERIOD_PRESETS[0].days);
   }, []);
 
   const execute = useCallback(
@@ -177,6 +201,9 @@ export function useLockFlow({
     record,
     error,
     isPending: isDepositPending(step),
+    lockPeriodDays,
+    presets: LOCK_PERIOD_PRESETS,
+    selectPreset,
     execute,
     reset,
   };
